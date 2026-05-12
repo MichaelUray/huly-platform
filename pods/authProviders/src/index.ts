@@ -45,7 +45,19 @@ export function registerProviders (
   }
 
   app.keys = [serverSecret]
-  app.use(session({}, app))
+  // koa-session defaults the cookie domain to the request host, which
+  // breaks OIDC flows that start on one subdomain (dev.huly.uray.io) and
+  // get the callback on another (huly.uray.io) — the session cookie set
+  // on dev isn't sent back to prod, so the Passport state lookup fails
+  // with "did not find expected authorization request details in session".
+  // Setting SESSION_COOKIE_DOMAIN=.uray.io makes the cookie span both
+  // hosts so the flow completes. Empty / unset preserves prior behaviour.
+  const sessionCookieDomain = process.env.SESSION_COOKIE_DOMAIN
+  const sessionOpts: Parameters<typeof session>[0] = {}
+  if (sessionCookieDomain !== undefined && sessionCookieDomain.length > 0) {
+    sessionOpts.domain = sessionCookieDomain
+  }
+  app.use(session(sessionOpts, app))
   app.use(passport.initialize())
   app.use(passport.session())
 
