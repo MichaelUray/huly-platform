@@ -380,15 +380,15 @@ export class ModelDb extends MemDb {
     if (orphans.length > 0) {
       const byClass: Record<string, number> = {}
       for (const o of orphans) byClass[o._class] = (byClass[o._class] ?? 0) + 1
+      // Single coalesced info line per addTxes call. The previous per-TX
+      // `ctx.warn` produced one console line per orphan on every page
+      // load. MeasureContext has no `debug` channel, so a deeper dump for
+      // diagnostics isn't available here — operators who need the per-TX
+      // list can re-enable it via a local patch.
       ctx.info('skipped model transactions for orphan documents', {
         total: orphans.length,
         byClass
       })
-      // Detailed per-orphan dump only at debug level so the console isn't
-      // flooded on every page load.
-      for (const o of orphans) {
-        ctx.debug('orphan model tx', o)
-      }
     }
   }
 
