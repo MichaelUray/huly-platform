@@ -19,14 +19,6 @@
   <div class="gantt-extra-actions">
     <button
       type="button"
-      class="action-btn icon-btn"
-      use:tooltip={{ label: tracker.string.GanttFullscreen }}
-      on:click={api.toggleFullscreen}
-    >
-      <Icon icon={Expand} size="small" />
-    </button>
-    <button
-      type="button"
       class="action-btn text-btn"
       use:tooltip={{ label: tracker.string.GanttExportPng }}
       on:click={api.exportToPng}
@@ -40,6 +32,14 @@
       on:click={api.exportToPdf}
     >
       PDF
+    </button>
+    <button
+      type="button"
+      class="action-btn icon-btn"
+      use:tooltip={{ label: tracker.string.GanttFullscreen }}
+      on:click={api.toggleFullscreen}
+    >
+      <Icon icon={Expand} size="small" />
     </button>
   </div>
 {/if}

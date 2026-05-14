@@ -1431,16 +1431,38 @@
   }
 
   // Phase 2.3b — fullscreen toggle. Uses the standard browser
-  // Fullscreen API. Most browsers require this to be called from
-  // a user gesture handler — which is exactly where the toolbar
-  // button click puts us.
+  // Fullscreen API. Walk up the DOM from gantt-root to find an
+  // ancestor that includes the second header row (the row with
+  // Filter + Date-Nav + Zoom + PNG/PDF/Fullscreen + ModeSelector)
+  // so that the toolbar stays accessible in fullscreen. If we
+  // fullscreened only gantt-root the user would lose access to
+  // Today/Day/Week/Month/Quarter without exiting fullscreen.
+  //
+  // Strategy: find the nearest popupPanel-body, .app-content, or
+  // body element that wraps both the SpaceHeader and GanttView.
+  // Fallback to body if nothing matches.
+  function getFullscreenTarget (): Element | null {
+    if (containerEl == null) return null
+    let el: Element | null = containerEl
+    while (el != null && el !== document.body) {
+      const cls = el.className?.toString() ?? ''
+      if (cls.includes('popupPanel-body') || cls.includes('app-content') ||
+          cls.includes('antiPanel-application')) {
+        return el
+      }
+      el = el.parentElement
+    }
+    return document.body
+  }
+
   function toggleFullscreen (): void {
-    if (containerEl == null) return
     if (document.fullscreenElement != null) {
       void document.exitFullscreen().catch(() => {})
-    } else {
-      void containerEl.requestFullscreen().catch(() => {})
+      return
     }
+    const target = getFullscreenTarget()
+    if (target == null) return
+    void (target as HTMLElement).requestFullscreen().catch(() => {})
   }
 
   onMount(() => {
