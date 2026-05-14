@@ -594,7 +594,22 @@ const pluginState = plugin(trackerId, {
     NewProject: '' as IntlString,
     UnsetParentIssue: '' as IntlString,
     ForbidCreateProjectPermission: '' as IntlString,
-    ForbidCreateProjectPermissionDescription: '' as IntlString
+    ForbidCreateProjectPermissionDescription: '' as IntlString,
+    // Phase 1 — Visual Polish
+    Deadline: '' as IntlString,
+    BarLabelNone: '' as IntlString,
+    BarLabelTitle: '' as IntlString,
+    BarLabelIdentifier: '' as IntlString,
+    BarLabelAssignee: '' as IntlString,
+    BarLabelPriority: '' as IntlString,
+    BarLabelStatus: '' as IntlString,
+    BarLabelEstimation: '' as IntlString,
+    BarLabelProgress: '' as IntlString,
+    GanttBarLabelLeft: '' as IntlString,
+    GanttBarLabelInside: '' as IntlString,
+    GanttBarLabelRight: '' as IntlString,
+    GanttQuickInfoOnClick: '' as IntlString,
+    QuickInfoOpenFullEditor: '' as IntlString
   },
   extensions: {
     IssueListHeader: '' as ComponentExtensionId,
