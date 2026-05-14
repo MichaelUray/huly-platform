@@ -1349,7 +1349,17 @@
     // Only fire on bare key (no Ctrl/Cmd/Alt) so we don't hijack browser
     // shortcuts like Ctrl+D = bookmark. Use setZoom() so the horizontal
     // scroll + viewport sync match the toolbar buttons exactly.
-    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    //
+    // Skip when an editable element (input/textarea/select/contentEditable)
+    // inside the Gantt root has focus — typing into an inline rename or
+    // filter field should not zoom-switch the canvas.
+    const target = e.target as Element | null
+    const isEditable =
+      target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target instanceof HTMLSelectElement ||
+      (target instanceof HTMLElement && target.isContentEditable)
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && !isEditable) {
       if (e.key === 'd' || e.key === 'D') { setZoom('day');     e.preventDefault(); return }
       if (e.key === 'w' || e.key === 'W') { setZoom('week');    e.preventDefault(); return }
       if (e.key === 'm' || e.key === 'M') { setZoom('month');   e.preventDefault(); return }
