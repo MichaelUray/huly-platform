@@ -24,14 +24,11 @@
 
   const client = getClient()
 
-  type IssueWithDeadline = Issue & { deadline?: number | null }
-
-  $: deadlineValue = (value as IssueWithDeadline).deadline ?? null
+  $: deadlineValue = value.deadline ?? null
 
   const handleDeadlineChanged = async (newDeadline: number | undefined | null): Promise<void> => {
     if (newDeadline === undefined) return
-    const current = (value as IssueWithDeadline).deadline
-    if (current === newDeadline) return
+    if (value.deadline === newDeadline) return
 
     await client.updateCollection(
       value._class,
@@ -40,7 +37,7 @@
       value.attachedTo,
       value.attachedToClass,
       value.collection,
-      { deadline: newDeadline } as Partial<Issue>
+      { deadline: newDeadline }
     )
   }
 </script>

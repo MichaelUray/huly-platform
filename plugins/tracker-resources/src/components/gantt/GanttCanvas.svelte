@@ -167,7 +167,7 @@
   }
 
   function getDeadline (issue: Issue): number | null {
-    return (issue as Issue & { deadline?: number | null }).deadline ?? null
+    return issue.deadline ?? null
   }
 
   function summaryFor (row: LayoutRow): SummaryRange | null {
