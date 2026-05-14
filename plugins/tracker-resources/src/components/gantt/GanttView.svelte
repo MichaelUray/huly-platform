@@ -11,6 +11,7 @@
   import type { CriticalPathResult } from './lib/types'
   import { exportAndDownload } from './lib/exporter'
   import GanttHelpPopup from './GanttHelpPopup.svelte'
+  import GanttQuickInfoPopup from './GanttQuickInfoPopup.svelte'
   import type { PrimaryEdit, SimulateResult, CascadeShift } from './lib/types'
   import ConfirmCascadePopup from './ConfirmCascadePopup.svelte'
   import DependencyEditor from '../DependencyEditor.svelte'
@@ -497,6 +498,26 @@
     const id = String(e.detail.target.doc._id)
     selectedIssueId = id
     focusedIssueId = id
+    // Phase 1.E — opt-in Quick-Info popup on single-click. Default false =
+    // no popup (selection only — full editor still opens on double-click,
+    // handled in GanttCanvas.svelte's <g class="bar-wrap">).
+    if (quickInfoOnClick && e.detail.target.kind === 'issue') {
+      const issue = e.detail.target.doc
+      showPopup(
+        GanttQuickInfoPopup,
+        { issue },
+        'top',
+        (result?: 'openFull') => {
+          if (result !== 'openFull') return
+          showPanel(
+            tracker.component.EditIssue,
+            issue._id as Ref<Doc>,
+            issue._class as Ref<Class<Doc>>,
+            'content'
+          )
+        }
+      )
+    }
   }
 
   function handleConnectorDown (e: CustomEvent<{ source: Issue, originPx: { x: number, y: number } }>): void {
