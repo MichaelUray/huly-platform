@@ -10,6 +10,7 @@
   import type { DragState, DragTarget } from './lib/types'
   import GanttConnectorDot from './GanttConnectorDot.svelte'
   import { activeDragTargetId } from './lib/drag-state'
+  import { resolveBarLabel, type BarLabelSlot } from './lib/bar-labels'
 
   // Bar is rendered for both Issues and synthetic milestone summaries; the
   // structural subset below is all the bar geometry needs.
@@ -39,6 +40,13 @@
   export let isViolated: boolean = false
   export let slackMs: number = 0
   export let showSlackGlyph: boolean = false
+
+  // Phase 1.A — configurable bar-label slots driven by ViewOptions.
+  // Each slot resolves via resolveBarLabel(); 'none' skips render.
+  // Defaults preserve legacy "title inside the bar" behaviour.
+  export let barLabelLeft: BarLabelSlot = 'none'
+  export let barLabelInside: BarLabelSlot = 'title'
+  export let barLabelRight: BarLabelSlot = 'none'
 
   const DAY_MS_FOR_SLACK = 86_400_000
   $: slackPx = showSlackGlyph && slackMs > 0
@@ -169,7 +177,22 @@
   // Heuristic: ~7.5px per character at 13px font — leave breathing room.
   const CHAR_PX = 7.5
   $: maxChars = Math.floor((w - 12) / CHAR_PX)
-  $: barLabel = maxChars >= 4
+  // For Issues we pass the full doc; for synthetic milestone/summary rows
+  // GanttBar gets a bare {title, startDate, dueDate} via the `issue` prop,
+  // so we have to skip label resolution and fall back to title-only.
+  $: hasFullIssue = dragTarget !== undefined && dragTarget.kind === 'issue'
+  $: leftLabel = hasFullIssue ? resolveBarLabel((dragTarget as any)!.doc as Issue, barLabelLeft) : ''
+  $: insideLabelRaw = hasFullIssue ? resolveBarLabel((dragTarget as any)!.doc as Issue, barLabelInside) : ''
+  $: insideLabel = (() => {
+    if (insideLabelRaw === '') return ''
+    if (maxChars < 4) return ''
+    if (insideLabelRaw.length > maxChars) return insideLabelRaw.slice(0, Math.max(1, maxChars - 1)) + '…'
+    return insideLabelRaw
+  })()
+  $: rightLabel = hasFullIssue ? resolveBarLabel((dragTarget as any)!.doc as Issue, barLabelRight) : ''
+  // Summary (milestone/parent) bars keep the old title-truncation behaviour
+  // since we don't have a full Issue doc to resolve labels from.
+  $: summaryLabel = maxChars >= 4
     ? (issue.title.length > maxChars ? issue.title.slice(0, Math.max(1, maxChars - 1)) + '…' : issue.title)
     : ''
 </script>
@@ -239,13 +262,13 @@
       fill="var(--theme-content-color)"
       pointer-events="none"
     />
-    {#if barLabel !== ''}
+    {#if summaryLabel !== ''}
       <text
         x={x + 10}
         y={barY + barH / 2 - 4}
         class="bar-label summary-label"
         fill="var(--theme-content-color)"
-      >{barLabel}</text>
+      >{summaryLabel}</text>
     {/if}
     <title>{tooltipText}</title>
   {:else}
@@ -342,13 +365,36 @@
          dep-layer and therefore occluded by the arrow's 12 px invisible
          click target. The overlay is the single source of truth. -->
 
-    {#if barLabel !== ''}
+    {#if leftLabel !== ''}
+      <text
+        x={x - 6}
+        y={barY + barH / 2}
+        class="bar-label-left"
+        text-anchor="end"
+        dominant-baseline="middle"
+        fill="var(--theme-content-trans-color)"
+        pointer-events="none"
+      >{leftLabel}</text>
+    {/if}
+    {#if insideLabel !== ''}
       <text
         x={x + 6}
         y={barY + barH / 2 + 4}
-        class="bar-label"
+        class="bar-label-inside"
         fill={barColors.text}
-      >{barLabel}</text>
+        pointer-events="none"
+      >{insideLabel}</text>
+    {/if}
+    {#if rightLabel !== ''}
+      <text
+        x={x + w + 6}
+        y={barY + barH / 2}
+        class="bar-label-right"
+        text-anchor="start"
+        dominant-baseline="middle"
+        fill="var(--theme-content-trans-color)"
+        pointer-events="none"
+      >{rightLabel}</text>
     {/if}
     <title>{tooltipText}</title>
   {/if}
@@ -369,6 +415,17 @@
   }
   .summary-label {
     font-weight: 600;
+  }
+  .bar-label-left,
+  .bar-label-right {
+    font-size: 11px;
+    font-weight: 400;
+    user-select: none;
+  }
+  .bar-label-inside {
+    font-size: 13px;
+    font-weight: 500;
+    user-select: none;
   }
   /*
    * Cursor state machine (user feedback 2026-05-11):
