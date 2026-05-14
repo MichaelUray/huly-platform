@@ -32,6 +32,7 @@
   import { descendantsWithDates } from './lib/scheduler'
   import { createTimeScale } from './lib/time-scale'
   import { type DragState, type DragTarget, type LayoutRow, type MilestoneMarker, type SummaryRange, type ZoomLevel } from './lib/types'
+  import { type BarLabelSlot } from './lib/bar-labels'
   import { computeAdaptivePxPerDay, computeCanvasRenderWidth, computeCanvasViewportWidth } from './lib/viewport'
   import { Icon, Label, showPanel, showPopup, tooltip } from '@hcengineering/ui'
   import CreateIssue from '../CreateIssue.svelte'
@@ -150,6 +151,13 @@
   // Customize-view panel (same pattern as ganttConfirmMove etc.).
   $: showCriticalPath = ((viewOptions as Record<string, unknown>)?.ganttCriticalPath ?? false) === true
   $: showSlackColumn = ((viewOptions as Record<string, unknown>)?.ganttSlackColumn ?? false) === true
+  // Phase 1: three configurable bar-label slots. Defaults: left=none, inside=title, right=none.
+  $: barLabelLeft = (((viewOptions as Record<string, unknown>)?.ganttBarLabelLeft as string) ?? 'none') as BarLabelSlot
+  $: barLabelInside = (((viewOptions as Record<string, unknown>)?.ganttBarLabelInside as string) ?? 'title') as BarLabelSlot
+  $: barLabelRight = (((viewOptions as Record<string, unknown>)?.ganttBarLabelRight as string) ?? 'none') as BarLabelSlot
+  // Phase 1.E — opt-in for the Quick-Info popover (default false = legacy
+  // bar-click behaviour, no change for existing users). Consumed by Task 13.
+  $: quickInfoOnClick = ((viewOptions as Record<string, unknown>)?.ganttQuickInfoOnClick ?? false) === true
   // 200 ms debounced recompute on issues / relations / toggle change.
   $: void scheduleCpRecompute(issues, relations, showCriticalPath)
 
@@ -1783,6 +1791,9 @@
               violatedRelations={cpResult.violatedRelations}
               cpSlack={cpResult.slack}
               {showCriticalPath}
+              {barLabelLeft}
+              {barLabelInside}
+              {barLabelRight}
               on:openIssue={onIssueOpen}
               on:hoverRow={onRowHover}
               on:barMouseDown={handleBarMouseDown}
