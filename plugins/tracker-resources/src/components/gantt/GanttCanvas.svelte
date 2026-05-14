@@ -18,6 +18,7 @@
   import GanttConnectorDot from './GanttConnectorDot.svelte'
   import { activeDragTargetId } from './lib/drag-state'
   import { computeTickViewport } from './lib/viewport'
+  import { hasDeadline, isOverdue } from './lib/deadline-marker'
 
   const dispatch = createEventDispatcher<{
     openIssue: { issue: { _id: string, _class: string } }
@@ -165,6 +166,10 @@
     return row.id
   }
 
+  function getDeadline (issue: Issue): number | null {
+    return (issue as Issue & { deadline?: number | null }).deadline ?? null
+  }
+
   function summaryFor (row: LayoutRow): SummaryRange | null {
     if (row.kind === 'milestone' && row.milestone !== null) {
       return summaryRanges.get(row.id) ?? null
@@ -303,6 +308,36 @@
           </g>
         {/if}
       </g>
+    {/each}
+  </g>
+
+  <g class="deadline-layer" transform="translate(0, {milestoneStripHeight})">
+    {#each visibleRows as row (rowKey(row))}
+      {#if row.kind === 'issue' && row.issue !== null && hasDeadline(row.issue)}
+        {@const dlVal = getDeadline(row.issue)}
+        {#if dlVal !== null}
+          {@const dx = timeScale.toX(dlVal)}
+          {@const dy = row.y + 4}
+          {@const overdue = isOverdue(row.issue)}
+          <g class="deadline-marker" class:overdue>
+            <line
+              x1={dx} y1={dy}
+              x2={dx} y2={dy + 26}
+              stroke={overdue ? '#dc2626' : '#f59e0b'}
+              stroke-width="1.5"
+              stroke-dasharray="2 2"
+              pointer-events="none"
+            />
+            <polygon
+              points="{dx},{dy} {dx + 8},{dy + 4} {dx},{dy + 8}"
+              fill={overdue ? '#dc2626' : '#f59e0b'}
+              pointer-events="none"
+            >
+              <title>{overdue ? 'Overdue (past deadline)' : 'Deadline'}: {new Date(dlVal).toISOString().slice(0, 10)}</title>
+            </polygon>
+          </g>
+        {/if}
+      {/if}
     {/each}
   </g>
 
@@ -446,5 +481,12 @@
   }
   :global(svg.gantt-canvas .row-rect.milestone-bg.hovered) {
     fill: color-mix(in srgb, var(--theme-state-info-color, #6366f1) 14%, transparent);
+  }
+  .deadline-marker.overdue polygon {
+    animation: pulse-overdue 1.4s ease-in-out infinite;
+  }
+  @keyframes pulse-overdue {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.5; }
   }
 </style>
