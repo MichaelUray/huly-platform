@@ -33,6 +33,7 @@
   import MilestoneEditor from '../../milestones/MilestoneEditor.svelte'
   import AssigneeEditor from '../AssigneeEditor.svelte'
   import DueDateEditor from '../DueDateEditor.svelte'
+  import DeadlineEditor from '../DeadlineEditor.svelte'
   import PriorityEditor from '../PriorityEditor.svelte'
   import RelationEditor from '../RelationEditor.svelte'
   import IssueDependenciesPanel from '../IssueDependenciesPanel.svelte'
@@ -218,6 +219,11 @@
     <Label label={tracker.string.DueDate} />
   </span>
   <DueDateEditor value={issue} width={'100%'} editable={!readonly} />
+
+  <span class="labelOnPanel">
+    <Label label={tracker.string.Deadline} />
+  </span>
+  <DeadlineEditor value={issue} width={'100%'} editable={!readonly} />
 
   {#if keys.length > 0}
     <div class="divider" />
