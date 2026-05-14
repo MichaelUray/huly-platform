@@ -392,7 +392,10 @@
     "GanttHelpTitle": "Keyboard shortcuts",
     "GanttHelpEsc": "Press Esc or ? to close",
     "GanttExport": "Export to PNG",
-    "GanttExportFailed": "Export failed"
+    "GanttExportFailed": "Export failed",
+    "GanttFullscreen": "Toggle fullscreen",
+    "GanttExportPng": "Export as PNG",
+    "GanttExportPdf": "Export as PDF (browser print)"
   },
   "status": {}
 }

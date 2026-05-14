@@ -391,7 +391,10 @@
     "GanttHelpTitle": "Tastenkürzel",
     "GanttHelpEsc": "Esc oder ? zum Schließen drücken",
     "GanttExport": "Als PNG exportieren",
-    "GanttExportFailed": "Export fehlgeschlagen"
+    "GanttExportFailed": "Export fehlgeschlagen",
+    "GanttFullscreen": "Vollbild umschalten",
+    "GanttExportPng": "Als PNG exportieren",
+    "GanttExportPdf": "Als PDF exportieren (Browser-Druck)"
   },
   "status": {}
 }

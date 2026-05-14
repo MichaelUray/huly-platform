@@ -371,7 +371,11 @@ export default mergeIds(trackerId, tracker, {
     GanttHelpTitle: '' as IntlString,
     GanttHelpEsc: '' as IntlString,
     GanttExport: '' as IntlString,
-    GanttExportFailed: '' as IntlString
+    GanttExportFailed: '' as IntlString,
+    // Phase 2 — fullscreen + PNG/PDF export buttons
+    GanttFullscreen: '' as IntlString,
+    GanttExportPng: '' as IntlString,
+    GanttExportPdf: '' as IntlString
   },
   component: {
     NopeComponent: '' as AnyComponent,

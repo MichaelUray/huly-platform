@@ -10,6 +10,7 @@
   import { computeCriticalPath } from './lib/critical-path'
   import type { CriticalPathResult } from './lib/types'
   import { exportAndDownload } from './lib/exporter'
+  import { ganttToolbarApi } from './lib/gantt-toolbar-bus'
   import GanttHelpPopup from './GanttHelpPopup.svelte'
   import GanttQuickInfoPopup from './GanttQuickInfoPopup.svelte'
   import type { PrimaryEdit, SimulateResult, CascadeShift } from './lib/types'
@@ -61,7 +62,10 @@
   const DEFAULT_SIDEBAR_WIDTH = 280
   const HEADER_HEIGHT = 56
   const MILESTONE_STRIP_HEIGHT = 0
-  const TOOLBAR_HEIGHT = 40
+  // Phase 2 — toolbar moved to IssuesView header; gantt-root now
+  // starts directly with the canvas. Kept as 0 so the v-scrollbar
+  // top offset math below stays simple.
+  const TOOLBAR_HEIGHT = 0
 
   let hoveredRowId: string | null = null
   let tooltipState: { visible: boolean, x: number, y: number, row: LayoutRow | null } = {
@@ -1410,6 +1414,35 @@
     }
   }
 
+  // Phase 2.3c — PDF export. Uses the browser's print pipeline with
+  // a Gantt-specific print stylesheet so we don't pull in jsPDF.
+  // Caller picks "Save as PDF" in the browser print dialog.
+  function exportToPdf (): void {
+    if (containerEl == null) return
+    containerEl.classList.add('gantt-printing')
+    try {
+      window.print()
+    } finally {
+      // Defer the cleanup so the browser has time to render the
+      // print stylesheet before the class is removed. afterprint
+      // event would be more correct but isn't reliable cross-browser.
+      setTimeout(() => containerEl?.classList.remove('gantt-printing'), 1000)
+    }
+  }
+
+  // Phase 2.3b — fullscreen toggle. Uses the standard browser
+  // Fullscreen API. Most browsers require this to be called from
+  // a user gesture handler — which is exactly where the toolbar
+  // button click puts us.
+  function toggleFullscreen (): void {
+    if (containerEl == null) return
+    if (document.fullscreenElement != null) {
+      void document.exitFullscreen().catch(() => {})
+    } else {
+      void containerEl.requestFullscreen().catch(() => {})
+    }
+  }
+
   onMount(() => {
     window.addEventListener('keydown', onKey)
   })
@@ -1662,6 +1695,31 @@
   })
   onDestroy(() => {
     resizeObs?.disconnect()
+    // Phase 2 — clear the toolbar bus on unmount so the controls
+    // disappear from IssuesView's header when the user switches away
+    // from the Gantt viewlet.
+    ganttToolbarApi.set(null)
+  })
+
+  // Phase 2 — keep the toolbar bus in sync with our local state.
+  // The store re-writes on every change of `zoom` or `datePickerValue`,
+  // which causes the GanttToolbarControls component in IssuesView's
+  // header-tools slot to re-render with the current values. Setting
+  // the store also imperatively publishes the handler functions so
+  // the consumer can invoke them.
+  $: ganttToolbarApi.set({
+    zoom,
+    datePickerValue,
+    setZoom,
+    jumpToToday,
+    jumpToStart,
+    jumpToEnd,
+    pageScroll,
+    jumpToDate,
+    cycleZoom,
+    toggleFullscreen,
+    exportToPng,
+    exportToPdf
   })
 
   $: viewport = { left: canvasViewportLeft, right: canvasViewportLeft + canvasViewportWidth }
@@ -1680,45 +1738,10 @@
   {#if loading}
     <Loading />
   {:else}
-    <div class="gantt-toolbar" style="height: {TOOLBAR_HEIGHT}px;">
-      <div class="toolbar-left">
-        <button class="nav-btn icon-btn" type="button" use:tooltip={{ label: tracker.string.GanttJumpToStart }} on:click={jumpToStart}>
-          <Icon icon={ArrowLeft} size="small" />
-        </button>
-        <button class="nav-btn icon-btn" type="button" use:tooltip={{ label: tracker.string.GanttPreviousPeriod }} on:click={() => pageScroll(-1)}>
-          <Icon icon={NavPrev} size="small" />
-        </button>
-        <button class="nav-btn today-btn" type="button" on:click={jumpToToday}>
-          <Label label={tracker.string.GanttToday} />
-        </button>
-        <button class="nav-btn icon-btn" type="button" use:tooltip={{ label: tracker.string.GanttNextPeriod }} on:click={() => pageScroll(1)}>
-          <Icon icon={NavNext} size="small" />
-        </button>
-        <button class="nav-btn icon-btn" type="button" use:tooltip={{ label: tracker.string.GanttJumpToEnd }} on:click={jumpToEnd}>
-          <Icon icon={ArrowRight} size="small" />
-        </button>
-        <label class="date-input-wrap" use:tooltip={{ label: tracker.string.GanttJumpToDate }}>
-          <Icon icon={Calendar} size="small" />
-          <input
-            type="date"
-            class="date-input"
-            bind:value={datePickerValue}
-            on:change={() => jumpToDate(datePickerValue)}
-          />
-        </label>
-      </div>
-      <div class="toolbar-center">
-        {#each ZOOM_LEVELS as z (z)}
-          <button
-            type="button"
-            class="zoom-btn"
-            class:active={zoom === z}
-            on:click={() => setZoom(z)}
-          >{z[0].toUpperCase() + z.slice(1)}</button>
-        {/each}
-      </div>
-      <div class="toolbar-right" />
-    </div>
+    <!-- Phase 2 — toolbar consolidation. The date-navigation + zoom
+         buttons that used to live in a dedicated row here now render
+         in IssuesView's `header-tools` slot via GanttToolbarControls
+         (reads from ganttToolbarApi store, populated in onMount). -->
 
     <!-- Plane-style two-axis scrolling: gantt-scroller handles vertical only,
          while a separate sticky-bottom proxy bar handles horizontal so the
@@ -1946,81 +1969,10 @@
     position: relative;
     outline: none;
   }
-  .gantt-toolbar {
-    flex: 0 0 auto;
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    padding: 0 12px;
-    border-bottom: 1px solid var(--theme-divider-color);
-    background: var(--theme-comp-header-color);
-  }
-  .toolbar-left { display: flex; gap: 4px; }
-  .toolbar-center { display: flex; gap: 2px; justify-self: center; }
-  .toolbar-right { display: flex; gap: 4px; justify-self: end; position: relative; }
-  .nav-btn {
-    height: 26px;
-    min-width: 28px;
-    padding: 0 10px;
-    border: 1px solid var(--theme-divider-color);
-    background: var(--theme-button-default);
-    color: var(--theme-content-color);
-    font-size: 12px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .nav-btn:hover {
-    background: var(--theme-button-hovered);
-  }
-  .today-btn {
-    font-weight: 600;
-  }
-  .icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-  }
-  .date-input-wrap {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    height: 26px;
-    margin-left: 8px;
-    padding: 0 6px;
-    border: 1px solid var(--theme-divider-color);
-    background: var(--theme-button-default);
-    color: var(--theme-content-color);
-    border-radius: 4px;
-    cursor: pointer;
-  }
-  .date-input {
-    height: 22px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--theme-content-color);
-    font-size: 12px;
-    cursor: pointer;
-    outline: none;
-  }
-  .zoom-btn {
-    height: 26px;
-    padding: 0 12px;
-    border: 1px solid var(--theme-divider-color);
-    background: var(--theme-button-default);
-    color: var(--theme-content-color);
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .zoom-btn:first-child { border-radius: 4px 0 0 4px; }
-  .zoom-btn:last-child  { border-radius: 0 4px 4px 0; }
-  .zoom-btn:not(:first-child) { border-left: none; }
-  .zoom-btn:hover { background: var(--theme-button-hovered); }
-  .zoom-btn.active {
-    background: var(--theme-button-pressed);
-    font-weight: 600;
-  }
+  /* Phase 2 — old .gantt-toolbar + .toolbar-left/center/right + .nav-btn /
+     .today-btn / .date-input-wrap / .zoom-btn rules removed.
+     The buttons themselves moved to GanttToolbarControls.svelte which
+     IssuesView mounts in its header-tools slot. */
   /* .settings-btn / .settings-popover removed — replaced by Huly's
      Customize-View ViewOption pattern (ToggleViewOption) which renders
      the same toggles in the standard view-settings dropdown. */
@@ -2245,5 +2197,51 @@
   .tt-line {
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  /* Phase 2.3c — PDF export via browser print. When the user clicks
+     the PDF button, GanttView toggles the .gantt-printing class on
+     the gantt-root and calls window.print(). The @media print block
+     below hides the surrounding chrome (sidebar, header, popups) and
+     expands the Gantt to fill the printable page area so the
+     resulting PDF is a clean single-page Gantt chart.
+     The class is removed automatically ~1s later. */
+  :global(body.is-modal) .gantt-printing,
+  .gantt-printing :global(.hover-tooltip),
+  .gantt-printing :global(.popup),
+  .gantt-printing :global(.antiPopup) {
+    display: none !important;
+  }
+
+  @media print {
+    /* When called via window.print(), hide everything except the
+       Gantt root + canvas. The page layout collapses to just the
+       chart. */
+    :global(body > *:not(.popup)),
+    :global(.app-content),
+    :global(.popupPanel),
+    :global(.antiNav-list) {
+      visibility: visible;
+    }
+    :global(.gantt-printing) {
+      position: absolute !important;
+      top: 0 !important;
+      left: 0 !important;
+      width: 100% !important;
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+      background: white !important;
+    }
+    :global(.gantt-printing .gantt-scroller) {
+      overflow: visible !important;
+      max-height: none !important;
+    }
+    :global(.gantt-printing .hover-tooltip),
+    :global(.gantt-printing .popup),
+    :global(.gantt-printing .gantt-hscrollbar),
+    :global(.gantt-printing .gantt-vscrollbar) {
+      display: none !important;
+    }
   }
 </style>
