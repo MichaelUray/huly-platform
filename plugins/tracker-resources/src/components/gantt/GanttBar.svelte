@@ -224,9 +224,9 @@
         return { fill: 'var(--theme-button-default)', border: 'var(--theme-button-border)', text: 'var(--theme-content-color)' }
       case 'task:statusCategory:ToDo':
         return {
-          fill: 'var(--theme-state-primary-background-color)',
-          border: 'var(--theme-state-primary-color)',
-          text: 'var(--theme-caption-color)'
+          fill: 'var(--theme-state-primary-color)',
+          border: 'var(--theme-state-primary-hover)',
+          text: 'var(--theme-button-contrast-color)'
         }
       case 'task:statusCategory:Active':
         return {
@@ -461,7 +461,7 @@
       ry={3}
       fill={barColors.fill}
       stroke={(isCritical || isViolated) ? 'var(--theme-state-negative-color)' : barColors.border}
-      stroke-width={(isCritical || isViolated) ? 2 : 1}
+      stroke-width={(isCritical || isViolated || statusCategory === 'task:statusCategory:Lost') ? 2 : 1}
       stroke-dasharray={isViolated ? '4 2' : 'none'}
       class="bar"
       class:editable
