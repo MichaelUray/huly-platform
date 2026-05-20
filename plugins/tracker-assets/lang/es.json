@@ -54,8 +54,8 @@
     "NewIssuePlaceholder": "Nueva",
     "ResumeDraft": "Continuar borrador",
     "SaveIssue": "Crear tarea",
-    "SetPriority": "Establecer prioridad\u2026",
-    "SetStatus": "Establecer estado\u2026",
+    "SetPriority": "Establecer prioridad…",
+    "SetStatus": "Establecer estado…",
     "SelectIssue": "Seleccionar tarea",
     "Priority": "Prioridad",
     "NoPriority": "Sin prioridad",
@@ -294,8 +294,19 @@
     "GanttScrollLeftToBar": "Scroll left to bar",
     "GanttScrollRightToBar": "Scroll right to bar",
     "GanttExpand": "Expand",
-    "GanttCollapse": "Collapse"
-  
+    "GanttCollapse": "Collapse",
+    "GanttCornerNoOpInSwimlane": "No effect in group-by mode",
+    "ModeSelectorDisabledByFilter": "Status is controlled by an active filter. Remove the status filter to use this shortcut.",
+    "ShowQuickModeSelector": "Quick filter: All / Active / Backlog",
+    "SearchScopeLabel": "Search in…",
+    "SearchScopeTitle": "Title only",
+    "SearchScopeTitleDescription": "Title + Description",
+    "SearchScopeAll": "Title + Description + Comments",
+    "SearchHighlight": "Highlight search matches",
+    "SearchEmptyTitle": "No issues found for \"{query}\"",
+    "SearchEmptyActiveFilters": "Active filters: {filters}",
+    "SearchEmptyClearFilters": "Search without filters",
+    "SearchEmptyAllProjects": "Search in all projects"
   },
   "status": {}
 }

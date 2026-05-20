@@ -340,6 +340,14 @@
     "GanttCollapse": "Collapse",
     "GanttExpandAll": "Expand all",
     "GanttCollapseAll": "Collapse all",
+    "GanttCornerNoOpInSwimlane": "No effect in group-by mode",
+    "ModeSelectorDisabledByFilter": "Status is controlled by an active filter. Remove the status filter to use this shortcut.",
+    "ShowQuickModeSelector": "Quick filter: All / Active / Backlog",
+    "SearchScopeLabel": "Search in…",
+    "SearchScopeTitle": "Title only",
+    "SearchScopeTitleDescription": "Title + Description",
+    "SearchScopeAll": "Title + Description + Comments",
+    "SearchHighlight": "Highlight search matches",
     "GanttTreeBreadcrumb": "Parent of a matching issue",
     "GanttArrowIndicatorSourceAbove": "Source row is above the viewport — click to scroll",
     "GanttArrowIndicatorSourceBelow": "Source row is below the viewport — click to scroll",
@@ -529,7 +537,11 @@
     "GanttMobileReadOnly": "Mobile view is read-only — open on a larger screen to edit",
     "GanttShowPastDueOverlay": "Show overdue overlay",
     "GanttShowBlockedOverlay": "Show blocked overlay",
-    "GanttShowSubIssueProgress": "Show sub-issue progress"
+    "GanttShowSubIssueProgress": "Show sub-issue progress",
+    "SearchEmptyTitle": "No issues found for \"{query}\"",
+    "SearchEmptyActiveFilters": "Active filters: {filters}",
+    "SearchEmptyClearFilters": "Search without filters",
+    "SearchEmptyAllProjects": "Search in all projects"
   },
   "status": {}
 }

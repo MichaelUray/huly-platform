@@ -23,6 +23,38 @@ import tags from '@hcengineering/tags'
 import { type ViewOptionModel, type BuildModelKey, type ViewOptionsModel } from '@hcengineering/view'
 import tracker from './plugin'
 
+// Plan 2 T5 — shared Customize-View knobs reused by both `issuesOptions()`
+// (List + Kanban) and the Gantt viewlet block. Keep this list as the single
+// source of truth so a change in one place can never disagree with the
+// other half of the UI.
+const SEARCH_VIEW_OPTIONS: ViewOptionModel[] = [
+  {
+    key: 'showQuickModeSelector',
+    type: 'toggle',
+    defaultValue: true,
+    actionTarget: 'display',
+    label: tracker.string.ShowQuickModeSelector
+  },
+  {
+    key: 'searchScope',
+    type: 'dropdown',
+    defaultValue: 'all',
+    values: [
+      { id: 'title', label: tracker.string.SearchScopeTitle },
+      { id: 'title-description', label: tracker.string.SearchScopeTitleDescription },
+      { id: 'all', label: tracker.string.SearchScopeAll }
+    ],
+    label: tracker.string.SearchScopeLabel
+  },
+  {
+    key: 'searchHighlight',
+    type: 'toggle',
+    defaultValue: true,
+    actionTarget: 'display',
+    label: tracker.string.SearchHighlight
+  }
+]
+
 export const issuesOptions = (kanban: boolean): ViewOptionsModel => ({
   groupBy: [
     'status',
@@ -75,7 +107,8 @@ export const issuesOptions = (kanban: boolean): ViewOptionsModel => ({
       action: view.function.HideArchived,
       label: view.string.HideArchived
     },
-    ...(!kanban ? [showColorsViewOption] : [])
+    ...(!kanban ? [showColorsViewOption] : []),
+    ...SEARCH_VIEW_OPTIONS
   ]
 })
 
@@ -506,7 +539,9 @@ export function ganttViewOptions (): ViewOptionsModel {
         defaultValue: false,
         actionTarget: 'display',
         label: tracker.string.GanttShowSubIssueProgress
-      }
+      },
+      // Plan-2 — search-scope / quick-filter / highlight toggles.
+      ...SEARCH_VIEW_OPTIONS
     ]
   }
 }
