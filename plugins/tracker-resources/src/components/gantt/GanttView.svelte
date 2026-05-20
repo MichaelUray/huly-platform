@@ -34,8 +34,10 @@
   import { selectedFilterStore } from '@hcengineering/view-resources'
   import core from '@hcengineering/core'
   import { getCurrentResolvedLocation } from '@hcengineering/ui'
-  import { onDestroy, onMount, tick } from 'svelte'
+  import { onDestroy, onMount, setContext, tick } from 'svelte'
   import { writable } from 'svelte/store'
+  import type { BarColorMode, BarColorContext } from './lib/bar-colors'
+  import { buildBarColorContext } from './lib/bar-colors-context'
   import tracker from '../../plugin'
   import { canEditIssue, canEditMilestone } from '../../utils'
   import GanttCanvas from './GanttCanvas.svelte'
@@ -196,6 +198,23 @@
   // editableIssueIds gates the resize handles + the Set-start-date menu entry
   // per issue based on canEditIssue() (utils.ts:280).
   const activeDrag = writable<DragState>({ kind: 'idle' })
+
+  // Bar-color toolbar / overlay / progress state — initial defaults from spec.
+  const ganttBarColorBy = writable<BarColorMode>('status')
+  const ganttShowPastDueOverlay = writable<boolean>(true)
+  const ganttShowBlockedOverlay = writable<boolean>(true)
+  const ganttShowSubIssueProgress = writable<boolean>(false)
+
+  // Live BarColorContext derived from current Gantt data — see below.
+  const barColorContextStore = writable<BarColorContext>(buildBarColorContext([], new Map(), new Map(), new Map()))
+
+  // Init contexts ONCE at component setup. Updates flow via .set() below.
+  setContext('gantt-bar-color-mode', ganttBarColorBy)
+  setContext('gantt-overlay-past-due', ganttShowPastDueOverlay)
+  setContext('gantt-overlay-blocked', ganttShowBlockedOverlay)
+  setContext('gantt-progress-fill', ganttShowSubIssueProgress)
+  setContext('gantt-bar-color-context', barColorContextStore)
+
   // PR3.3: single Set holds editable Issue _ids AND Milestone _ids — both
   // are stringified Ref<...> so a single Set lookup serves the bar
   // editable={} flag for both row kinds without parallel data structures.
@@ -825,6 +844,11 @@
     milestones.map((m) => [m._id as unknown as string, m])
   )
 
+  // Bar-color context: components lookup for component-color mode.
+  $: componentsById = new Map<string, Component>(
+    components.map((c) => [String(c._id), c])
+  )
+
   function paddingDays (z: ZoomLevel): number {
     switch (z) {
       case 'day': return 1
@@ -1051,6 +1075,12 @@
     }
     return out
   }
+
+  // Push a freshly-built BarColorContext whenever inputs change.
+  // componentsById is derived above (near milestonesById).
+  $: barColorContextStore.set(
+    buildBarColorContext(issues, statusCategoryMap, componentsById, milestonesById)
+  )
 
   function computeSummaryRanges (
     layoutRows: LayoutRow[],
@@ -3189,7 +3219,12 @@
     onUpdateSavedViewClick,
     toggleFullscreen,
     openMoreActionsMenu,
-    ariaLabels
+    ariaLabels,
+    ganttBarColorBy: $ganttBarColorBy,
+    onColorBySelectChange: (ev: Event) => {
+      const v = (ev.target as HTMLSelectElement).value as BarColorMode
+      ganttBarColorBy.set(v)
+    }
   })
   onDestroy(() => ganttToolbarSnapshot.set(null))
 </script>
