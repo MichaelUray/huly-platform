@@ -466,7 +466,7 @@
     "GanttColorByAssignee": "Assignee",
     "GanttColorByComponent": "Component",
     "GanttColorByMilestone": "Milestone",
-    "GanttColorByNone": "Uniform (no color coding)",
+    "GanttColorByNone": "Uniform",
     "GanttGroupOverridesHierarchy": "Group-By overrides hierarchy indentation. Set Group by to None to see the parent/child tree.",
     "GanttUnassigned": "Unassigned",
     "GanttNoComponent": "No component",

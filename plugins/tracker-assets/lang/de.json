@@ -464,7 +464,7 @@
     "GanttColorByAssignee": "Bearbeiter",
     "GanttColorByComponent": "Komponente",
     "GanttColorByMilestone": "Meilenstein",
-    "GanttColorByNone": "Einheitlich (keine Farbcodierung)",
+    "GanttColorByNone": "Einheitlich",
     "GanttGroupOverridesHierarchy": "Gruppierung hebt die Hierarchie-Einrückung auf. Setze Gruppieren auf Keine, um die Eltern/Kind-Struktur zu sehen.",
     "GanttUnassigned": "Nicht zugewiesen",
     "GanttNoComponent": "Keine Komponente",
