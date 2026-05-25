@@ -421,6 +421,9 @@ export class TComponent extends TDoc implements Component {
   @Prop(Collection(attachment.class.Attachment), attachment.string.Attachments, { shortLabel: attachment.string.Files })
     attachments?: number
 
+  @Prop(TypeNumber(), tracker.string.Color)
+    color?: number
+
   declare space: Ref<Project>
 }
 
@@ -452,6 +455,9 @@ export class TMilestone extends TDoc implements Milestone {
 
   @Prop(TypeDate(), tracker.string.TargetDate)
     targetDate!: Timestamp
+
+  @Prop(TypeNumber(), tracker.string.Color)
+    color?: number
 
   declare space: Ref<Project>
 }

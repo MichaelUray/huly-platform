@@ -4,7 +4,7 @@
 <script lang="ts">
   import { type ApplyOperations, type Class, type Doc, type DocumentQuery, generateId, getCurrentAccount, type Ref, type Space, SortingOrder } from '@hcengineering/core'
   import { createQuery, getClient } from '@hcengineering/presentation'
-  import { type Component, type Issue, type IssueRelation, type Milestone, type Project, type WorkingDaysConfig, IssuePriority } from '@hcengineering/tracker'
+  import { type Component, type Issue, type IssueRelation, type IssueStatus, type Milestone, type Project, type WorkingDaysConfig, IssuePriority } from '@hcengineering/tracker'
   import { type TagElement } from '@hcengineering/tags'
   import { type Person } from '@hcengineering/contact'
   import tags from '@hcengineering/tags'
@@ -31,11 +31,13 @@
   import { translate, translateCB, type IntlString } from '@hcengineering/platform'
   import { type FilteredView, type Viewlet, type ViewOptions } from '@hcengineering/view'
   import view from '@hcengineering/view'
-  import { selectedFilterStore } from '@hcengineering/view-resources'
+  import { resultIssueCountStore, selectedFilterStore } from '@hcengineering/view-resources'
   import core from '@hcengineering/core'
   import { getCurrentResolvedLocation } from '@hcengineering/ui'
-  import { onDestroy, onMount, tick } from 'svelte'
+  import { onDestroy, onMount, setContext, tick } from 'svelte'
   import { writable } from 'svelte/store'
+  import type { BarColorMode, BarColorContext } from './lib/bar-colors'
+  import { buildBarColorContext } from './lib/bar-colors-context'
   import tracker from '../../plugin'
   import { canEditIssue, canEditMilestone } from '../../utils'
   import GanttCanvas from './GanttCanvas.svelte'
@@ -47,7 +49,8 @@
     extractGanttSavedView,
     isoDateForTimestamp,
     mergeGanttSavedView,
-    timestampForIsoDate
+    timestampForIsoDate,
+    type GanttSavedViewOptions
   } from './lib/gantt-view-options'
   import { filterGanttFilteredViews } from './lib/saved-views'
   import { DEFAULT_COLUMNS, DEFAULT_WIDTHS, computeTotalWidth, type SidebarColumnKey } from './lib/sidebar-columns'
@@ -75,7 +78,8 @@
     applyWheelZoom,
     cursorAnchoredScrollLeft,
     pxPerDayToTickZoom,
-    ZOOM_PX_PER_DAY
+    ZOOM_PX_PER_DAY,
+    MIN_PPD
   } from './lib/zoom'
   import {
     dropdownSelectionForPxPerDay,
@@ -185,8 +189,21 @@
 
   let issues: Issue[] = []
   let milestones: Milestone[] = []
+
+  // Plan 2 T8 — shared result-count store consumed by IssuesView to gate
+  // the SearchEmptyState card. Reset to -1 on destroy so route/viewlet
+  // transitions never leave a stale 0 that would falsely trigger the
+  // empty-state.
+  // Plan 2 T8 — write the result count once BOTH issue and milestone
+  // queries have resolved; the seed -1 prevents the SearchEmptyState card
+  // from flashing during the initial load before any results arrive.
   let loadingIssues = true
   let loadingMilestones = true
+  $: if (!loadingIssues && !loadingMilestones) {
+    resultIssueCountStore.set(issues.length + milestones.length)
+  }
+  onDestroy(() => resultIssueCountStore.set(-1))
+
 
   // PR 3 edit-mode state: a single source of truth for explicit drag/resize
   // interactions. Normal bar-body mouse drags are no longer issue moves; they
@@ -196,6 +213,35 @@
   // editableIssueIds gates the resize handles + the Set-start-date menu entry
   // per issue based on canEditIssue() (utils.ts:280).
   const activeDrag = writable<DragState>({ kind: 'idle' })
+
+  // Bar-color toolbar / overlay / progress state — initial defaults from spec.
+  const ganttBarColorBy = writable<BarColorMode>('status')
+  const ganttShowPastDueOverlay = writable<boolean>(true)
+  const ganttShowBlockedOverlay = writable<boolean>(true)
+  const ganttShowSubIssueProgress = writable<boolean>(false)
+
+  // Live BarColorContext derived from current Gantt data — see below.
+  const barColorContextStore = writable<BarColorContext>(buildBarColorContext([], new Map(), new Map(), new Map()))
+
+  // Predecessor maps for the blocked-hatch overlay — populated reactively
+  // below; GanttBar reads them via context.
+  const predecessorsByIssueIdStore = writable<Map<string, Array<Ref<Issue>>>>(new Map())
+  const predStatusByIssueIdStore   = writable<Map<string, Ref<IssueStatus>>>(new Map())
+
+  // Init contexts ONCE at component setup. Updates flow via .set() below.
+  setContext('gantt-bar-color-mode', ganttBarColorBy)
+  setContext('gantt-overlay-past-due', ganttShowPastDueOverlay)
+  setContext('gantt-overlay-blocked', ganttShowBlockedOverlay)
+  setContext('gantt-progress-fill', ganttShowSubIssueProgress)
+  setContext('gantt-bar-color-context', barColorContextStore)
+  setContext('gantt-predecessors-by-issue', predecessorsByIssueIdStore)
+  setContext('gantt-pred-status-by-issue',  predStatusByIssueIdStore)
+
+  const subIssuesByParent = writable<Map<string, Issue[]>>(new Map())
+  setContext('gantt-sub-issues-by-parent', subIssuesByParent)
+
+  const subIssuesQuery = createQuery()
+
   // PR3.3: single Set holds editable Issue _ids AND Milestone _ids — both
   // are stringified Ref<...> so a single Set lookup serves the bar
   // editable={} flag for both row kinds without parallel data structures.
@@ -305,6 +351,23 @@
   $: ganttSidebarShowDueDate = ((viewOptions as Record<string, unknown>)?.ganttSidebarShowDueDate ?? false) === true
   $: ganttSidebarShowDeadline = ((viewOptions as Record<string, unknown>)?.ganttSidebarShowDeadline ?? false) === true
   $: ganttSidebarShowProgress = ((viewOptions as Record<string, unknown>)?.ganttSidebarShowProgress ?? false) === true
+
+  // Phase 3.10 — overlay + sub-issue-progress toggles driven by Customize-view.
+  // Unconditional .set() with default fallback — active-default-reset policy:
+  // when a key is absent in the incoming viewOptions blob (e.g. switching back
+  // to a default view from a saved one that had these set), the store snaps
+  // back to the spec default rather than retaining the previous saved-view value.
+  $: {
+    const vo = (viewOptions as Record<string, unknown> | undefined) ?? {}
+    const pastDue = vo.ganttShowPastDueOverlay
+    ganttShowPastDueOverlay.set(typeof pastDue === 'boolean' ? pastDue : true)
+
+    const blocked = vo.ganttShowBlockedOverlay
+    ganttShowBlockedOverlay.set(typeof blocked === 'boolean' ? blocked : true)
+
+    const progress = vo.ganttShowSubIssueProgress
+    ganttShowSubIssueProgress.set(typeof progress === 'boolean' ? progress : false)
+  }
 
   // Phase 1.A — bar-label slots driven by Customize-view ViewOptions.
   // Defaults preserve legacy "title inside the bar" rendering.
@@ -447,7 +510,11 @@
       return
     }
     if (canvasViewportWidth <= 0) return
-    const nextPpd = pxPerDayFromVisibleDays(canvasViewportWidth, days)
+    const rawPpd = pxPerDayFromVisibleDays(canvasViewportWidth, days)
+    // Honour the dynamic zoom-out floor (5% pad each side); if the user
+    // typed a day-count that would zoom out beyond it, clamp + re-sync
+    // the input on the next reactive pass.
+    const nextPpd = Math.max(rawPpd, dynamicMinPpd)
     // Editing the day count puts the toolbar into Custom-state by design —
     // we set `userPxPerDay` directly, which the reactive block above maps
     // back to a Custom selection unless the value happens to round to a
@@ -476,6 +543,30 @@
     const opts = extractGanttSavedView(raw)
     zoom = opts.zoomLevel
     userPxPerDay = null
+    // Pull (and default-reset) the four new toolbar fields. Defaults must
+    // match the spec (Status / on / on / off) so stale state from a
+    // previous saved view cannot leak into the loaded view.
+    const mode = raw?.ganttBarColorBy
+    ganttBarColorBy.set(
+      (typeof mode === 'string' && (['status', 'priority', 'assignee', 'component', 'milestone', 'none'] as const).includes(mode as any))
+        ? (mode as BarColorMode)
+        : 'status'
+    )
+    ganttShowPastDueOverlay.set(
+      typeof raw?.ganttShowPastDueOverlay === 'boolean'
+        ? raw.ganttShowPastDueOverlay
+        : true
+    )
+    ganttShowBlockedOverlay.set(
+      typeof raw?.ganttShowBlockedOverlay === 'boolean'
+        ? raw.ganttShowBlockedOverlay
+        : true
+    )
+    ganttShowSubIssueProgress.set(
+      typeof raw?.ganttShowSubIssueProgress === 'boolean'
+        ? raw.ganttShowSubIssueProgress
+        : false
+    )
     // Wait one tick so the new zoom propagates into `timeScale` before we
     // scroll — otherwise toX() uses the previous pxPerDay and the anchor
     // lands at the wrong column (Spec §"Pan-Anchor-Race bei langsamem Mount").
@@ -514,7 +605,13 @@
 
   function buildSavedViewOptions (fixTimeWindow: boolean): Record<string, unknown> {
     const base = (viewOptions as Record<string, unknown> | undefined) ?? {}
-    const payload: { zoomLevel: ZoomLevel, panAnchorDate?: string } = { zoomLevel: zoom }
+    const payload: GanttSavedViewOptions = {
+      zoomLevel: zoom,
+      ganttBarColorBy: $ganttBarColorBy,
+      ganttShowPastDueOverlay: $ganttShowPastDueOverlay,
+      ganttShowBlockedOverlay: $ganttShowBlockedOverlay,
+      ganttShowSubIssueProgress: $ganttShowSubIssueProgress
+    }
     if (fixTimeWindow && hScrollEl != null) {
       // Anchor = the visible-left date in the time scale (UTC midnight).
       const t = timeScale.fromX(hScrollEl.scrollLeft)
@@ -610,6 +707,15 @@
       }
       const next = allFilteredViews.find((v) => String(v._id) === sid)
       if (next !== undefined) {
+        // Reset the guard BEFORE setting the store. The reactive Apply
+        // block above short-circuits when the loaded view's _id equals
+        // `lastAppliedSavedViewId` — desired behaviour for cross-viewlet
+        // store traffic, but it breaks the user's intent HERE: after
+        // locally tweaking color/overlay/zoom they explicitly re-selected
+        // the same saved view to REVERT their dirty state. Without this
+        // reset the click would be a no-op and savedViewModified stays
+        // true forever.
+        lastAppliedSavedViewId = null
         selectedFilterStore.set(next)
       }
     })
@@ -663,6 +769,10 @@
     if (fv === undefined || fv.viewletId !== viewlet?._id) return false
     const saved = (fv.viewOptions as Record<string, unknown> | undefined) ?? {}
     if (saved.ganttZoomLevel !== zoom) return true
+    if ((saved.ganttBarColorBy ?? 'status') !== $ganttBarColorBy) return true
+    if ((saved.ganttShowPastDueOverlay ?? true) !== $ganttShowPastDueOverlay) return true
+    if ((saved.ganttShowBlockedOverlay ?? true) !== $ganttShowBlockedOverlay) return true
+    if ((saved.ganttShowSubIssueProgress ?? false) !== $ganttShowSubIssueProgress) return true
     return false
   }
 
@@ -737,6 +847,18 @@
     ? { space, ...(query as DocumentQuery<Issue>) }
     : { ...(query as DocumentQuery<Issue>) }) as DocumentQuery<Issue>
   $: milestoneDocQuery = (space !== undefined ? { space } : {}) as DocumentQuery<Milestone>
+  // Re-arm the loading flags on every query mutation so the result-count
+  // store (above) doesn't write a stale `issues.length + milestones.length`
+  // from the previous query in the window between the new query firing
+  // and its first LiveQuery callback delivering fresh data.
+  $: {
+    void issueDocQuery
+    loadingIssues = true
+  }
+  $: {
+    void milestoneDocQuery
+    loadingMilestones = true
+  }
   $: issueQuery.query(
     tracker.class.Issue,
     issueDocQuery,
@@ -819,11 +941,95 @@
   // wheel-zoomed view also gets sensible left/right padding.
   $: dateRange = computeDateRange(issues, milestones, tickZoomLevel)
 
+  // Maximum-zoom-out floor: bars must always occupy at least
+  // BAR_COVERAGE_MIN of the canvas viewport, so the user can't pan into
+  // an empty void where the issues collapse to a tiny island. Computed
+  // from the unpadded data extent (earliest barStart → latest barEnd)
+  // and the live canvas width. Falls back to the static MIN_PPD when
+  // we don't yet have a viewport width or any issues/milestones to
+  // measure.
+  const BAR_COVERAGE_MIN = 0.9 // 5% pad left + 5% pad right = 90% bars
+  $: barExtentDays = (() => {
+    const DAY_MS = 86_400_000
+    const ts: number[] = []
+    for (const i of issues) {
+      if (i.startDate !== null && i.startDate !== undefined) ts.push(i.startDate)
+      if (i.dueDate !== null && i.dueDate !== undefined) ts.push(i.dueDate)
+    }
+    for (const m of milestones) {
+      if (m.targetDate !== null && m.targetDate !== undefined) ts.push(m.targetDate)
+    }
+    if (ts.length < 2) return 0
+    return (Math.max(...ts) - Math.min(...ts)) / DAY_MS
+  })()
+  $: dynamicMinPpd = (canvasViewportWidth > 0 && barExtentDays > 0)
+    ? Math.max(MIN_PPD, (BAR_COVERAGE_MIN * canvasViewportWidth) / barExtentDays)
+    : MIN_PPD
+  // Re-clamp the wheel-zoom override if the dataset or viewport shrinks
+  // so an already-overridden value never sits below the new floor.
+  $: if (userPxPerDay !== null && userPxPerDay < dynamicMinPpd) {
+    userPxPerDay = dynamicMinPpd
+  }
+
   // PR3.3: lookup so GanttCanvas can build a `DragTarget` for a milestone
   // bar without having to thread the full Milestone[] down.
   $: milestonesById = new Map<string, Milestone>(
     milestones.map((m) => [m._id as unknown as string, m])
   )
+
+  // Bar-color context: components lookup for component-color mode.
+  $: componentsById = new Map<string, Component>(
+    components.map((c) => [String(c._id), c])
+  )
+
+  // Predecessor maps for blocked-hatch overlay (Step 8.1).
+  // Map<successorId stringified, Array<predecessorId>> — FS dependencies only.
+  $: predecessorsByIssueId = (() => {
+    const m = new Map<string, Array<Ref<Issue>>>()
+    for (const rel of relations) {
+      if (rel.kind !== 'finish-to-start') continue
+      const downstream = String(rel.target)
+      const upstream = rel.attachedTo as Ref<Issue>
+      const arr = m.get(downstream)
+      if (arr === undefined) m.set(downstream, [upstream])
+      else arr.push(upstream)
+    }
+    return m
+  })()
+
+  // Map<issueId stringified, Ref<IssueStatus>> — predecessor status lookup.
+  $: predStatusByIssueId = new Map<string, Ref<IssueStatus>>(
+    issues.map((i) => [String(i._id), i.status])
+  )
+
+  // Push predecessor maps into context stores whenever they change.
+  $: predecessorsByIssueIdStore.set(predecessorsByIssueId)
+  $: predStatusByIssueIdStore.set(predStatusByIssueId)
+
+  $: if ($ganttShowSubIssueProgress) {
+    const parents = issues.filter(i => i.subIssues > 0).map(i => i._id)
+    if (parents.length === 0) {
+      subIssuesByParent.set(new Map())
+    } else {
+      // Global query — ignores the active filter on purpose, per spec section D.
+      subIssuesQuery.query(
+        tracker.class.Issue,
+        { attachedTo: { $in: parents } },
+        (loaded: Issue[]) => {
+          const m = new Map<string, Issue[]>()
+          for (const s of loaded) {
+            const k = String(s.attachedTo)
+            if (!m.has(k)) m.set(k, [])
+            m.get(k)!.push(s)
+          }
+          subIssuesByParent.set(m)
+        }
+      )
+    }
+  } else {
+    subIssuesQuery.unsubscribe()
+    subIssuesByParent.set(new Map())
+  }
 
   function paddingDays (z: ZoomLevel): number {
     switch (z) {
@@ -1051,6 +1257,12 @@
     }
     return out
   }
+
+  // Push a freshly-built BarColorContext whenever inputs change.
+  // componentsById is derived above (near milestonesById).
+  $: barColorContextStore.set(
+    buildBarColorContext(issues, statusCategoryMap, componentsById, milestonesById)
+  )
 
   function computeSummaryRanges (
     layoutRows: LayoutRow[],
@@ -2614,7 +2826,12 @@
     // already multiplicatively adaptive, but in the low-density bands the
     // absolute pixel-delta per notch is small enough that users perceive
     // the same exp() step as slower than at high density.
-    const newPpd = applyWheelZoom(oldPpd, e.deltaY)
+    const rawPpd = applyWheelZoom(oldPpd, e.deltaY)
+    // Honour the dynamic zoom-out floor: bars must stay at least
+    // BAR_COVERAGE_MIN of the viewport. Without this clamp the user can
+    // wheel out into an empty void where the issues collapse to a tiny
+    // island in the middle of the canvas.
+    const newPpd = Math.max(rawPpd, dynamicMinPpd)
     if (newPpd === oldPpd) return
     userPxPerDay = newPpd
     if (hScrollEl != null) {
@@ -2666,7 +2883,9 @@
     if (pinchState.initialDistance <= 0) return
     const ratio = pinchState.currentDistance / pinchState.initialDistance
     const oldPpd = effectivePxPerDay
-    const newPpd = computePxPerDayFromRatio(pinchState.initialPxPerDay, ratio)
+    const rawPpd = computePxPerDayFromRatio(pinchState.initialPxPerDay, ratio)
+    // Same dynamic zoom-out floor as the wheel-zoom path.
+    const newPpd = Math.max(rawPpd, dynamicMinPpd)
     if (newPpd === oldPpd) return
     if (hScrollEl == null) return
     e.preventDefault()
@@ -3189,7 +3408,12 @@
     onUpdateSavedViewClick,
     toggleFullscreen,
     openMoreActionsMenu,
-    ariaLabels
+    ariaLabels,
+    ganttBarColorBy: $ganttBarColorBy,
+    onColorBySelectChange: (ev: Event) => {
+      const v = (ev.target as HTMLSelectElement).value as BarColorMode
+      ganttBarColorBy.set(v)
+    }
   })
   onDestroy(() => ganttToolbarSnapshot.set(null))
 </script>
@@ -3261,43 +3485,29 @@
             </div>
           {/if}
           <div class="corner-range">
-            <!--  / Refactor C — Expand/Collapse-all buttons live
-                 in the corner cell directly above the sidebar list. Only
-                 visible when groupBy is 'none' (tree mode); in swimlane
-                 mode the tree-toggle has no rows to act on. Same icon
-                 set + aria-labels as  to keep the affordance
-                 consistent with the inline row toggles. -->
-            {#if ganttGroupBy === 'none'}
-              <button
-                type="button"
-                class="corner-tree-btn"
-                use:tooltip={{ label: tracker.string.GanttCollapseAll }}
-                aria-label={ariaLabelOf(tracker.string.GanttCollapseAll)}
-                title={ariaLabelOf(tracker.string.GanttCollapseAll)}
-                on:click={collapseAllTree}
-              >
-                <Icon icon={IconChevronRight} size="small" />
-              </button>
-              <button
-                type="button"
-                class="corner-tree-btn"
-                use:tooltip={{ label: tracker.string.GanttExpandAll }}
-                aria-label={ariaLabelOf(tracker.string.GanttExpandAll)}
-                title={ariaLabelOf(tracker.string.GanttExpandAll)}
-                on:click={expandAllTree}
-              >
-                <Icon icon={IconChevronDown} size="small" />
-              </button>
-            {/if}
-            <button class="range-nav" type="button"
-              use:tooltip={{ label: tracker.string.GanttPreviousPeriod }}
-              on:click={() => pageScroll(-1)}>«</button>
-            <span class="range-text" on:click={jumpToToday} on:keydown={(e) => { if (e.key === 'Enter') jumpToToday() }} role="button" tabindex="0">
-              {formatRange(dateRange.from)} – {formatRange(dateRange.to)}
-            </span>
-            <button class="range-nav" type="button"
-              use:tooltip={{ label: tracker.string.GanttNextPeriod }}
-              on:click={() => pageScroll(1)}>»</button>
+            <!-- Tree-collapse / -expand. Always visible (was: only when groupBy=none).
+                 Disabled when swimlanes are active (no rows to act on); tooltip
+                 explains the no-op. -->
+            <button
+              type="button"
+              class="corner-tree-btn"
+              class:tree-btn-disabled={ganttGroupBy !== 'none'}
+              use:tooltip={{ label: ganttGroupBy === 'none' ? tracker.string.GanttCollapseAll : tracker.string.GanttCornerNoOpInSwimlane }}
+              aria-label={ariaLabelOf(tracker.string.GanttCollapseAll)}
+              on:click={() => { if (ganttGroupBy === 'none') collapseAllTree() }}
+            >
+              <Icon icon={IconChevronRight} size="small" />
+            </button>
+            <button
+              type="button"
+              class="corner-tree-btn"
+              class:tree-btn-disabled={ganttGroupBy !== 'none'}
+              use:tooltip={{ label: ganttGroupBy === 'none' ? tracker.string.GanttExpandAll : tracker.string.GanttCornerNoOpInSwimlane }}
+              aria-label={ariaLabelOf(tracker.string.GanttExpandAll)}
+              on:click={() => { if (ganttGroupBy === 'none') expandAllTree() }}
+            >
+              <Icon icon={IconChevronDown} size="small" />
+            </button>
           </div>
         </div>
         <div class="cell resize-corner" style="height: {HEADER_HEIGHT}px;" />
@@ -3870,22 +4080,8 @@
     font-size: 12px;
     color: var(--theme-content-color);
   }
-  .range-nav {
-    width: 22px;
-    height: 22px;
-    padding: 0;
-    border: 1px solid var(--theme-divider-color);
-    background: transparent;
-    color: var(--theme-darker-color);
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-  }
-  .range-nav:hover { background: var(--theme-button-hovered); }
-  /*  / Refactor C — sidebar tree-toggle buttons. Same metrics as
-     range-nav so the corner-range strip stays visually balanced; the
-     ChevronRight/Down icons match the inline row toggles. min hit area
-     bumped to 32px on phones via the existing breakpoint media query. */
+  /* sidebar tree-toggle buttons. ChevronRight/Down icons match the inline row toggles.
+     min hit area bumped to 32px on phones via the existing breakpoint media query. */
   .corner-tree-btn {
     width: 24px;
     height: 22px;
@@ -3903,12 +4099,13 @@
     background: var(--theme-button-hovered);
     color: var(--theme-content-color);
   }
-  .range-text {
-    cursor: pointer;
-    user-select: none;
-    font-weight: 500;
+  .corner-tree-btn.tree-btn-disabled {
+    opacity: 0.4;
+    cursor: default;
   }
-  .range-text:hover { color: var(--theme-state-info-color, #6366f1); text-decoration: underline; }
+  .corner-tree-btn.tree-btn-disabled:hover {
+    background: transparent;
+  }
   .corner .col-toggle { flex: 0 0 18px; }
   .corner .col-status { flex: 0 0 22px; }
   .corner .col-id { flex: 0 0 80px; }

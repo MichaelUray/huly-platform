@@ -341,6 +341,18 @@ export default mergeIds(trackerId, tracker, {
     GanttCollapse: '' as IntlString,
     GanttExpandAll: '' as IntlString,
     GanttCollapseAll: '' as IntlString,
+    GanttCornerNoOpInSwimlane: '' as IntlString,
+    ModeSelectorDisabledByFilter: '' as IntlString,
+    ShowQuickModeSelector: '' as IntlString,
+    SearchScopeLabel: '' as IntlString,
+    SearchScopeTitle: '' as IntlString,
+    SearchScopeTitleDescription: '' as IntlString,
+    SearchScopeAll: '' as IntlString,
+    SearchHighlight: '' as IntlString,
+    SearchEmptyTitle: '' as IntlString,
+    SearchEmptyActiveFilters: '' as IntlString,
+    SearchEmptyClearFilters: '' as IntlString,
+    SearchEmptyAllProjects: '' as IntlString,
     GanttTreeBreadcrumb: '' as IntlString,
     // Off-viewport dependency-arrow indicators
     GanttArrowIndicatorSourceAbove: '' as IntlString,
@@ -466,6 +478,14 @@ export default mergeIds(trackerId, tracker, {
     GanttGroupByMilestone: '' as IntlString,
     GanttGroupByLabel: '' as IntlString,
     GanttGroupOverridesHierarchy: '' as IntlString,
+    // Phase 3.9 — Bar Color-by
+    GanttColorBy: '' as IntlString,
+    GanttColorByStatus: '' as IntlString,
+    GanttColorByPriority: '' as IntlString,
+    GanttColorByAssignee: '' as IntlString,
+    GanttColorByComponent: '' as IntlString,
+    GanttColorByMilestone: '' as IntlString,
+    GanttColorByNone: '' as IntlString,
     GanttUnassigned: '' as IntlString,
     GanttNoComponent: '' as IntlString,
     GanttNoMilestone: '' as IntlString,
@@ -501,7 +521,11 @@ export default mergeIds(trackerId, tracker, {
     // Activity-Log
     AddedRelation: '' as IntlString,
     RemovedRelation: '' as IntlString,
-    UpdatedRelation: '' as IntlString
+    UpdatedRelation: '' as IntlString,
+    // Phase 3.10 — Customize-View overlay + progress toggles
+    GanttShowPastDueOverlay: '' as IntlString,
+    GanttShowBlockedOverlay: '' as IntlString,
+    GanttShowSubIssueProgress: '' as IntlString
   },
   component: {
     NopeComponent: '' as AnyComponent,
