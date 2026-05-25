@@ -9,13 +9,14 @@ import { MessageBox } from '@hcengineering/presentation'
 import { showPopup } from '@hcengineering/ui'
 
 /**
- * Coerce a DropdownIntlItem.id (typed as `string` after round-trip
- * through the dropdown component) back to the numeric AccountRole enum.
- * Several callsites forgot `Number(...)` and silently shipped `"4"`
- * to the backend instead of the integer 4.
+ * Coerce a DropdownIntlItem.id back to the AccountRole enum.
+ *
+ * The enum became a string enum upstream (`'USER'`, `'OWNER'`, …), so we
+ * pass the value through as-is. The cast is needed because dropdown IDs
+ * are typed as `string | number`.
  */
 export function parseRole (v: unknown): AccountRole {
-  return Number(v) as AccountRole
+  return String(v) as AccountRole
 }
 
 /**
