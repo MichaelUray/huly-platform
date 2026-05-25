@@ -554,4 +554,54 @@ describe('memdb', () => {
       expect(e).toEqual(new Error('createDoc cannot be used for objects inherited from AttachedDoc'))
     }
   })
+
+  it('addTxes coalesces orphan-targeted transactions into a single info line', async () => {
+    const { MeasureMetricsContext } = await import('@hcengineering/measurements')
+    const { TxFactory } = await import('../tx')
+    const { generateId } = await import('../utils')
+
+    const infoCalls: Array<{ message: string, args?: Record<string, any> }> = []
+    const warnCalls: Array<{ message: string, args?: Record<string, any> }> = []
+    const recordingLogger = {
+      info: (message: string, args?: Record<string, any>) => {
+        infoCalls.push({ message, args })
+      },
+      warn: (message: string, args?: Record<string, any>) => {
+        warnCalls.push({ message, args })
+      },
+      error: () => {},
+      logOperation: () => {},
+      childLogger: () => recordingLogger,
+      close: async () => {}
+    }
+    const ctx = new MeasureMetricsContext('test', {}, {}, undefined, recordingLogger as any)
+
+    const hierarchy = new Hierarchy()
+    for (const tx of txes) hierarchy.tx(tx)
+    const db = new ModelDb(hierarchy)
+    db.addTxes(ctx, txes, true)
+
+    // Reset capture and apply a batch of orphan-targeted transactions
+    infoCalls.length = 0
+    warnCalls.length = 0
+
+    const factory = new TxFactory(core.account.System)
+    const orphanA = generateId<Doc>()
+    const orphanB = generateId<Doc>()
+    const orphanC = generateId<Doc>()
+    const orphans: Tx[] = [
+      factory.createTxUpdateDoc(core.class.Space, core.space.Model, orphanA, { name: 'X' } as any),
+      factory.createTxUpdateDoc(core.class.Space, core.space.Model, orphanA, { name: 'Y' } as any),
+      factory.createTxUpdateDoc(test.class.Task, core.space.Model, orphanB, { name: 'X' } as any),
+      factory.createTxRemoveDoc(test.class.Task, core.space.Model, orphanC)
+    ]
+    db.addTxes(ctx, orphans, true)
+
+    // Single coalesced info line (not one warn per orphan)
+    const orphanInfo = infoCalls.find((c) => c.message.startsWith('skipped model transactions'))
+    expect(orphanInfo).toBeDefined()
+    expect(orphanInfo?.args?.total).toEqual(4)
+    expect(orphanInfo?.args?.byClass).toBeDefined()
+    expect(warnCalls.find((c) => /no document found/.test(c.message))).toBeUndefined()
+  })
 })
