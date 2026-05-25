@@ -291,6 +291,9 @@
     z-index: 30;
     display: flex;
     flex-direction: column;
+    /* Override the Huly app's global user-select: none so admins can
+       copy workspace URLs / member emails out of the drawer. */
+    user-select: text;
   }
 
   .drawer-tabs {

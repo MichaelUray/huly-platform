@@ -40,8 +40,10 @@ export function confirmAction (
 }
 
 /**
- * Show an info popup. Dangerous flag tints the dismiss button red
- * (used for error notifications).
+ * Show an info popup with a single OK button. `dangerous` tints
+ * the dismiss button red (used for error notifications). MessageBox
+ * uses `canSubmit` to control the Cancel button's visibility, so we
+ * pass false here — info popups have nothing to cancel.
  */
 export function notify (title: string, message: string, dangerous = false): void {
   showPopup(MessageBox, {
@@ -49,6 +51,6 @@ export function notify (title: string, message: string, dangerous = false): void
     message: getEmbeddedLabel(message),
     okLabel: getEmbeddedLabel('OK'),
     dangerous,
-    canSubmit: true
+    canSubmit: false
   })
 }

@@ -259,12 +259,21 @@
   }
 
   function onCopyEmail (): void {
-    if (details?.primaryEmail == null || details.primaryEmail === '') {
-      notify('No email', 'This user has no primary email.', true)
+    // primaryEmail is a dedicated account column. Accounts created via
+    // OIDC or by an admin can have a verified EMAIL social-id without
+    // primaryEmail being set. Fall back to the first verified EMAIL
+    // social-id so the copy action stays useful in both cases.
+    const email =
+      details?.primaryEmail != null && details.primaryEmail !== ''
+        ? details.primaryEmail
+        : details?.socialIds?.find((s) => s.type === 'email' && s.verified)?.value ??
+          details?.socialIds?.find((s) => s.type === 'email')?.value
+    if (email == null || email === '') {
+      notify('No email', 'This user has no email identity.', true)
       return
     }
-    void copyTextToClipboard(details.primaryEmail)
-    notify('Copied', `Email ${details.primaryEmail} copied.`)
+    void copyTextToClipboard(email)
+    notify('Copied', `Email ${email} copied.`)
   }
 
   function tryClose (): void {
@@ -586,6 +595,9 @@
     z-index: 9001;
     display: flex;
     flex-direction: column;
+    /* Override the Huly app's global user-select: none so admins can
+       copy identifiers, emails, workspace URLs out of the drawer. */
+    user-select: text;
   }
 
   .drawer-tabs {
@@ -703,6 +715,9 @@
 
   .drawer-body {
     padding: var(--spacing-3);
+    /* Override the Huly app's global user-select: none so admins can
+       copy identifiers / emails / workspace URLs out of the drawer. */
+    user-select: text;
   }
 
   .state {
