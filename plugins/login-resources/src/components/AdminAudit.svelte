@@ -10,6 +10,7 @@
   import type { AuditEntry, ListAuditAdminParams } from '@hcengineering/account-client'
   import AdminShell from './admin-shell/AdminShell.svelte'
   import AuditEmptyState from './admin-shell/AuditEmptyState.svelte'
+  import { tzTooltip } from './admin-audit/tzTooltip'
   import setting from '@hcengineering/setting'
 
   let entries: AuditEntry[] = []
@@ -58,6 +59,21 @@
 
   function applyDateRangePreset (id: string): void {
     if (id === 'custom') {
+      // V7 — switching to Custom should preserve whatever From/To the
+      // previous preset wrote into the inputs so the admin can tweak one
+      // boundary without re-entering both. On cold-start (URL deep-link
+      // with ?preset=custom and no prior preset), fall back to a 3-day
+      // window so the inputs are never blank.
+      if (filterFrom === '' || filterTo === '') {
+        const now = new Date()
+        const past = new Date(now.getTime() - 3 * 86_400_000)
+        const fmt = (d: Date): string =>
+          `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+        presetApplying = true
+        if (filterFrom === '') filterFrom = fmt(past)
+        if (filterTo === '') filterTo = fmt(now)
+        presetApplying = false
+      }
       dateRangePreset = 'custom'
       void reload(true)
       return
@@ -98,13 +114,14 @@
   interface ActionOption { id: string, label: IntlString }
   const ACTION_OPTIONS: ActionOption[] = [
     { id: 'create_account', label: getEmbeddedLabel('create_account') },
-    { id: 'delete_account', label: getEmbeddedLabel('delete_account') },
     { id: 'disable', label: getEmbeddedLabel('disable') },
     { id: 'enable', label: getEmbeddedLabel('enable') },
     { id: 'trigger_password_reset', label: getEmbeddedLabel('trigger_password_reset') },
     { id: 'add_workspace_member', label: getEmbeddedLabel('add_workspace_member') },
     { id: 'remove_member', label: getEmbeddedLabel('remove_member') },
-    { id: 'role_change', label: getEmbeddedLabel('role_change') }
+    { id: 'role_change', label: getEmbeddedLabel('role_change') },
+    // V13 — Denied admin attempt (self_disable, last_admin)
+    { id: 'admin_action_denied', label: getEmbeddedLabel('admin_action_denied') }
   ]
   let selectedActionIds: string[] = []
 
@@ -419,13 +436,13 @@
                     <td colspan="5">
                       <strong>Bulk action by {g.entries[0].admin.firstName} {g.entries[0].admin.lastName}</strong>
                        — {g.entries.length} entries · <code>{g.entries[0].action}</code> ·
-                       {new Date(g.entries[0].tsMs).toLocaleString()}
+                       <span title={tzTooltip(g.entries[0].tsMs)}>{new Date(g.entries[0].tsMs).toLocaleString()}</span>
                     </td>
                   </tr>
                 {/if}
                 {#each g.entries as e (e.id)}
                   <tr>
-                    <td>{new Date(e.tsMs).toLocaleString()}</td>
+                    <td title={tzTooltip(e.tsMs)}>{new Date(e.tsMs).toLocaleString()}</td>
                     <td>{e.admin.firstName} {e.admin.lastName}</td>
                     <td><code>{e.action}</code></td>
                     <td>

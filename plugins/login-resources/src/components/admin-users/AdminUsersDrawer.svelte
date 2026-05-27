@@ -25,7 +25,6 @@
   import { copyTextToClipboard } from '@hcengineering/presentation'
   import AddToWorkspacePopup from './AddToWorkspacePopup.svelte'
   import AuditEmptyState from '../admin-shell/AuditEmptyState.svelte'
-  import DeleteAccountConfirm from './DeleteAccountConfirm.svelte'
   import { confirmAction, notify } from './util'
 
   export let accountUuid: AccountUuid
@@ -35,7 +34,7 @@
   export let visibleUuids: string[] = []
   // Optional: parent passes the calling admin's own account uuid so we can
   // grey out destructive actions on the admin's own row. Server-side guards
-  // (cannot_self_delete, cannot_self_disable, last_admin) still enforce.
+  // (cannot_self_disable, last_admin) still enforce.
   export let currentAdminUuid: string | undefined = undefined
 
   $: isSelf = currentAdminUuid !== undefined && currentAdminUuid === accountUuid
@@ -135,6 +134,19 @@
   function truncateMiddle (s: string, head: number, tail: number): string {
     if (s.length <= head + tail + 1) return s
     return `${s.slice(0, head)}…${s.slice(-tail)}`
+  }
+
+  // V5a — Build a link to the workspace root from the admin panel.
+  // Workspace-root only (no Employee deep-link); per spec D12, V5b is a
+  // future enrichment if/when the per-workspace Ref<Employee> lookup is
+  // added to the admin-side data.
+  //
+  // workspaceMemberships rows have shape
+  //   { workspaceUuid, workspaceName, workspaceUrl, role }
+  // per server/account/src/serviceOperations.ts:227 — no archived field,
+  // so no archived-state branching here.
+  function buildWorkspaceLink (workspaceUrl: string): string {
+    return `${window.location.origin}/workbench/${workspaceUrl}`
   }
 
   async function onChangeRole (workspaceUuid: string, newRole: AccountRole): Promise<void> {
@@ -260,69 +272,18 @@
     })
   }
 
-  // Hard-delete: irreversible removal of the global-account row, password,
-  // workspace memberships, mailbox secrets and integration secrets. Social
-  // IDs are kept (un-verified) so historical createdBy/modifiedBy refs
-  // keep showing a name. Server-side guard rejects last-admin and self
-  // deletion in addition to the typed-phrase + admin-token gate.
-  function onDelete (): void {
-    if (details == null) return
-    const identityLabel =
-      (details.primaryEmail != null && details.primaryEmail !== '')
-        ? details.primaryEmail
-        : `${details.firstName} ${details.lastName}`.trim()
-    const workspaceCount = details.workspaceMemberships?.length ?? 0
-    showPopup(
-      DeleteAccountConfirm,
-      { identityLabel, workspaceCount, isLastAdmin: false },
-      'middle',
-      async (confirmed: boolean | undefined) => {
-        if (confirmed !== true) return
-        busy = true
-        try {
-          await getAccountClient().deleteAccount(accountUuid)
-          notify('Account deleted', `${identityLabel} has been removed.`)
-          dispatch('account-changed')
-          dispatch('close')
-        } catch (err: any) {
-          const code = err?.status?.code
-          if (code === 'cannot_self_delete') {
-            notify('Cannot delete yourself', 'You cannot delete your own account.', true)
-          } else if (code === 'last_admin') {
-            notify('Last admin', 'Cannot delete the last admin. At least one active admin must remain.', true)
-          } else if (code === 'platform:status:Forbidden') {
-            notify('Forbidden', 'Only admins (ADMIN_EMAILS) can delete accounts.', true)
-          } else {
-            notify('Failed to delete account', err?.message ?? String(err), true)
-          }
-        } finally {
-          busy = false
-        }
-      }
-    )
-  }
-
   function onCopyUuid (): void {
     void copyTextToClipboard(String(accountUuid))
     notify('Copied', 'Account UUID copied to clipboard.')
   }
 
   function onCopyEmail (): void {
-    // primaryEmail is a dedicated account column. Accounts created via
-    // OIDC or by an admin can have a verified EMAIL social-id without
-    // primaryEmail being set. Fall back to the first verified EMAIL
-    // social-id so the copy action stays useful in both cases.
-    const email =
-      details?.primaryEmail != null && details.primaryEmail !== ''
-        ? details.primaryEmail
-        : details?.socialIds?.find((s) => s.type === 'email' && s.verified)?.value ??
-          details?.socialIds?.find((s) => s.type === 'email')?.value
-    if (email == null || email === '') {
-      notify('No email', 'This user has no email identity.', true)
+    if (details?.primaryEmail == null || details.primaryEmail === '') {
+      notify('No email', 'This user has no primary email.', true)
       return
     }
-    void copyTextToClipboard(email)
-    notify('Copied', `Email ${email} copied.`)
+    void copyTextToClipboard(details.primaryEmail)
+    notify('Copied', `Email ${details.primaryEmail} copied.`)
   }
 
   function tryClose (): void {
@@ -511,6 +472,15 @@
                     <strong>{m.workspaceName}</strong>
                     <span class="ws-url">{m.workspaceUrl}</span>
                   </div>
+                  <a
+                    class="ws-link"
+                    href={buildWorkspaceLink(m.workspaceUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open workspace in new tab"
+                  >
+                    Open ↗
+                  </a>
                   <DropdownLabelsIntl
                     items={roleItems}
                     selected={m.role}
@@ -570,10 +540,9 @@
             <!-- Disable / re-enable are rarer + destructive; compact secondary row. -->
             <div class="actions-secondary">
               {#if details.status === 'active'}
-                <!-- Disable mirrors Delete: greyed out on the admin's own
-                     row (server-side `cannot_self_disable` still catches
-                     forged calls). Wording flips so the reason is visible
-                     without a hover tooltip. -->
+                <!-- Disable: greyed out on the admin's own row (server-side
+                     `cannot_self_disable` still catches forged calls). Wording
+                     flips so the reason is visible without a hover tooltip. -->
                 <Button
                   kind={'dangerous'}
                   size={'small'}
@@ -592,22 +561,6 @@
               {/if}
             </div>
 
-            <!-- Danger zone: hard-delete sits separately from the disable/
-                 enable row so the visual weight matches the consequence
-                 (irreversible). Typed-confirm in DeleteAccountConfirm.
-                 Disabled for the admin's own row so the destructive action
-                 is unreachable client-side; server-side `cannot_self_delete`
-                 still rejects any forged call from a scripted client. -->
-            <div class="danger-zone">
-              <span class="danger-zone-label">Danger zone</span>
-              <Button
-                kind={'dangerous'}
-                size={'small'}
-                label={getEmbeddedLabel(isSelf ? 'Cannot delete yourself' : 'Delete account…')}
-                disabled={busy || isSelf}
-                on:click={onDelete}
-              />
-            </div>
           </div>
         </section>
       {/if}
@@ -665,9 +618,6 @@
     z-index: 9001;
     display: flex;
     flex-direction: column;
-    /* Override the Huly app's global user-select: none so admins can
-       copy identifiers, emails, workspace URLs out of the drawer. */
-    user-select: text;
   }
 
   .drawer-tabs {
@@ -785,9 +735,6 @@
 
   .drawer-body {
     padding: var(--spacing-3);
-    /* Override the Huly app's global user-select: none so admins can
-       copy identifiers / emails / workspace URLs out of the drawer. */
-    user-select: text;
   }
 
   .state {
@@ -913,6 +860,17 @@
     font-family: var(--mono-font, 'SF Mono', 'Menlo', 'Consolas', monospace);
   }
 
+  .ws-link {
+    margin-left: 0.5rem;
+    margin-right: 0.5rem;
+    color: var(--theme-link-color);
+    text-decoration: none;
+    font-size: var(--font-size-small);
+  }
+  .ws-link:hover {
+    text-decoration: underline;
+  }
+
   .badge {
     display: inline-flex;
     align-items: center;
@@ -1007,30 +965,6 @@
     display: flex;
     justify-content: flex-end;
     margin-top: 0.25rem;
-  }
-
-  .danger-zone {
-    /* Irreversible-action gutter. Visually separated from the
-       enable/disable row by a divider so the eye registers a different
-       neighborhood before the button is pressed. */
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid var(--theme-divider-color);
-
-    > :global(button) {
-      width: auto;
-    }
-  }
-
-  .danger-zone-label {
-    font-size: 0.72rem;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--theme-darker-color);
   }
 
   .add-row {
