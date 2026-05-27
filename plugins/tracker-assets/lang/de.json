@@ -539,7 +539,8 @@
     "SearchEmptyTitle": "Keine Treffer für \"{query}\"",
     "SearchEmptyActiveFilters": "Aktive Filter: {filters}",
     "SearchEmptyClearFilters": "Suche ohne Filter",
-    "SearchEmptyAllProjects": "In allen Projekten suchen"
+    "SearchEmptyAllProjects": "In allen Projekten suchen",
+    "SharedWithYouTooltip": "Du hast nur Zugriff auf einzelne Issues; du bist kein Mitglied dieses Projekts"
   },
   "status": {}
 }

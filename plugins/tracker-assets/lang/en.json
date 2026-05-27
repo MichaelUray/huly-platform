@@ -541,7 +541,8 @@
     "SearchEmptyTitle": "No issues found for \"{query}\"",
     "SearchEmptyActiveFilters": "Active filters: {filters}",
     "SearchEmptyClearFilters": "Search without filters",
-    "SearchEmptyAllProjects": "Search in all projects"
+    "SearchEmptyAllProjects": "Search in all projects",
+    "SharedWithYouTooltip": "You have access to specific issues only; you are not a member of this project"
   },
   "status": {}
 }
