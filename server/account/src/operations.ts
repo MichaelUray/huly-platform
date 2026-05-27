@@ -2896,67 +2896,6 @@ export async function releaseSocialId (
   return await doReleaseSocialId(db, personUuid, type, value, extra?.service ?? account, deleteIntegrations)
 }
 
-export async function deleteAccount (
-  ctx: MeasureContext,
-  db: AccountDB,
-  branding: Branding | null,
-  token: string,
-  params: { uuid?: AccountUuid }
-): Promise<void> {
-  // Token-version-aware admin check: rejects tokens that were minted
-  // before the caller's `tokenVersion` was bumped (e.g. caller's own
-  // privileges were revoked mid-session).
-  const adminUuid = await requireAdmin(ctx, db, token)
-
-  const { uuid } = params
-
-  if (uuid == null || uuid === '') {
-    throw new PlatformError(new Status(Severity.ERROR, platform.status.BadRequest, {}))
-  }
-
-  // Two safety rails consistent with `disableAccount`:
-  //   1. cannot_self_delete — admin can't lock themselves out by deleting
-  //      their own row mid-session.
-  //   2. last_admin — at least one active admin (by ADMIN_EMAILS membership)
-  //      must remain so the panel itself stays reachable.
-  if (adminUuid === uuid) {
-    throw new PlatformError(new Status(Severity.ERROR, 'cannot_self_delete' as any, {}))
-  }
-
-  // Existence check BEFORE destructive work or audit insert: a bad UUID
-  // must surface as AccountNotFound to the caller rather than as a
-  // DB-layer cascade failure, a phantom ACCOUNT_DELETED event, or an
-  // orphan admin_audit_log row referencing a never-existed account.
-  const targetAccount = await db.account.findOne({ uuid })
-  if (targetAccount == null) {
-    throw new PlatformError(new Status(Severity.ERROR, platform.status.AccountNotFound, {}))
-  }
-
-  const socials = await db.socialId.find({ personUuid: uuid })
-  const targetEmail = socials.find((s) => s.type === SocialIdType.EMAIL)?.value
-  if (targetEmail != null && (await isLastAdmin(db, targetEmail))) {
-    throw new PlatformError(new Status(Severity.ERROR, 'last_admin' as any, {}))
-  }
-
-  await db.deleteAccount(uuid)
-  await db.accountEvent.insertOne({
-    accountUuid: uuid,
-    eventType: AccountEventType.ACCOUNT_DELETED,
-    time: Date.now()
-  })
-
-  // Append to admin_audit_log so the deletion shows up in Audit log
-  // alongside disable / enable / role-change rows. We log AFTER the
-  // delete completes so a failed cascade does not leave a phantom entry.
-  await db.adminAuditLog.insert({
-    adminAccount: adminUuid as AccountUuid,
-    targetAccount: uuid,
-    action: 'delete_account',
-    workspaceUuid: null,
-    details: { targetEmail: targetEmail ?? null }
-  })
-}
-
 export async function canMergeSpecifiedPersons (
   ctx: MeasureContext,
   db: AccountDB,
@@ -3546,9 +3485,67 @@ export async function removeWorkspaceMemberInternal (
   return { ok: true, wasMember: true }
 }
 
+// V13 — In-memory rate-limit for admin_action_denied audit rows.
+// Key: `${adminUuid}::${reason}::${method}`. Value: last-write epoch ms.
+// Window: 1 hour. Resets on pod restart (acceptable per spec — attacker
+// gets at most one row per pod-restart-cycle).
+const ADMIN_DENIED_AUDIT_WINDOW_MS = 60 * 60 * 1000
+const adminDeniedAuditLog = new Map<string, number>()
+
+/**
+ * Write an admin_action_denied audit row, throttled per (admin, reason, method).
+ *
+ * MUST be called AFTER requireAdmin() has succeeded — never on pre-auth
+ * Forbidden paths, since those have no actor uuid to attribute and writing
+ * audit rows pre-auth is itself an attack surface.
+ *
+ * Scope: only 'self_disable' and 'last_admin' reasons today. Additional
+ * reasons can be added as more admin actions gain explicit denial paths.
+ *
+ * Method names match the actual call site:
+ *   'disableAccount'   — single-target RPC (default)
+ *   'bulkSetDisabled'  — bulk RPC in serviceOperations.ts
+ *
+ * EXPORTED so serviceOperations.ts can import it for the pre-bulkLoop
+ * audit-write in bulkSetDisabled.
+ */
+export async function auditAdminActionDenied (
+  ctx: MeasureContext,
+  db: AccountDB,
+  adminUuid: AccountUuid,
+  reason: 'self_disable' | 'last_admin',
+  method: 'disableAccount' | 'bulkSetDisabled',
+  targetAccount?: AccountUuid | null
+): Promise<void> {
+  const key = `${adminUuid}::${reason}::${method}`
+  const last = adminDeniedAuditLog.get(key)
+  const now = Date.now()
+  if (last !== undefined && now - last < ADMIN_DENIED_AUDIT_WINDOW_MS) {
+    return
+  }
+  adminDeniedAuditLog.set(key, now)
+  try {
+    await db.adminAuditLog.insert({
+      adminAccount: adminUuid,
+      targetAccount: targetAccount ?? null,
+      action: 'admin_action_denied',
+      workspaceUuid: null,
+      details: { reason, method, target: targetAccount ?? null }
+    } as any)
+  } catch (err) {
+    ctx.error?.('admin_action_denied audit write failed', { err })
+  }
+}
+
 /**
  * Disable an account WITHOUT re-checking admin auth.
  * Caller must have already verified admin privileges.
+ *
+ * V13 — optional `methodName` parameter (default 'disableAccount') tags any
+ * admin_action_denied audit row this function writes. The bulk path passes
+ * 'bulkSetDisabled' explicitly so its last_admin denials are audited under
+ * the correct method tag (which matters because the rate-limit key includes
+ * method).
  */
 export async function disableAccountInternal (
   ctx: MeasureContext,
@@ -3556,15 +3553,18 @@ export async function disableAccountInternal (
   deps: AccountMethodDeps,
   adminUuid: AccountUuid,
   params: { accountUuid: AccountUuid },
-  batchId?: string
+  batchId?: string,
+  methodName: 'disableAccount' | 'bulkSetDisabled' = 'disableAccount'
 ): Promise<{ ok: true }> {
   if (adminUuid === params.accountUuid) {
+    await auditAdminActionDenied(ctx, db, adminUuid, 'self_disable', methodName, params.accountUuid)
     throw new PlatformError(new Status(Severity.ERROR, 'cannot_self_disable' as any, {}))
   }
 
   const socials = await db.socialId.find({ personUuid: params.accountUuid })
   const targetEmail = socials.find((s) => s.type === SocialIdType.EMAIL)?.value
   if (targetEmail != null && (await isLastAdmin(db, targetEmail))) {
+    await auditAdminActionDenied(ctx, db, adminUuid, 'last_admin', methodName, params.accountUuid)
     throw new PlatformError(new Status(Severity.ERROR, 'last_admin' as any, {}))
   }
 
@@ -3704,54 +3704,11 @@ export async function disableAccount (
   params: { accountUuid: AccountUuid }
 ): Promise<{ ok: true }> {
   const adminUuid = await requireAdmin(ctx, db, token)
-
-  if (adminUuid === params.accountUuid) {
-    throw new PlatformError(new Status(Severity.ERROR, 'cannot_self_disable' as any, {}))
-  }
-
-  const socials = await db.socialId.find({ personUuid: params.accountUuid })
-  const targetEmail = socials.find((s) => s.type === SocialIdType.EMAIL)?.value
-  if (targetEmail != null && (await isLastAdmin(db, targetEmail))) {
-    throw new PlatformError(new Status(Severity.ERROR, 'last_admin' as any, {}))
-  }
-
-  const account = await db.account.findOne({ uuid: params.accountUuid })
-  if (account == null) {
-    throw new PlatformError(new Status(Severity.ERROR, platform.status.AccountNotFound, {}))
-  }
-  await db.account.update(
-    { uuid: params.accountUuid },
-    { disabledAt: Date.now(), $inc: { tokenVersion: 1 } } as any
-  )
-  await db.adminAuditLog.insert({
-    adminAccount: adminUuid as AccountUuid,
-    targetAccount: params.accountUuid,
-    action: 'disable',
-    workspaceUuid: null,
-    details: { reason: 'manual_admin_action' }
-  })
-
-  if (deps.accountLifecycleProducer !== undefined) {
-    try {
-      await deps.accountLifecycleProducer.send(
-        ctx,
-        systemAccountUuid as unknown as WorkspaceUuid,
-        [
-          {
-            accountUuid: params.accountUuid,
-            event: 'disabled',
-            timestamp: Date.now(),
-            reason: 'manual_admin_action'
-          }
-        ],
-        params.accountUuid
-      )
-    } catch (err) {
-      ctx.warn('failed to emit account.lifecycle event; relying on token-version fallback', { err })
-    }
-  }
-
-  return { ok: true }
+  // V13 — delegate to disableAccountInternal so the guard + audit-write
+  // logic lives in exactly one place. methodName defaults to
+  // 'disableAccount' so any admin_action_denied row from the single-RPC
+  // path is tagged correctly.
+  return await disableAccountInternal(ctx, db, deps, adminUuid, params)
 }
 
 /**
@@ -3875,7 +3832,6 @@ export type AccountMethods =
   | 'addHulyAssistantSocialId'
   | 'refreshHulyAssistantToken'
   | 'releaseSocialId'
-  | 'deleteAccount'
   | 'canMergeSpecifiedPersons'
   | 'mergeSpecifiedPersons'
   | 'setMyProfile'
@@ -3982,7 +3938,6 @@ export function getMethods (
     addHulyAssistantSocialId: wrap(addHulyAssistantSocialId),
     refreshHulyAssistantToken: wrap(refreshHulyAssistantToken),
     releaseSocialId: wrap(releaseSocialId),
-    deleteAccount: wrap(deleteAccount),
     canMergeSpecifiedPersons: wrap(canMergeSpecifiedPersons),
     mergeSpecifiedPersons: wrap(mergeSpecifiedPersons),
     setMyProfile: wrap(setMyProfile),
