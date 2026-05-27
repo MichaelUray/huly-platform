@@ -525,7 +525,8 @@ export default mergeIds(trackerId, tracker, {
     // Phase 3.10 — Customize-View overlay + progress toggles
     GanttShowPastDueOverlay: '' as IntlString,
     GanttShowBlockedOverlay: '' as IntlString,
-    GanttShowSubIssueProgress: '' as IntlString
+    GanttShowSubIssueProgress: '' as IntlString,
+    SharedWithYouTooltip: '' as IntlString
   },
   component: {
     NopeComponent: '' as AnyComponent,
