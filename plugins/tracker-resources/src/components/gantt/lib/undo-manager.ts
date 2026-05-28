@@ -496,4 +496,3 @@ function getIssueClass (): string {
 function getRelationClass (): string {
   return 'tracker:class:IssueRelation'
 }
-
