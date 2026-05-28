@@ -66,6 +66,13 @@
   let sortField: SortField = 'name'
   let sortDir: 'asc' | 'desc' = 'asc'
 
+  // Svelte template attribute expressions don't accept `as` casts; route the
+  // per-column click through a string-typed wrapper so the cast lives in the
+  // script.
+  function onHeaderClick (field: string): void {
+    setSort(field as SortField)
+  }
+
   function setSort (field: SortField): void {
     if (sortField === field) {
       sortDir = sortDir === 'asc' ? 'desc' : 'asc'
@@ -764,7 +771,7 @@
               { field: 'backup_age', label: 'Backup age', filter: true },
             ] as col}
               <div class="ws-cell ws-head-cell" class:ws-cell-num={col.num} class:ws-is-sorted={sortField === col.field}>
-                <span class="ws-hdr-label" on:click={() => setSort(col.field)}>
+                <span class="ws-hdr-label" on:click={() => onHeaderClick(col.field)}>
                   {#if sortField === col.field}<span class="ws-sort-arrow">{sortDir === 'asc' ? '↑' : '↓'}</span>{/if}{col.label}
                 </span>
                 {#if col.filter}

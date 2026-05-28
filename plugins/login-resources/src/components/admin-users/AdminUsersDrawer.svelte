@@ -19,13 +19,14 @@
     Scroller,
     DropdownLabelsIntl,
     showPopup,
+    tooltip,
     type DropdownIntlItem
   } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
   import { copyTextToClipboard } from '@hcengineering/presentation'
   import AddToWorkspacePopup from './AddToWorkspacePopup.svelte'
   import AuditEmptyState from '../admin-shell/AuditEmptyState.svelte'
-  import { confirmAction, notify } from './util'
+  import { confirmAction, notify, parseRole } from './util'
 
   export let accountUuid: AccountUuid
   // Optional: parent passes the ordered list of currently-visible uuids so
@@ -412,20 +413,12 @@
             </span>
           </div>
           <div class="copy-actions">
-            <ButtonIcon
-              icon={IconCopy}
-              kind={'tertiary'}
-              size={'small'}
-              on:click={onCopyUuid}
-              showTooltip={{ label: getEmbeddedLabel('Copy UUID') }}
-            />
-            <ButtonIcon
-              icon={IconCopy}
-              kind={'tertiary'}
-              size={'small'}
-              on:click={onCopyEmail}
-              showTooltip={{ label: getEmbeddedLabel('Copy email') }}
-            />
+            <div use:tooltip={{ label: getEmbeddedLabel('Copy UUID') }}>
+              <ButtonIcon icon={IconCopy} kind={'tertiary'} size={'small'} on:click={onCopyUuid} />
+            </div>
+            <div use:tooltip={{ label: getEmbeddedLabel('Copy email') }}>
+              <ButtonIcon icon={IconCopy} kind={'tertiary'} size={'small'} on:click={onCopyEmail} />
+            </div>
           </div>
         </div>
 

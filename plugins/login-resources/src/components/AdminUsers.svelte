@@ -62,6 +62,9 @@
   let total = 0
   let loading = false
   let selectedUuid: string | null = null
+  // Reactive AccountUuid-branded cast for the drawer prop (Svelte template
+  // attribute expressions don't accept `as` casts directly).
+  $: selectedUuidBranded = selectedUuid != null ? (selectedUuid as AccountUuid) : null
   let errorMessage: string | null = null
 
   // Decode the calling admin's account uuid from the JWT payload (middle
@@ -344,8 +347,10 @@
     void refresh()
   }
 
-  function onSortChange (e: CustomEvent<typeof sort>): void {
-    sort = e.detail
+  function onSortChange (e: CustomEvent<{ field: string, direction: 'asc' | 'desc' } | undefined>): void {
+    // The child emits a generic { field: string, direction }; narrow it back to
+    // our sort union via a cast — the child only fires fields we declared.
+    sort = e.detail as ListAccountsAdminParams['sort']
     void refresh()
   }
 
@@ -749,9 +754,9 @@
   </div>
 </AdminShell>
 
-{#if selectedUuid != null}
+{#if selectedUuidBranded != null}
   <AdminUsersDrawer
-    accountUuid={selectedUuid}
+    accountUuid={selectedUuidBranded}
     visibleUuids={visibleAccountUuids}
     currentAdminUuid={currentAdminUuid}
     on:close={onDrawerClose}
