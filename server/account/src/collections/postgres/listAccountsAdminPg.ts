@@ -71,6 +71,7 @@ export function buildListAccountsAdminSql (
       if (m === 'email_only') orParts.push('(s.has_email AND NOT s.has_oidc)')
       else if (m === 'oidc') orParts.push('(s.has_oidc AND NOT s.has_email)')
       else if (m === 'mixed') orParts.push('(s.has_email AND s.has_oidc)')
+      else if (m === 'none') orParts.push('(NOT s.has_email AND NOT s.has_oidc)')
     }
     if (orParts.length > 0) conds.push(`(${orParts.join(' OR ')})`)
   }

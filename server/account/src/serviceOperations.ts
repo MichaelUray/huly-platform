@@ -197,7 +197,10 @@ export async function listAccountsAdmin (
     wsMax: params.workspaceCountRange?.max,
     lastActivityFilter: params.lastActivityFilter,
     orphan: (params as any).orphan === true ? true : undefined,
-    isAdmin: (params as any).isAdmin === true ? true : undefined,
+    // Pass true/false through (DB layer supports both — false filters OUT
+    // admins). Only `undefined` means "no filter applied".
+    isAdmin:
+      (params as any).isAdmin === true ? true : (params as any).isAdmin === false ? false : undefined,
     sort: params.sort,
     pagination: { limit: params.pagination.limit, offset: params.pagination.offset }
   }
@@ -264,6 +267,7 @@ export async function getAccountDetails (
     uuid: account.uuid,
     firstName: person?.firstName ?? '',
     lastName: person?.lastName ?? '',
+    primaryEmail: primaryEmail !== '' ? primaryEmail : null,
     status: account.disabledAt != null ? 'disabled' : 'active',
     disabledAt: toEpochMs(account.disabledAt),
     lastActivityAt: toEpochMs(account.lastActivityAt),

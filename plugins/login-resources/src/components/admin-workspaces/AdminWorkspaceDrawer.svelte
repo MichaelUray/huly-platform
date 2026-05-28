@@ -94,11 +94,7 @@
 
   async function onChangeRole (accountUuid: string, role: AccountRole): Promise<void> {
     try {
-      await client.setWorkspaceMemberRole({
-        accountUuid: accountUuid as any,
-        workspaceUuid: workspaceUuid as any,
-        newRole: role
-      })
+      await client.setWorkspaceMemberRole(accountUuid as any, workspaceUuid as any, role)
       await load()
     } catch (e: any) {
       err = e?.message ?? String(e)
@@ -116,10 +112,7 @@
       okLabel: getEmbeddedLabel('Remove'),
       dangerous: true,
       action: async () => {
-        await client.removeWorkspaceMember({
-          accountUuid: accountUuid as any,
-          workspaceUuid: workspaceUuid as any
-        })
+        await client.removeWorkspaceMember(accountUuid as any, workspaceUuid as any)
         await load()
       }
     })

@@ -281,7 +281,6 @@ export interface AccountListRow {
   lastName: string
   primaryEmail: string | null
   authMethods: Array<'email' | 'oidc'>
-  hasPassword: boolean
   workspaceCount: number
   status: 'active' | 'disabled'
   lastActivityAt: number | null
@@ -292,6 +291,7 @@ export interface AccountDetailsResponse {
   uuid: AccountUuid
   firstName: string
   lastName: string
+  primaryEmail: string | null
   status: 'active' | 'disabled'
   disabledAt: number | null
   lastActivityAt: number | null
