@@ -38,7 +38,10 @@
     }
 
     if (mounted) {
-      checkHandle = setTimeout(check, CHECK_INTERVAL)
+      // setTimeout's return type leaks NodeJS.Timeout via @types/node in the
+      // monorepo even though the runtime here is the browser (where it's a
+      // number). Coerce to keep the declared `number` variable type.
+      checkHandle = setTimeout(check, CHECK_INTERVAL) as unknown as number
     }
   }
 
