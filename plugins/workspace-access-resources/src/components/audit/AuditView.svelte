@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { Button, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload } from '@hcengineering/ui'
+  import { getEmbeddedLabel } from '@hcengineering/platform'
   import { AuditLogView, AuditLogExportButton } from '@hcengineering/access-management-ui'
   import { auditApi } from '../../api/auditApi'
   import { getEffectiveBearerToken } from '../../api/wacClient'
@@ -52,24 +54,39 @@
 
 <div class="audit-view" id="wac-panel-audit" role="tabpanel">
   <div class="toolbar">
-    <input
-      type="text"
-      placeholder="Action contains…"
-      bind:value={actionFilter}
-      on:change={() => refresh(true)}
-      data-test="audit-filter-action"
+    <div class="filter-input">
+      <EditBox
+        bind:value={actionFilter}
+        placeholder={getEmbeddedLabel('Action contains…')}
+        kind={'search-style'}
+        on:input={() => refresh(true)}
+      />
+    </div>
+    <div class="filter-input">
+      <EditBox
+        bind:value={actorFilter}
+        placeholder={getEmbeddedLabel('Actor contains…')}
+        kind={'search-style'}
+        on:input={() => refresh(true)}
+      />
+    </div>
+    <Button
+      kind={'ghost'}
+      size={'small'}
+      icon={IconClose}
+      label={getEmbeddedLabel('Clear')}
+      on:click={() => { actionFilter = ''; actorFilter = ''; void refresh(true) }}
     />
-    <input
-      type="text"
-      placeholder="Actor contains…"
-      bind:value={actorFilter}
-      on:change={() => refresh(true)}
-      data-test="audit-filter-actor"
-    />
-    <button class="ghost" on:click={() => { actionFilter = ''; actorFilter = ''; void refresh(true) }}>Clear filters</button>
     <span class="spacer"></span>
     {#if canExport}
-      <button class="export-trigger" on:click={() => (showDsgvoBanner = true)} data-test="audit-export-trigger">Export CSV…</button>
+      <Button
+        kind={'primary'}
+        size={'small'}
+        icon={IconDownload}
+        label={getEmbeddedLabel('Export CSV…')}
+        on:click={() => (showDsgvoBanner = true)}
+        dataId={'audit-export-trigger'}
+      />
     {/if}
   </div>
 
@@ -88,7 +105,12 @@
         </p>
         <p>The export is itself audit-logged.</p>
         <div class="actions">
-          <button class="ghost" on:click={() => (showDsgvoBanner = false)}>Cancel</button>
+          <Button
+            kind={'ghost'}
+            size={'small'}
+            label={getEmbeddedLabel('Cancel')}
+            on:click={() => (showDsgvoBanner = false)}
+          />
           <AuditLogExportButton
             endpoint={auditApi.exportUrl(workspace, { action: actionFilter, actor: actorFilter })}
             token={getEffectiveBearerToken()}
@@ -101,27 +123,20 @@
 </div>
 
 <style lang="scss">
-  .audit-view { display: flex; flex-direction: column; min-height: 100%; padding: 1rem 1.25rem; }
+  .audit-view { display: flex; flex-direction: column; min-height: 100%; padding: var(--spacing-2) 0; }
   .toolbar {
-    display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1rem;
-    input {
-      background: var(--theme-bg-color);
-      border: 1px solid var(--theme-divider-color);
-      color: var(--theme-caption-color);
-      padding: 0.35rem 0.6rem; border-radius: 0.25rem;
-    }
+    display: flex; gap: var(--spacing-1); align-items: center;
+    margin-bottom: var(--spacing-2);
+    flex-wrap: wrap;
+  }
+  .filter-input {
+    flex: 0 0 14rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--theme-bg-color);
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 0.25rem;
   }
   .spacer { flex: 1; }
-  .ghost {
-    background: transparent; border: 1px solid var(--theme-divider-color);
-    padding: 0.35rem 0.6rem; border-radius: 0.25rem;
-    color: var(--theme-darker-color); cursor: pointer; font-size: 0.85rem;
-    &:hover { color: var(--theme-caption-color); }
-  }
-  .export-trigger {
-    background: var(--theme-caption-color); color: var(--theme-bg-color);
-    border: 0; padding: 0.4rem 0.9rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.85rem;
-  }
   .err { background: rgba(239,68,68,0.1); color: #b91c1c; padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
   .dsgvo-modal {
     position: fixed; inset: 0; z-index: 970;

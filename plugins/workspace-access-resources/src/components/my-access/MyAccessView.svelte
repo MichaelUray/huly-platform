@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { TabList } from '@hcengineering/ui'
+  import { getEmbeddedLabel } from '@hcengineering/platform'
   import SpaceDrawer from '../resources/SpaceDrawer.svelte'
   import { myAccessApi, type MyAccessSummary } from '../../api/myAccessApi'
   import type { SpaceRow, GrantRow } from '../../types'
@@ -8,6 +10,13 @@
 
   type Sub = 'role' | 'member-of' | 'owned' | 'received' | 'given'
   let sub: Sub = 'role'
+  const subItems = [
+    { id: 'role', labelIntl: getEmbeddedLabel('My role') },
+    { id: 'member-of', labelIntl: getEmbeddedLabel("Spaces I'm in") },
+    { id: 'owned', labelIntl: getEmbeddedLabel('Spaces I own') },
+    { id: 'received', labelIntl: getEmbeddedLabel('Granted to me') },
+    { id: 'given', labelIntl: getEmbeddedLabel('Granted by me') }
+  ]
   let summary: MyAccessSummary | null = null
   let loading: boolean = true
   let error: string | null = null
@@ -49,12 +58,14 @@
 </script>
 
 <div class="my-access-view" id="wac-panel-my-access" role="tabpanel">
-  <div class="sub-tabs" role="tablist">
-    <button class:active={sub === 'role'} role="tab" aria-selected={sub === 'role'} data-test="my-sub-role" on:click={() => (sub = 'role')}>My role</button>
-    <button class:active={sub === 'member-of'} role="tab" aria-selected={sub === 'member-of'} data-test="my-sub-member-of" on:click={() => (sub = 'member-of')}>Spaces I'm in</button>
-    <button class:active={sub === 'owned'} role="tab" aria-selected={sub === 'owned'} data-test="my-sub-owned" on:click={() => (sub = 'owned')}>Spaces I own</button>
-    <button class:active={sub === 'received'} role="tab" aria-selected={sub === 'received'} data-test="my-sub-received" on:click={() => (sub = 'received')}>Granted to me</button>
-    <button class:active={sub === 'given'} role="tab" aria-selected={sub === 'given'} data-test="my-sub-given" on:click={() => (sub = 'given')}>Granted by me</button>
+  <div class="sub-tabs">
+    <TabList
+      items={subItems}
+      selected={sub}
+      kind={'separated'}
+      size={'small'}
+      on:select={(e) => { sub = e.detail.id }}
+    />
   </div>
 
   <div class="content">
@@ -134,14 +145,11 @@
 
 <style lang="scss">
   .my-access-view { display: flex; flex-direction: column; min-height: 100%; }
-  .sub-tabs { display: flex; gap: 0.25rem; padding: 0.5rem 1.25rem; border-bottom: 1px solid var(--theme-divider-color); }
-  .sub-tabs button {
-    background: transparent; border: 0; padding: 0.4rem 0.8rem; cursor: pointer;
-    color: var(--theme-darker-color); border-radius: 0.25rem; font-size: 0.9rem;
-    &:hover { background: var(--theme-bg-accent-color); }
-    &.active { background: var(--theme-bg-accent-color); color: var(--theme-caption-color); font-weight: 500; }
+  .sub-tabs {
+    padding: var(--spacing-1) 0 var(--spacing-2);
+    border-bottom: 1px solid var(--theme-divider-color);
   }
-  .content { padding: 1rem 1.25rem; }
+  .content { padding: var(--spacing-2) 0; }
   .big { font-size: 1.4rem; font-weight: 600; color: var(--theme-caption-color); }
   .hint { color: var(--theme-darker-color); font-size: 0.9rem; padding: 0.5rem 0; }
   .err { background: rgba(239,68,68,0.1); color: #b91c1c; padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
