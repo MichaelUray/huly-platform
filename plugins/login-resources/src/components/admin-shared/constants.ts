@@ -1,5 +1,7 @@
 //
 // Copyright © 2026 Hardcore Engineering Inc.
 //
+// Back-compat shim — see columnFilters.ts header.
+//
 
-export { DEBOUNCE_MS } from '@hcengineering/access-management-ui/src/utils/constants'
+export const DEBOUNCE_MS = 300
