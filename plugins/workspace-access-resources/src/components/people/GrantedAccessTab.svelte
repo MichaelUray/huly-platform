@@ -53,7 +53,7 @@
 
 <div class="granted">
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
-  <EntityTable items={items as any} {columns} {loading} idKey="resourceId">
+  <EntityTable items={items} {columns} {loading} idKey="resourceId">
     <svelte:fragment slot="cell" let:item let:col>
       {#if String(col.key) === 'resourceTitle' && canRevoke}
         <span class="row-with-action">

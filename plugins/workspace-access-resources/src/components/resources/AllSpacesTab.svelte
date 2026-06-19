@@ -51,7 +51,7 @@
 
 <div class="all-spaces">
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
-  <EntityTable items={items as any} {columns} {loading} {sort} idKey="_id"
+  <EntityTable items={items} {columns} {loading} {sort} idKey="_id"
     on:sort={onSort} on:rowClick={onRowClick}>
     <svelte:fragment slot="cell" let:item let:col>
       {#if String(col.key) === '_class'}

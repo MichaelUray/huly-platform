@@ -31,7 +31,7 @@
 
 <div class="pending">
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
-  <EntityTable items={items as any} {columns} {loading} idKey="id" />
+  <EntityTable items={items} {columns} {loading} idKey="id" />
 </div>
 
 <style lang="scss">

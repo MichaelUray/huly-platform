@@ -68,7 +68,7 @@
     <div class="err" role="alert">{error}</div>
   {/if}
   <EntityTable
-    items={items as any}
+    items={items}
     {columns}
     {loading}
     {sort}
