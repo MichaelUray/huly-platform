@@ -15,20 +15,36 @@
   $: info = map[cls] ?? { label: cls, emoji: '•', color: 'var(--theme-darker-color)' }
 </script>
 
-<span class="type-pill" style="--c: {info.color}">
-  <span class="emoji" aria-hidden="true">{info.emoji}</span>
-  <span class="label">{info.label}</span>
+<span class="type-row" style="--c: {info.color}">
+  <span class="type-circle" aria-hidden="true">
+    <span class="type-emoji">{info.emoji}</span>
+  </span>
+  <span class="type-label">{info.label}</span>
 </span>
 
 <style lang="scss">
-  .type-pill {
+  .type-row {
     display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    font-size: 0.8rem;
-    padding: 0.1rem 0.45rem;
-    border-radius: 0.25rem;
+    gap: var(--spacing-1);
+  }
+  .type-circle {
+    width: 1.5rem;
+    height: 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--c) 18%, transparent);
     color: var(--c);
-    background: color-mix(in srgb, var(--c) 14%, transparent);
+    flex: 0 0 auto;
+  }
+  .type-emoji {
+    font-size: 0.85rem;
+    line-height: 1;
+  }
+  .type-label {
+    font-size: 0.85rem;
+    color: var(--theme-content-color);
   }
 </style>
