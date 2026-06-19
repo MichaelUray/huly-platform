@@ -75,7 +75,7 @@
 
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
 
-  <AuditLogView entries={entries as any[]} mapper={workspaceAuditMapper} {loading} {cursor} on:loadMore={onLoadMore} />
+  <AuditLogView entries={entries} mapper={workspaceAuditMapper} {loading} {cursor} on:loadMore={onLoadMore} />
 
   {#if showDsgvoBanner}
     <div class="dsgvo-modal" role="dialog" aria-modal="true">
