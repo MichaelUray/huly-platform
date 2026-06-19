@@ -345,6 +345,11 @@
     /// CORE Modules
 
     {
+      "packageName": "@hcengineering/access-management-server",
+      "projectFolder": "foundations/access-management-server",
+      "shouldPublish": true
+    },
+    {
       "packageName": "@hcengineering/account-client",
       "projectFolder": "foundations/core/packages/account-client",
       "shouldPublish": true
@@ -728,6 +733,16 @@
     {
       "packageName": "@hcengineering/login-assets",
       "projectFolder": "plugins/login-assets",
+      "shouldPublish": false
+    },
+    {
+      "packageName": "@hcengineering/access-management-ui",
+      "projectFolder": "plugins/access-management-ui",
+      "shouldPublish": false
+    },
+    {
+      "packageName": "@hcengineering/workspace-access-resources",
+      "projectFolder": "plugins/workspace-access-resources",
       "shouldPublish": false
     },
     {
@@ -1714,6 +1729,11 @@
     {
       "packageName": "@hcengineering/server-view-resources",
       "projectFolder": "server-plugins/view-resources",
+      "shouldPublish": false
+    },
+    {
+      "packageName": "@hcengineering/server-workspace-access",
+      "projectFolder": "server-plugins/workspace-access",
       "shouldPublish": false
     },
     {

@@ -1,14 +1,10 @@
 //
 // Copyright © 2026 Hardcore Engineering Inc.
 //
+// Back-compat re-export from `@hcengineering/access-management-ui`. The
+// deep source path is intentional so Jest in this package can resolve
+// the helper without trying to evaluate the lib's Svelte components
+// (which would fail under ts-jest without svelte-jest).
+//
 
-// Merge a map of per-column filter partials into a single payload.
-// Each value is spread; later keys win on collision; null/undefined
-// entries (cleared filters) are skipped. Pure function — tested in
-// __tests__/columnFilters.test.ts.
-export function mergeColumnFilters (cf: Record<string, any>): Record<string, any> {
-  return Object.values(cf).reduce<Record<string, any>>((acc, partial) => {
-    if (partial == null) return acc
-    return { ...acc, ...partial }
-  }, {})
-}
+export { mergeColumnFilters } from '@hcengineering/access-management-ui/src/utils/mergeColumnFilters'
