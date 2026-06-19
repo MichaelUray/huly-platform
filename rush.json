@@ -1732,6 +1732,11 @@
       "shouldPublish": false
     },
     {
+      "packageName": "@hcengineering/server-workspace-access",
+      "projectFolder": "server-plugins/workspace-access",
+      "shouldPublish": false
+    },
+    {
       "packageName": "@hcengineering/server-activity",
       "projectFolder": "server-plugins/activity",
       "shouldPublish": false
