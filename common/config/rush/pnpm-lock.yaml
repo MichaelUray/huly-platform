@@ -26594,6 +26594,9 @@ importers:
       '@hcengineering/workbench-resources':
         specifier: workspace:^0.7.0
         version: link:../workbench-resources
+      '@hcengineering/workspace-access-resources':
+        specifier: workspace:^0.7.0
+        version: link:../workspace-access-resources
       qrcode:
         specifier: ^1.5.4
         version: 1.5.4

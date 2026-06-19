@@ -583,6 +583,109 @@ export function serveAccount (
 
   // ── End CSV Export routes ────────────────────────────────────────────────
 
+  // ── WAC (Workspace Access Center) stub routes ───────────────────────────
+  // First-cut endpoints for the WAC frontend running on huly.uray.io. They
+  // return shape-correct fixtures pulled from the existing account/admin
+  // surface so the UI is fully clickable end-to-end. Real backing of
+  // members/spaces/audit/grants from the workspace transactor is the
+  // next session's wiring job; tonight's deploy is about getting the
+  // surface live so flows can be exercised.
+
+  router.get('/api/wac/:workspace/members', async (ctx) => {
+    const token = extractToken(ctx.request.headers) ?? ''
+    const [db] = await accountsDb
+    try {
+      await assertAdmin(measureCtx.newChild('wac-members', {}), db, token)
+    } catch {
+      ctx.res.writeHead(403, KEEP_ALIVE_HEADERS)
+      ctx.res.end('{"error":"Forbidden"}')
+      return
+    }
+    const workspace = ctx.params.workspace as string
+    const { accounts } = await listAccountsAdmin(measureCtx, db, null, token, {
+      pagination: { limit: 100, offset: 0 }
+    })
+    const items = accounts.map((a: any) => ({
+      uuid: a.uuid,
+      name: `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim() || (a.primaryEmail ?? '—'),
+      email: a.primaryEmail ?? '',
+      role: a.isAdmin === true ? 'OWNER' : 'USER',
+      activityBucket: a.lastActivityAt == null
+        ? '90d+'
+        : (Date.now() - a.lastActivityAt) < 86400_000 ? 'today'
+        : (Date.now() - a.lastActivityAt) < 7 * 86400_000 ? '7d'
+        : (Date.now() - a.lastActivityAt) < 30 * 86400_000 ? '30d'
+        : '90d+',
+      spacesCount: a.workspaceCount ?? 0
+    }))
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({ items, cursor: null, _workspace: workspace }))
+  })
+
+  router.get('/api/wac/:workspace/invites', (ctx) => {
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({ items: [], cursor: null }))
+  })
+
+  router.get('/api/wac/:workspace/admins/count', (ctx) => {
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({ remaining: 2 }))
+  })
+
+  router.get('/api/wac/:workspace/spaces', (ctx) => {
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({
+      items: [
+        { _id: 'demo-space-1', _class: 'tracker.class.Project', name: 'Demo Project', ownerIds: [], membersCount: 0, private: false, autoJoin: false, archived: false },
+        { _id: 'demo-space-2', _class: 'document.class.Teamspace', name: 'Demo Teamspace', ownerIds: [], membersCount: 0, private: true, autoJoin: false, archived: false }
+      ],
+      cursor: null
+    }))
+  })
+
+  router.get('/api/wac/:workspace/spaces/:spaceId', (ctx) => {
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({
+      _id: ctx.params.spaceId,
+      _class: 'tracker.class.Project',
+      name: 'Demo Space',
+      ownerIds: [],
+      members: [],
+      membersCount: 0,
+      private: false,
+      autoJoin: false,
+      archived: false
+    }))
+  })
+
+  router.get('/api/wac/:workspace/audit', (ctx) => {
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({ items: [], cursor: null }))
+  })
+
+  router.get('/api/wac/:workspace/grants', (ctx) => {
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({ items: [], cursor: null }))
+  })
+
+  router.get('/api/wac/:workspace/grants/count', (ctx) => {
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({ count: 0 }))
+  })
+
+  router.get('/api/wac/:workspace/my-access', (ctx) => {
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({
+      role: 'OWNER',
+      spacesMemberOf: [],
+      spacesOwned: [],
+      grantsReceived: [],
+      grantsGiven: []
+    }))
+  })
+
+  // ── End WAC stub routes ─────────────────────────────────────────────────
+
   app.use(router.routes()).use(router.allowedMethods())
 
   const server = app.listen(ACCOUNT_PORT, () => {

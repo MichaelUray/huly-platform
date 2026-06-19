@@ -200,7 +200,8 @@ export default plugin(settingId, {
     OfficeSettings: '' as Ref<Doc>,
     DisablePermissionsConfiguration: '' as Ref<Configuration>,
     Mailboxes: '' as Ref<Doc>,
-    Security: '' as Ref<Doc>
+    Security: '' as Ref<Doc>,
+    AccessCenter: '' as Ref<Doc>
   },
   mixin: {
     Editable: '' as Ref<Mixin<Editable>>,
@@ -246,7 +247,8 @@ export default plugin(settingId, {
     AddEmailSocialId: '' as AnyComponent,
     OfficeSettings: '' as AnyComponent,
     UserRoleSelect: '' as AnyComponent,
-    TwoFactorSettings: '' as AnyComponent
+    TwoFactorSettings: '' as AnyComponent,
+    AccessCenter: '' as AnyComponent
   },
   string: {
     Settings: '' as IntlString,
@@ -277,6 +279,7 @@ export default plugin(settingId, {
     ClassSetting: '' as IntlString,
     Classes: '' as IntlString,
     Members: '' as IntlString,
+    AccessCenter: '' as IntlString,
     Configure: '' as IntlString,
     InviteSettings: '' as IntlString,
     RoleCapabilitySettings: '' as IntlString,
@@ -377,7 +380,8 @@ export default plugin(settingId, {
     Relations: '' as Asset,
     Mailbox: '' as Asset,
     OfficeSettings: '' as Asset,
-    Reset: '' as Asset
+    Reset: '' as Asset,
+    AccessCenter: '' as Asset
   },
   templateFieldCategory: {
     Integration: '' as Ref<TemplateFieldCategory>
