@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "Ayar",
-    "Spaces": "Alanlar",
+    "Spaces": "Genel alan yöneticileri",
     "Integrations": "Entegrasyonlar",
     "Support": "Destek",
     "Privacy": "Gizlilik",
@@ -67,7 +67,7 @@
     "NewValue": "Yeni değer",
     "Leave": "Çalışma alanından ayrıl",
     "LeaveDescr": "Çalışma alanından ayrılmak istediğinizden emin misiniz? Bu işlem geri alınamaz.",
-    "Members": "Üyeler",
+    "Members": "Çalışma alanı üyeleri",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "Çalışma alanı ayarları",
     "Select": "Seç",
@@ -111,7 +111,7 @@
     "Automations": "Otomasyonlar",
     "Collections": "Koleksiyonlar",
     "ClassColon": "Sınıf:",
-    "SpaceTypes": "Alan tipleri",
+    "SpaceTypes": "Gelişmiş / Şema",
     "NewSpaceType": "Yeni alan tipi",
     "SpaceTypeTitle": "Alan tipi başlığı",
     "General": "Genel",

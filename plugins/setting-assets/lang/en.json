@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "Setting",
-    "Spaces": "Spaces",
+    "Spaces": "Global Space Admins",
     "Integrations": "Integrations",
     "Support": "Support",
     "Privacy": "Privacy",
@@ -67,7 +67,7 @@
     "NewValue": "New value",
     "Leave": "Leave workspace",
     "LeaveDescr": "Are you sure you want to leave the workspace? This action cannot be undone.",
-    "Members": "Members",
+    "Members": "Workspace Members",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "Workspace settings",
     "Select": "Select",
@@ -111,7 +111,7 @@
     "Automations": "Automations",
     "Collections": "Collections",
     "ClassColon": "Class:",
-    "SpaceTypes": "Space types",
+    "SpaceTypes": "Advanced / Schema",
     "NewSpaceType": "New space type",
     "SpaceTypeTitle": "Space type title",
     "General": "General",

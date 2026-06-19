@@ -1214,27 +1214,37 @@ export function serveAccount (
       try {
         if (workspaceUuid != null) {
           const rows = await pg.execute(
-            `SELECT "_id" AS resource_id, "_class" AS resource_class,
-                    collaborator AS recipient,
-                    attachedTo AS resource,
-                    "attachedToClass" AS attached_class,
-                    "createdBy" AS granter,
-                    "createdOn"::text AS granted_at
-             FROM collaborator
-             WHERE "workspaceId"=$1
-             ORDER BY "createdOn" DESC LIMIT 200`,
+            `SELECT c."_id" AS resource_id,
+                    c.collaborator AS recipient,
+                    c."attachedTo" AS resource,
+                    c."attachedToClass" AS attached_class,
+                    c."createdBy" AS granter,
+                    c."createdOn"::text AS granted_at,
+                    rp.first_name AS recipient_first, rp.last_name AS recipient_last,
+                    re.value AS recipient_email,
+                    gp.first_name AS granter_first, gp.last_name AS granter_last
+             FROM collaborator c
+             LEFT JOIN global_account.person rp ON rp.uuid::text = c.collaborator
+             LEFT JOIN global_account.social_id re ON re.person_uuid::text = c.collaborator AND re.type='email'
+             LEFT JOIN global_account.person gp ON gp.uuid::text = c."createdBy"
+             WHERE c."workspaceId"=$1
+             ORDER BY c."createdOn" DESC LIMIT 200`,
             [workspaceUuid]
           )
-          const items = (rows as any[]).map((r) => ({
-            recipientUuid: r.recipient ?? 'unknown',
-            recipientName: r.recipient ?? 'unknown',
-            granterUuid: r.granter ?? 'system',
-            granterName: r.granter ?? 'system',
-            resourceId: r.resource ?? r.resource_id,
-            resourceClass: String(r.attached_class ?? r.resource_class ?? '').replace(/:/g, '.'),
-            resourceTitle: r.attached_class ?? 'Resource',
-            grantedAt: r.granted_at
-          }))
+          const items = (rows as any[]).map((r) => {
+            const recipName = `${r.recipient_first ?? ''} ${r.recipient_last ?? ''}`.trim() || r.recipient_email || r.recipient || 'unknown'
+            const grantName = `${r.granter_first ?? ''} ${r.granter_last ?? ''}`.trim() || r.granter || 'system'
+            return {
+              recipientUuid: r.recipient ?? 'unknown',
+              recipientName: recipName,
+              granterUuid: r.granter ?? 'system',
+              granterName: grantName,
+              resourceId: r.resource ?? r.resource_id,
+              resourceClass: String(r.attached_class ?? '').replace(/:/g, '.'),
+              resourceTitle: String(r.attached_class ?? 'Resource').replace(/.*:class:/, ''),
+              grantedAt: r.granted_at
+            }
+          })
           return json(200, { items, cursor: null })
         }
       } catch (err) {

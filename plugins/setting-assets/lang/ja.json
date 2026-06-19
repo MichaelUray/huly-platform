@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "設定",
-    "Spaces": "スペース",
+    "Spaces": "グローバルスペース管理者",
     "Integrations": "連携",
     "Support": "サポート",
     "Privacy": "プライバシー",
@@ -67,7 +67,7 @@
     "NewValue": "新しい値",
     "Leave": "ワークスペースを退出",
     "LeaveDescr": "本当にワークスペースを退出しますか？この操作は元に戻せません。",
-    "Members": "メンバー",
+    "Members": "ワークスペースメンバー",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "ワークスペース設定",
     "Select": "選択",
@@ -111,7 +111,7 @@
     "Automations": "自動化",
     "Collections": "コレクション",
     "ClassColon": "クラス:",
-    "SpaceTypes": "スペースタイプ",
+    "SpaceTypes": "詳細 / スキーマ",
     "NewSpaceType": "新しいスペースタイプ",
     "SpaceTypeTitle": "スペースタイプのタイトル",
     "General": "一般",

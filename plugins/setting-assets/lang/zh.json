@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "设置",
-    "Spaces": "空间",
+    "Spaces": "全局空间管理员",
     "Integrations": "集成",
     "Support": "支持",
     "Privacy": "隐私",
@@ -67,7 +67,7 @@
     "NewValue": "新值",
     "Leave": "离开工作区",
     "LeaveDescr": "您确定要离开工作区吗？此操作无法撤销。",
-    "Members": "成员",
+    "Members": "工作区成员",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "工作区设置",
     "Select": "选择",
@@ -111,7 +111,7 @@
     "Automations": "自动化",
     "Collections": "集合",
     "ClassColon": "类别：",
-    "SpaceTypes": "空间类型",
+    "SpaceTypes": "高级 / 模式",
     "NewSpaceType": "新空间类型",
     "SpaceTypeTitle": "空间类型标题",
     "General": "常规",

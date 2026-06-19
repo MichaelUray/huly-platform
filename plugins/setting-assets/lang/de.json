@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "Einstellung",
-    "Spaces": "Bereiche",
+    "Spaces": "Globale Space-Admins",
     "Integrations": "Integrationen",
     "Support": "Support",
     "Privacy": "Datenschutz",
@@ -67,7 +67,7 @@
     "NewValue": "Neuer Wert",
     "Leave": "Arbeitsbereich verlassen",
     "LeaveDescr": "Sind Sie sicher, dass Sie den Arbeitsbereich verlassen möchten? Diese Aktion kann nicht rückgängig gemacht werden.",
-    "Members": "Mitglieder",
+    "Members": "Workspace-Mitglieder",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "Arbeitsbereich-Einstellungen",
     "Select": "Auswählen",
@@ -111,7 +111,7 @@
     "Automations": "Automatisierungen",
     "Collections": "Sammlungen",
     "ClassColon": "Klasse:",
-    "SpaceTypes": "Bereichstypen",
+    "SpaceTypes": "Erweitert / Schema",
     "NewSpaceType": "Neuer Bereichstyp",
     "SpaceTypeTitle": "Bereichstyp-Titel",
     "General": "Allgemein",

@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "Configuração",
-    "Spaces": "Espaços",
+    "Spaces": "Administradores globais dos espaços",
     "Integrations": "Integrações",
     "Support": "Suporte",
     "Privacy": "Privacidade",
@@ -67,7 +67,7 @@
     "NewValue": "Novo valor",
     "Leave": "Sair do espaço de trabalho",
     "LeaveDescr": "Tem certeza de que deseja sair do espaço de trabalho? Esta ação não pode ser desfeita.",
-    "Members": "Membros",
+    "Members": "Membros do workspace",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "Configurações do espaço de trabalho",
     "Select": "Selecionar",
