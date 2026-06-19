@@ -15,7 +15,8 @@ export interface WacClientOpts {
 
 export class WacClient {
   private readonly baseUrl: string
-  private readonly getToken: () => string | null
+  /** Public so the export button + tests can reach the active token. */
+  readonly getToken: () => string | null
 
   constructor (opts: WacClientOpts) {
     this.baseUrl = opts.baseUrl ?? '/api/wac'
@@ -85,4 +86,22 @@ export function getDefaultWacClient (): WacClient {
     })
   }
   return defaultClient
+}
+
+/**
+ * Returns the effective bearer token for outbound requests — the
+ * impersonation token if active, else whatever the registered WAC
+ * client's `getToken` returns (the regular workspace token). Used by
+ * the CSV export button which needs to authenticate every request
+ * (the previous version sent NO Authorization header when there was
+ * no impersonation session, breaking exports for regular Owner /
+ * Maintainer callers).
+ */
+export function getEffectiveBearerToken (): string | null {
+  if (typeof window !== 'undefined') {
+    const imp = window.sessionStorage.getItem('wac:imp:token')
+    if (imp != null) return imp
+  }
+  // Fallback to whatever the client is configured to issue.
+  return getDefaultWacClient().getToken() ?? null
 }

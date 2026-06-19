@@ -26,14 +26,19 @@ export interface EditCtx extends RoleCtx, ImpersonationCtx {
   token: { audience?: string; workspace?: string }
   isSpaceOwner: (space: string) => Promise<boolean>
   loadSpace: (space: string) => Promise<SpaceShape & { _class: string }>
-  applyMembersUpdate: (space: string, next: string[]) => Promise<void>
-  applyOwnersUpdate: (space: string, next: string[]) => Promise<void>
+  // Each apply function takes a `domain` handle issued by the audit
+  // wrapper's tx.begin so the domain write commits atomically with
+  // the audit rows. The concrete shape of `domain` is opaque to this
+  // layer; the wiring PR types it (e.g. pg.PoolClient).
+  applyMembersUpdate: (domain: unknown, space: string, next: string[]) => Promise<void>
+  applyOwnersUpdate: (domain: unknown, space: string, next: string[]) => Promise<void>
   applyFlagUpdate: (
+    domain: unknown,
     space: string,
     flag: 'private' | 'autoJoin' | 'archived',
     value: boolean
   ) => Promise<void>
-  applyRoleUpdate: (target: string, role: string) => Promise<void>
+  applyRoleUpdate: (domain: unknown, target: string, role: string) => Promise<void>
   spaceOwnerCtx: (space: SpaceShape) => SpaceOwnerEditCtx
 }
 
@@ -93,8 +98,8 @@ export async function setSpaceMembers (ctx: EditCtx, p: MembershipEdit): Promise
     ctx,
     'space_members_changed',
     { target_space: p.space, target_space_class: space._class, old: space.members, new: p.members },
-    async () => {
-      await ctx.applyMembersUpdate(p.space, p.members)
+    async (txCtx) => {
+      await ctx.applyMembersUpdate(txCtx.domain, p.space, p.members)
     }
   )
 }
@@ -111,8 +116,8 @@ export async function setSpaceOwners (ctx: EditCtx, p: OwnersEdit): Promise<void
     ctx,
     'space_owners_changed',
     { target_space: p.space, target_space_class: space._class, old: space.owners, new: p.owners },
-    async () => {
-      await ctx.applyOwnersUpdate(p.space, p.owners)
+    async (txCtx) => {
+      await ctx.applyOwnersUpdate(txCtx.domain, p.space, p.owners)
     }
   )
 }
@@ -130,8 +135,8 @@ async function setSpaceFlag (ctx: EditCtx, p: FlagEdit, flag: 'private' | 'autoJ
     ctx,
     action,
     { target_space: p.space, target_space_class: space._class, old: (space as any)[flag], new: p.value },
-    async () => {
-      await ctx.applyFlagUpdate(p.space, flag, p.value)
+    async (txCtx) => {
+      await ctx.applyFlagUpdate(txCtx.domain, p.space, flag, p.value)
     }
   )
 }
@@ -165,8 +170,8 @@ export async function setWorkspaceMemberRole (
     ctx,
     'role_changed',
     { target_account: p.target, old: { role: oldRole }, new: { role: p.role } },
-    async () => {
-      await ctx.applyRoleUpdate(p.target, p.role)
+    async (txCtx) => {
+      await ctx.applyRoleUpdate(txCtx.domain, p.target, p.role)
     }
   )
 }

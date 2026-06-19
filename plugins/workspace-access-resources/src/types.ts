@@ -14,7 +14,13 @@ export type EffectiveRole =
   | 'SPACE_OWNER_SCOPED'
   | 'USER_SELF_SCOPED'
   | 'GUEST'
+  /** Active impersonation session — read+write, dual-audited. */
   | 'IMPERSONATING_ADMIN'
+  /** Instance-Admin drilled into WAC from #10883 admin panel WITHOUT
+   * starting an impersonation session — read-only blue banner state.
+   * Distinct from IMPERSONATING_ADMIN because no audit entries are
+   * emitted from this surface and no edits are possible. */
+  | 'INSTANCE_ADMIN_READONLY'
 
 export type ActivityBucket = 'today' | '7d' | '30d' | '90d+'
 
@@ -45,6 +51,15 @@ export interface SpaceRow {
   private: boolean
   autoJoin: boolean
   archived: boolean
+}
+
+/**
+ * Full Space detail returned by `resourcesApi.getSpace`. Distinct from
+ * `SpaceRow` so the listSpaces endpoint can omit the (potentially large)
+ * `members` list for performance while the drawer still gets it.
+ */
+export interface SpaceDetail extends SpaceRow {
+  members: string[]
 }
 
 export interface AuditRow {

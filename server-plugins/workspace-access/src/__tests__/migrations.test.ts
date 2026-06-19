@@ -28,6 +28,13 @@ describe('migrations', () => {
     expect(v33).toContain('NOT EXISTS')
   })
 
+  it('V33 is wrapped in a presence check for the workspaces table', () => {
+    const v33 = migrations[2].sql
+    // No-op on installs that don't have a workspaces table — protects
+    // the migration runner from crashing on bare bootstraps.
+    expect(v33).toContain("table_name = 'workspaces'")
+  })
+
   it('all migrations are forward-only with IF NOT EXISTS guards', () => {
     for (const m of [migrations[0], migrations[1]]) {
       expect(m.sql.toUpperCase()).toContain('IF NOT EXISTS')

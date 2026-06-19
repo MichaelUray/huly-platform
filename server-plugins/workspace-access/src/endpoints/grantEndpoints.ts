@@ -33,7 +33,14 @@ export interface GrantRow {
 export interface GrantBackend {
   list: (workspace: string, opts: { cursor?: string; filter?: Record<string, unknown>; limit: number }) => Promise<{ items: GrantRow[]; cursor: string | null }>
   count: (workspace: string) => Promise<number>
-  revoke: (workspace: string, recipientUuid: string, resourceId: string) => Promise<{ resourceClass: string }>
+  /**
+   * Pre-fetch the resource's class for audit annotation. Returns
+   * `null` if the grant doesn't exist (caller treats this as a
+   * grant_already_revoked condition).
+   */
+  resolveResourceClass: (workspace: string, recipientUuid: string, resourceId: string) => Promise<string | null>
+  /** Apply the revocation inside the wrapper's transaction. */
+  revoke: (domain: unknown, workspace: string, recipientUuid: string, resourceId: string) => Promise<{ resourceClass: string }>
 }
 
 export interface GrantCtx extends RoleCtx, ImpersonationCtx {
@@ -84,20 +91,23 @@ export async function revokeGrant (
   if (!isOwner && !isCreator) {
     throw new Forbidden(`grant_revoke_not_allowed:${role}`)
   }
+  // Resolve resource class BEFORE the audit so we can record it as
+  // `target_space_class`. The previous version discarded the class
+  // returned by backend.revoke after the audit row had already been
+  // written, leaving forensics without the resource type.
+  const resourceClass = await backend.resolveResourceClass(p.workspace, p.recipientUuid, p.resourceId)
+  if (resourceClass == null) throw new Forbidden('grant_not_found')
+
   await withImpersonationAudit(
     ctx,
     'grant_revoked',
     {
       target_account: p.recipientUuid,
-      target_space: p.resourceId
+      target_space: p.resourceId,
+      target_space_class: resourceClass
     },
-    async () => {
-      const { resourceClass } = await backend.revoke(p.workspace, p.recipientUuid, p.resourceId)
-      // Re-issue audit with the resource class now known (the wrapper
-      // already wrote the row; this is metadata enrichment is best done
-      // inside backend.revoke for atomicity in production — kept simple
-      // here for the v1 plugin contract).
-      void resourceClass
+    async (txCtx) => {
+      await backend.revoke(txCtx.domain, p.workspace, p.recipientUuid, p.resourceId)
     }
   )
 }

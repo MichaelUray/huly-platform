@@ -23,7 +23,8 @@ function makeCtx (overrides: any = {}): EditCtx & LastAdminCheck {
       begin: async <T>(fn: (txCtx: any) => Promise<T>): Promise<T> => {
         return await fn({
           ws: async (e: any) => audited.push(e),
-          admin: async (e: any) => adminCalls.push(e)
+          admin: async (e: any) => adminCalls.push(e),
+          domain: { kind: 'fake-tx' }
         })
       }
     },
@@ -56,7 +57,7 @@ describe('setSpaceMembers', () => {
   it('Owner can change members and writes audit', async () => {
     const ctx = makeCtx()
     await setSpaceMembers(ctx, { workspace: 'ws1', space: 's1', members: ['u1', 'u3'] })
-    expect(ctx.applyMembersUpdate).toHaveBeenCalledWith('s1', ['u1', 'u3'])
+    expect(ctx.applyMembersUpdate).toHaveBeenCalledWith({ kind: 'fake-tx' }, 's1', ['u1', 'u3'])
     expect((ctx as any).audited[0].action).toBe('space_members_changed')
   })
 
@@ -91,7 +92,7 @@ describe('setSpaceOwners', () => {
   it('Owner can change owners', async () => {
     const ctx = makeCtx()
     await setSpaceOwners(ctx, { workspace: 'ws1', space: 's1', owners: ['u1', 'u3'] })
-    expect(ctx.applyOwnersUpdate).toHaveBeenCalledWith('s1', ['u1', 'u3'])
+    expect(ctx.applyOwnersUpdate).toHaveBeenCalledWith({ kind: 'fake-tx' }, 's1', ['u1', 'u3'])
   })
 
   it('Space-Owner rejected if removing self as last owner', async () => {
@@ -122,7 +123,7 @@ describe('setSpacePrivacy', () => {
   it('Owner can toggle privacy', async () => {
     const ctx = makeCtx()
     await setSpacePrivacy(ctx, { workspace: 'ws1', space: 's1', value: true })
-    expect(ctx.applyFlagUpdate).toHaveBeenCalledWith('s1', 'private', true)
+    expect(ctx.applyFlagUpdate).toHaveBeenCalledWith({ kind: 'fake-tx' }, 's1', 'private', true)
   })
 })
 
@@ -137,6 +138,6 @@ describe('setWorkspaceMemberRole', () => {
   it('allows demoting an Owner when others remain', async () => {
     const ctx = makeCtx({ remainingOwnersAfter: async () => 2 })
     await setWorkspaceMemberRole(ctx, { workspace: 'ws1', target: 'u2', role: 'USER' }, 'OWNER')
-    expect(ctx.applyRoleUpdate).toHaveBeenCalledWith('u2', 'USER')
+    expect(ctx.applyRoleUpdate).toHaveBeenCalledWith({ kind: 'fake-tx' }, 'u2', 'USER')
   })
 })

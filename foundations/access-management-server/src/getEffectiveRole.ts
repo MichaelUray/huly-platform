@@ -13,7 +13,10 @@ export type EffectiveRole =
   | 'SPACE_OWNER_SCOPED'
   | 'USER_SELF_SCOPED'
   | 'GUEST'
+  /** Active impersonation session — read+write, dual-audited. */
   | 'IMPERSONATING_ADMIN'
+  /** Instance-Admin drill-down WITHOUT impersonation — read-only. */
+  | 'INSTANCE_ADMIN_READONLY'
 
 export interface RoleCtx {
   account: { uuid: string }
@@ -23,10 +26,17 @@ export interface RoleCtx {
     ownedSpaces: string[]
   }
   isImpersonating: boolean
+  /**
+   * True when the caller is an Instance-Admin viewing the workspace
+   * via the #10883 drill-down WITHOUT having started impersonation.
+   * Mutually exclusive with `isImpersonating`.
+   */
+  isInstanceAdminReadOnly?: boolean
 }
 
 export async function getEffectiveRole (ctx: RoleCtx, _workspace: string): Promise<EffectiveRole> {
   if (ctx.isImpersonating) return 'IMPERSONATING_ADMIN'
+  if (ctx.isInstanceAdminReadOnly === true) return 'INSTANCE_ADMIN_READONLY'
   const { role, ownedSpaces } = ctx.membership
   if (role === 'OWNER') return 'OWNER'
   if (role === 'MAINTAINER') {
@@ -43,7 +53,8 @@ export const READ_ALLOWED_ROLES: ReadonlyArray<EffectiveRole> = [
   'OWNER',
   'MAINTAINER',
   'MAINTAINER_PLUS_SPACE_OWNER',
-  'IMPERSONATING_ADMIN'
+  'IMPERSONATING_ADMIN',
+  'INSTANCE_ADMIN_READONLY'
 ]
 
 /**

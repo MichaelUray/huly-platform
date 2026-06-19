@@ -2,7 +2,7 @@
   import { onMount } from 'svelte'
   import { AuditLogView, AuditLogExportButton } from '@hcengineering/access-management-ui'
   import { auditApi } from '../../api/auditApi'
-  import { getImpersonationToken } from '../../stores/impersonationStore'
+  import { getEffectiveBearerToken } from '../../api/wacClient'
   import { workspaceAuditMapper } from './workspaceAuditMapper'
   import type { AuditRow } from '../../types'
 
@@ -91,7 +91,7 @@
           <button class="ghost" on:click={() => (showDsgvoBanner = false)}>Cancel</button>
           <AuditLogExportButton
             endpoint={auditApi.exportUrl(workspace, { action: actionFilter, actor: actorFilter })}
-            token={getImpersonationToken()}
+            token={getEffectiveBearerToken()}
             on:exported={onConfirmExport}
           />
         </div>

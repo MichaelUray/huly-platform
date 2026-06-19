@@ -128,6 +128,38 @@ describe('endImpersonation', () => {
     }))
     expect(disconnect).toHaveBeenCalledWith(start.jti)
   })
+
+  it('passes REMAINING TTL (not absolute exp) to revocation.revoke', async () => {
+    let t = 1000
+    const revokeSpy = jest.fn()
+    const d = deps({
+      now: () => t,
+      revocation: { revoke: revokeSpy, isRevoked: async () => false }
+    })
+    const start = await startImpersonation(d, { admin: { uuid: 'admin1' } }, 'ws1')
+    // Advance time by 5 minutes; remaining TTL should be 25 min = 1500s.
+    t = 1000 + 5 * 60
+    await endImpersonation(d, start.impersonationToken)
+    const [jti, ttl] = revokeSpy.mock.calls[0]
+    expect(jti).toBe(start.jti)
+    expect(ttl).toBe(25 * 60)
+    // And not the absolute exp.
+    expect(ttl).not.toBe(start.exp)
+  })
+
+  it('clamps remaining TTL to >=0 when token already expired at end-time', async () => {
+    let t = 1000
+    const revokeSpy = jest.fn()
+    const d = deps({
+      now: () => t,
+      revocation: { revoke: revokeSpy, isRevoked: async () => false }
+    })
+    const start = await startImpersonation(d, { admin: { uuid: 'admin1' } }, 'ws1')
+    t = start.exp + 100
+    await endImpersonation(d, start.impersonationToken)
+    const [, ttl] = revokeSpy.mock.calls[0]
+    expect(ttl).toBe(0)
+  })
 })
 
 describe('exported constants', () => {

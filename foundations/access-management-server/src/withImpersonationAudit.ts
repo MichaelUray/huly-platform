@@ -8,6 +8,15 @@
 // transaction as the underlying domain operation — the wrapper does
 // not commit if any of them throws.
 //
+// Atomicity contract: the `exec` callback receives the same `txCtx`
+// that the audit writers use. Callers MUST route their domain write
+// through that handle (e.g. `txCtx.domain.update(...)`) — passing a
+// connection from outside the wrapper would leak the domain write
+// outside the transaction even though the audit rows roll back. The
+// `domain` field is a generic carrier; runtime wiring picks an
+// implementation-specific shape (a SQL transaction, a Huly TxRunner,
+// etc.) when constructing the ctx.
+//
 
 import type { WorkspaceAuditEntry, AdminAuditEntry } from './AuditLogger'
 
@@ -23,9 +32,20 @@ export interface ImpersonationCtx {
   instanceAdminUuid?: string
 }
 
-export interface TxCtx {
+export interface TxCtx<DomainHandle = unknown> {
+  /** Workspace audit writer, scoped to the same transaction as `domain`. */
   ws: (entry: WorkspaceAuditEntry) => Promise<void>
+  /** Admin audit writer, same transaction scope. */
   admin: (entry: AdminAuditEntry) => Promise<void>
+  /**
+   * Domain operation handle. Concrete shape depends on the wiring
+   * layer — for the Postgres-backed account-server this is the active
+   * pg.PoolClient inside a `BEGIN`; for the Huly transactor it's the
+   * TxRunner that scopes the same logical commit. Callers MUST use
+   * this handle to perform their domain write so it lands inside the
+   * same transaction as the audit entries.
+   */
+  domain: DomainHandle
 }
 
 export interface WACPayload {
@@ -36,14 +56,17 @@ export interface WACPayload {
   new?: unknown
 }
 
-export async function withImpersonationAudit<T> (
+export async function withImpersonationAudit<T, DomainHandle = unknown> (
   ctx: ImpersonationCtx,
   action: string,
   payload: WACPayload,
-  exec: () => Promise<T>
+  exec: (txCtx: TxCtx<DomainHandle>) => Promise<T>
 ): Promise<T> {
   return await ctx.tx.begin(async (txCtx) => {
-    const result = await exec()
+    // Domain write FIRST (so the audit reflects the post-state). All
+    // throws bubble and abort the surrounding transaction so neither
+    // the domain change nor the audit entries commit.
+    const result = await exec(txCtx as TxCtx<DomainHandle>)
 
     await txCtx.ws({
       workspace: ctx.workspace,

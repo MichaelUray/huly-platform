@@ -46,6 +46,16 @@ describe('getEffectiveRole', () => {
     const role = await getEffectiveRole(baseCtx({ isImpersonating: true }), 'ws')
     expect(role).toBe('IMPERSONATING_ADMIN')
   })
+
+  it('returns INSTANCE_ADMIN_READONLY for drill-down without impersonation', async () => {
+    const role = await getEffectiveRole(baseCtx({ isInstanceAdminReadOnly: true }), 'ws')
+    expect(role).toBe('INSTANCE_ADMIN_READONLY')
+  })
+
+  it('isImpersonating takes precedence over readonly drill-down flag', async () => {
+    const role = await getEffectiveRole(baseCtx({ isImpersonating: true, isInstanceAdminReadOnly: true }), 'ws')
+    expect(role).toBe('IMPERSONATING_ADMIN')
+  })
 })
 
 describe('role gate sets', () => {
@@ -58,6 +68,11 @@ describe('role gate sets', () => {
   })
   it('IMPERSONATING_ADMIN is in WRITE_ALLOWED_ROLES', () => {
     expect(WRITE_ALLOWED_ROLES.includes('IMPERSONATING_ADMIN')).toBe(true)
+  })
+
+  it('INSTANCE_ADMIN_READONLY can read but NOT write', () => {
+    expect(READ_ALLOWED_ROLES.includes('INSTANCE_ADMIN_READONLY')).toBe(true)
+    expect(WRITE_ALLOWED_ROLES.includes('INSTANCE_ADMIN_READONLY')).toBe(false)
   })
   it('USER_SELF_SCOPED is not in READ_ALLOWED_ROLES (read is gated workspace-wide)', () => {
     expect(READ_ALLOWED_ROLES.includes('USER_SELF_SCOPED')).toBe(false)

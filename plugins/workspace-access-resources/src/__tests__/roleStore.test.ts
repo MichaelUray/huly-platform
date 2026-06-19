@@ -32,6 +32,12 @@ describe('effectiveRole resolver', () => {
     impersonationStore.set({ state: 'active', exp: 9999, ref: 'r', workspace: 'ws' })
     expect(get(effectiveRole)).toBe('IMPERSONATING_ADMIN')
   })
+
+  it('returns INSTANCE_ADMIN_READONLY (NOT IMPERSONATING_ADMIN) for drill-down', () => {
+    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: [] })
+    impersonationStore.set({ state: 'drill-down', exp: null, ref: null, workspace: 'ws' })
+    expect(get(effectiveRole)).toBe('INSTANCE_ADMIN_READONLY')
+  })
 })
 
 describe('role gate helpers', () => {
@@ -41,13 +47,16 @@ describe('role gate helpers', () => {
     expect(canEdit('MAINTAINER')).toBe(false)
     expect(canEdit('USER_SELF_SCOPED')).toBe(false)
     expect(canEdit('GUEST')).toBe(false)
+    // Blue-banner drill-down MUST NOT be editable.
+    expect(canEdit('INSTANCE_ADMIN_READONLY')).toBe(false)
   })
 
-  it('canReadWorkspaceWide for OWNER/MAINTAINER variants/IMPERSONATING_ADMIN', () => {
+  it('canReadWorkspaceWide for OWNER/MAINTAINER variants/IMPERSONATING_ADMIN/INSTANCE_ADMIN_READONLY', () => {
     expect(canReadWorkspaceWide('OWNER')).toBe(true)
     expect(canReadWorkspaceWide('MAINTAINER')).toBe(true)
     expect(canReadWorkspaceWide('MAINTAINER_PLUS_SPACE_OWNER')).toBe(true)
     expect(canReadWorkspaceWide('IMPERSONATING_ADMIN')).toBe(true)
+    expect(canReadWorkspaceWide('INSTANCE_ADMIN_READONLY')).toBe(true)
     expect(canReadWorkspaceWide('USER_SELF_SCOPED')).toBe(false)
     expect(canReadWorkspaceWide('SPACE_OWNER_SCOPED')).toBe(false)
     expect(canReadWorkspaceWide('GUEST')).toBe(false)

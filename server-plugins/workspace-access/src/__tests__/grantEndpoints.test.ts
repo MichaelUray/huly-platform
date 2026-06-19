@@ -20,7 +20,10 @@ function ctx (overrides: any = {}): GrantCtx & { isGrantCreator?: any } {
     workspace: 'ws1',
     actorUuid: 'u1',
     actorRole: 'workspace_owner',
-    tx: { begin: async <T>(fn: (txCtx: any) => Promise<T>) => await fn({ ws: async () => undefined, admin: async () => undefined }) },
+    tx: {
+      begin: async <T>(fn: (txCtx: any) => Promise<T>) =>
+        await fn({ ws: async () => undefined, admin: async () => undefined, domain: { kind: 'fake-tx' } })
+    },
     ...overrides
   } as any
 }
@@ -29,6 +32,7 @@ function makeBackend (overrides: Partial<GrantBackend> = {}): GrantBackend {
   return {
     list: async () => ({ items: [sampleGrant], cursor: null }),
     count: async () => 1,
+    resolveResourceClass: async () => 'tracker.class.Issue',
     revoke: async () => ({ resourceClass: 'tracker.class.Issue' }),
     ...overrides
   }
@@ -64,7 +68,41 @@ describe('revokeGrant', () => {
     const revokeFn = jest.fn().mockResolvedValue({ resourceClass: 'tracker.class.Issue' })
     const c = ctx()
     await revokeGrant(c, { workspace: 'ws1', recipientUuid: 'u2', resourceId: 'r1' }, makeBackend({ revoke: revokeFn }))
-    expect(revokeFn).toHaveBeenCalledWith('ws1', 'u2', 'r1')
+    // Revoke is now called with the tx-domain handle as the first arg
+    // so the change commits atomically with the audit row.
+    expect(revokeFn).toHaveBeenCalledWith({ kind: 'fake-tx' }, 'ws1', 'u2', 'r1')
+  })
+
+  it('records target_space_class in audit metadata when resolving resource', async () => {
+    const audited: any[] = []
+    const c = ctx({
+      tx: {
+        begin: async <T>(fn: (txCtx: any) => Promise<T>) =>
+          await fn({
+            ws: async (e: any) => audited.push(e),
+            admin: async () => undefined,
+            domain: { kind: 'fake-tx' }
+          })
+      }
+    })
+    await revokeGrant(
+      c,
+      { workspace: 'ws1', recipientUuid: 'u2', resourceId: 'r1' },
+      makeBackend({ resolveResourceClass: async () => 'document.class.Document' })
+    )
+    expect(audited[0].action).toBe('grant_revoked')
+    expect(audited[0].target_space_class).toBe('document.class.Document')
+  })
+
+  it('rejects with grant_not_found when resourceClass lookup returns null', async () => {
+    const c = ctx()
+    await expect(
+      revokeGrant(
+        c,
+        { workspace: 'ws1', recipientUuid: 'u2', resourceId: 'gone' },
+        makeBackend({ resolveResourceClass: async () => null })
+      )
+    ).rejects.toThrow(/grant_not_found/)
   })
 
   it('non-Owner is rejected unless they are the grant creator', async () => {

@@ -6,11 +6,11 @@
 // with "Open in <App> →" link. No Delete button.
 -->
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte'
+  import { createEventDispatcher } from 'svelte'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import SpaceTypeIcon from './SpaceTypeIcon.svelte'
   import { resourcesApi } from '../../api/resourcesApi'
-  import type { SpaceRow } from '../../types'
+  import type { SpaceDetail } from '../../types'
 
   export let workspace: string
   export let spaceId: string | null = null
@@ -22,9 +22,13 @@
 
   const dispatch = createEventDispatcher<{ close: void, changed: void }>()
 
-  let space: SpaceRow | null = null
+  let space: SpaceDetail | null = null
   let loading: boolean = false
   let error: string | null = null
+  // `detailLoaded` separates "drawer just opened" from "we actually have
+  // a valid members/owners list". Save buttons stay disabled until this
+  // is true so a click cannot wipe a list that hasn't loaded yet.
+  let detailLoaded: boolean = false
 
   let membersText = ''
   let ownersText = ''
@@ -39,13 +43,20 @@
   async function load (id: string): Promise<void> {
     loading = true
     error = null
+    detailLoaded = false
+    membersText = ''
+    ownersText = ''
     try {
       space = await resourcesApi.getSpace(workspace, id)
-      membersText = space.ownerIds.join(', ')
-      ownersText = space.ownerIds.join(', ')
+      // Initialize FROM the dedicated lists. The previous bug initialized
+      // membersText from space.ownerIds; a "Save members" click would
+      // then wipe every non-owner member.
+      membersText = (space.members ?? []).join(', ')
+      ownersText = (space.ownerIds ?? []).join(', ')
       privateFlag = space.private
       autoJoinFlag = space.autoJoin
       archivedFlag = space.archived
+      detailLoaded = true
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
@@ -136,14 +147,24 @@
 
       <section>
         <h3>Members</h3>
-        <textarea bind:value={membersText} rows="3" disabled={!canEditMembership} placeholder="UUID, UUID, …"></textarea>
-        <button class="primary" on:click={saveMembers} disabled={!canEditMembership}>Save members</button>
+        <textarea
+          bind:value={membersText}
+          rows="3"
+          disabled={!canEditMembership || !detailLoaded}
+          placeholder={detailLoaded ? 'UUID, UUID, …' : 'Loading current members…'}
+        ></textarea>
+        <button class="primary" on:click={saveMembers} disabled={!canEditMembership || !detailLoaded}>Save members</button>
       </section>
 
       <section>
         <h3>Owners</h3>
-        <textarea bind:value={ownersText} rows="3" disabled={!canEditMembership} placeholder="UUID, UUID, …"></textarea>
-        <button class="primary" on:click={saveOwners} disabled={!canEditMembership}>Save owners</button>
+        <textarea
+          bind:value={ownersText}
+          rows="3"
+          disabled={!canEditMembership || !detailLoaded}
+          placeholder={detailLoaded ? 'UUID, UUID, …' : 'Loading current owners…'}
+        ></textarea>
+        <button class="primary" on:click={saveOwners} disabled={!canEditMembership || !detailLoaded}>Save owners</button>
       </section>
 
       <section class="toggles">

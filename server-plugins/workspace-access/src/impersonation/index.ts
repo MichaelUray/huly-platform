@@ -38,7 +38,14 @@ export interface RateLimiter {
 }
 
 export interface RevocationStore {
-  revoke: (jti: string, expSeconds: number) => Promise<void>
+  /**
+   * Mark `jti` as revoked. `ttlSeconds` is the REMAINING lifetime of
+   * the token from now — implementations should drop the entry once
+   * that interval passes (e.g. Redis SETEX). Passing the token's
+   * absolute `exp` claim here would store the entry for decades, so
+   * callers MUST compute `ttl = max(0, exp - now)` themselves.
+   */
+  revoke: (jti: string, ttlSeconds: number) => Promise<void>
   isRevoked: (jti: string) => Promise<boolean>
 }
 
@@ -175,7 +182,13 @@ export async function endImpersonation (
       duration_seconds: deps.now() - t.iat
     }
   })
-  await deps.revocation.revoke(t.jti, t.exp)
+  // Pass the REMAINING TTL, not the absolute exp claim. A Redis
+  // SETEX-style backend interprets this as "drop in N seconds"; the
+  // earlier version passed the absolute timestamp (~1.75 billion
+  // seconds-since-epoch in 2026), which would have parked revocation
+  // entries for 55 years.
+  const ttl = Math.max(0, t.exp - deps.now())
+  await deps.revocation.revoke(t.jti, ttl)
   if (deps.disconnectWebSocketsByToken != null) {
     await deps.disconnectWebSocketsByToken(t.jti)
   }

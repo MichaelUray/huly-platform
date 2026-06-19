@@ -17,8 +17,12 @@ export const roleStore = writable<RoleModel>({ workspaceRole: 'USER', ownedSpace
 export const effectiveRole = derived(
   [roleStore, impersonationStore],
   ([role, imp]): EffectiveRole => {
+    // Active impersonation: full edit privileges, every action dual-audited.
     if (imp.state === 'active') return 'IMPERSONATING_ADMIN'
-    if (imp.state === 'drill-down') return 'IMPERSONATING_ADMIN' // read-only via banner gating
+    // Drill-down: Instance-Admin viewing the workspace from #10883 without
+    // having started impersonation. Read-only; surfaces the blue banner
+    // with "Assume Owner role" affordance but no edit buttons render.
+    if (imp.state === 'drill-down') return 'INSTANCE_ADMIN_READONLY'
     const { workspaceRole, ownedSpaceIds } = role
     if (workspaceRole === 'OWNER') return 'OWNER'
     if (workspaceRole === 'MAINTAINER') {
@@ -31,6 +35,12 @@ export const effectiveRole = derived(
   }
 )
 
+/**
+ * Write privilege check. INSTANCE_ADMIN_READONLY is explicitly NOT
+ * editable — the blue drill-down banner requires the user to start
+ * an impersonation session (and accept the DSGVO modal) before any
+ * edit becomes possible.
+ */
 export function canEdit (r: EffectiveRole): boolean {
   return r === 'OWNER' || r === 'IMPERSONATING_ADMIN'
 }
@@ -40,7 +50,8 @@ export function canReadWorkspaceWide (r: EffectiveRole): boolean {
     r === 'OWNER' ||
     r === 'MAINTAINER' ||
     r === 'MAINTAINER_PLUS_SPACE_OWNER' ||
-    r === 'IMPERSONATING_ADMIN'
+    r === 'IMPERSONATING_ADMIN' ||
+    r === 'INSTANCE_ADMIN_READONLY'
   )
 }
 

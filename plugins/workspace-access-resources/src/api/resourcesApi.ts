@@ -4,14 +4,14 @@
 
 import { buildQuery, type ListOpts } from './buildQuery'
 import { getDefaultWacClient } from './wacClient'
-import type { PageResult, SpaceRow } from '../types'
+import type { PageResult, SpaceRow, SpaceDetail } from '../types'
 
 export const resourcesApi = {
   async listSpaces (workspace: string, opts?: ListOpts): Promise<PageResult<SpaceRow>> {
     return await getDefaultWacClient().get(`/${workspace}/spaces${buildQuery(opts)}`)
   },
 
-  async getSpace (workspace: string, spaceId: string): Promise<SpaceRow> {
+  async getSpace (workspace: string, spaceId: string): Promise<SpaceDetail> {
     return await getDefaultWacClient().get(`/${workspace}/spaces/${spaceId}`)
   },
 
