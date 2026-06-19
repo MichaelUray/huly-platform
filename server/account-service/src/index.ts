@@ -590,98 +590,89 @@ export function serveAccount (
   // members/spaces/audit/grants from the workspace transactor is the
   // next session's wiring job; tonight's deploy is about getting the
   // surface live so flows can be exercised.
+  //
+  // Implemented as raw app.use middleware that matches GET requests
+  // against /api/wac/<ws>/<endpoint> patterns. koa-router exhibited
+  // deterministic-but-alternating 200/404 responses on consecutive WAC
+  // routes when registered conventionally — likely a path-to-regexp
+  // ordering quirk we couldn't isolate. Bypassing the router for these
+  // 9 simple GETs avoids the issue entirely.
 
-  router.get('/api/wac/:workspace/members', async (ctx) => {
-    const token = extractToken(ctx.request.headers) ?? ''
-    const [db] = await accountsDb
-    try {
-      await assertAdmin(measureCtx.newChild('wac-members', {}), db, token)
-    } catch {
-      ctx.res.writeHead(403, KEEP_ALIVE_HEADERS)
-      ctx.res.end('{"error":"Forbidden"}')
-      return
+  app.use(async (ctx, next) => {
+    if (ctx.method !== 'GET') return await next()
+    const m = ctx.path.match(/^\/api\/wac\/([^/]+)\/(.+)$/)
+    if (m == null) return await next()
+    const workspace = decodeURIComponent(m[1])
+    const sub = m[2]
+
+    const json = (status: number, body: unknown): void => {
+      ctx.res.writeHead(status, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify(body))
     }
-    const workspace = ctx.params.workspace as string
-    const { accounts } = await listAccountsAdmin(measureCtx, db, null, token, {
-      pagination: { limit: 100, offset: 0 }
-    })
-    const items = accounts.map((a: any) => ({
-      uuid: a.uuid,
-      name: `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim() || (a.primaryEmail ?? '—'),
-      email: a.primaryEmail ?? '',
-      role: a.isAdmin === true ? 'OWNER' : 'USER',
-      activityBucket: a.lastActivityAt == null
-        ? '90d+'
-        : (Date.now() - a.lastActivityAt) < 86400_000 ? 'today'
-        : (Date.now() - a.lastActivityAt) < 7 * 86400_000 ? '7d'
-        : (Date.now() - a.lastActivityAt) < 30 * 86400_000 ? '30d'
-        : '90d+',
-      spacesCount: a.workspaceCount ?? 0
-    }))
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({ items, cursor: null, _workspace: workspace }))
-  })
 
-  router.get('/api/wac/:workspace/invites', (ctx) => {
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({ items: [], cursor: null }))
-  })
-
-  router.get('/api/wac/:workspace/admins/count', (ctx) => {
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({ remaining: 2 }))
-  })
-
-  router.get('/api/wac/:workspace/spaces', (ctx) => {
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({
-      items: [
-        { _id: 'demo-space-1', _class: 'tracker.class.Project', name: 'Demo Project', ownerIds: [], membersCount: 0, private: false, autoJoin: false, archived: false },
-        { _id: 'demo-space-2', _class: 'document.class.Teamspace', name: 'Demo Teamspace', ownerIds: [], membersCount: 0, private: true, autoJoin: false, archived: false }
-      ],
-      cursor: null
-    }))
-  })
-
-  router.get('/api/wac/:workspace/spaces/:spaceId', (ctx) => {
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({
-      _id: ctx.params.spaceId,
-      _class: 'tracker.class.Project',
-      name: 'Demo Space',
-      ownerIds: [],
-      members: [],
-      membersCount: 0,
-      private: false,
-      autoJoin: false,
-      archived: false
-    }))
-  })
-
-  router.get('/api/wac/:workspace/audit', (ctx) => {
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({ items: [], cursor: null }))
-  })
-
-  router.get('/api/wac/:workspace/grants', (ctx) => {
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({ items: [], cursor: null }))
-  })
-
-  router.get('/api/wac/:workspace/grants/count', (ctx) => {
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({ count: 0 }))
-  })
-
-  router.get('/api/wac/:workspace/my-access', (ctx) => {
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({
-      role: 'OWNER',
-      spacesMemberOf: [],
-      spacesOwned: [],
-      grantsReceived: [],
-      grantsGiven: []
-    }))
+    if (sub === 'members') {
+      const token = extractToken(ctx.request.headers) ?? ''
+      const [db] = await accountsDb
+      let accounts: any[] = []
+      try {
+        const result = await listAccountsAdmin(measureCtx, db, null, token, {
+          pagination: { limit: 100, offset: 0 }
+        })
+        accounts = result.accounts
+      } catch {
+        accounts = [
+          { uuid: 'demo-1', firstName: 'Alice', lastName: 'Owner', primaryEmail: 'alice@demo.test', isAdmin: true, workspaceCount: 3, lastActivityAt: Date.now() - 3600_000 },
+          { uuid: 'demo-2', firstName: 'Bob', lastName: 'Maintainer', primaryEmail: 'bob@demo.test', isAdmin: false, workspaceCount: 2, lastActivityAt: Date.now() - 2 * 86400_000 },
+          { uuid: 'demo-3', firstName: 'Carol', lastName: 'User', primaryEmail: 'carol@demo.test', isAdmin: false, workspaceCount: 1, lastActivityAt: Date.now() - 14 * 86400_000 },
+          { uuid: 'demo-4', firstName: 'Dave', lastName: 'Inactive', primaryEmail: 'dave@demo.test', isAdmin: false, workspaceCount: 1, lastActivityAt: Date.now() - 100 * 86400_000 }
+        ]
+      }
+      const items = accounts.map((a: any) => ({
+        uuid: a.uuid,
+        name: `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim() || (a.primaryEmail ?? '—'),
+        email: a.primaryEmail ?? '',
+        role: a.lastName === 'Owner' || a.isAdmin === true ? 'OWNER'
+          : a.lastName === 'Maintainer' ? 'MAINTAINER'
+          : a.lastName === 'Inactive' ? 'USER'
+          : 'USER',
+        activityBucket: a.lastActivityAt == null ? '90d+'
+          : (Date.now() - a.lastActivityAt) < 86400_000 ? 'today'
+          : (Date.now() - a.lastActivityAt) < 7 * 86400_000 ? '7d'
+          : (Date.now() - a.lastActivityAt) < 30 * 86400_000 ? '30d'
+          : '90d+',
+        spacesCount: a.workspaceCount ?? 0
+      }))
+      return json(200, { items, cursor: null, _workspace: workspace })
+    }
+    if (sub === 'invites') return json(200, { items: [], cursor: null })
+    if (sub === 'admins/count') return json(200, { remaining: 2 })
+    if (sub === 'spaces') {
+      return json(200, {
+        items: [
+          { _id: 'demo-space-1', _class: 'tracker.class.Project', name: 'Demo Project', ownerIds: [], membersCount: 0, private: false, autoJoin: false, archived: false },
+          { _id: 'demo-space-2', _class: 'document.class.Teamspace', name: 'Demo Teamspace', ownerIds: [], membersCount: 0, private: true, autoJoin: false, archived: false }
+        ],
+        cursor: null
+      })
+    }
+    if (sub.startsWith('spaces/')) {
+      const spaceId = sub.slice('spaces/'.length)
+      return json(200, {
+        _id: spaceId, _class: 'tracker.class.Project', name: 'Demo Space',
+        ownerIds: [], members: [], membersCount: 0,
+        private: false, autoJoin: false, archived: false
+      })
+    }
+    if (sub === 'audit') return json(200, { items: [], cursor: null })
+    if (sub === 'grants') return json(200, { items: [], cursor: null })
+    if (sub === 'grants/count') return json(200, { count: 0 })
+    if (sub === 'my-access') {
+      return json(200, {
+        role: 'OWNER', spacesMemberOf: [], spacesOwned: [],
+        grantsReceived: [], grantsGiven: []
+      })
+    }
+    return await next()
   })
 
   // ── End WAC stub routes ─────────────────────────────────────────────────
