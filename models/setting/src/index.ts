@@ -312,6 +312,22 @@ export function createModel (builder: Builder): void {
     },
     setting.ids.Members
   )
+  // Workspace Access Center — appears between Members and the
+  // legacy "Spaces" panel. Maintainer-readable (audit + people
+  // view); Owner-editable surfaces gate themselves at runtime.
+  builder.createDoc(
+    setting.class.WorkspaceSettingCategory,
+    core.space.Model,
+    {
+      name: 'accessCenter',
+      label: setting.string.AccessCenter,
+      icon: setting.icon.AccessCenter,
+      component: setting.component.AccessCenter,
+      order: 1020,
+      role: AccountRole.Maintainer
+    },
+    setting.ids.AccessCenter
+  )
   builder.createDoc(
     setting.class.WorkspaceSettingCategory,
     core.space.Model,
