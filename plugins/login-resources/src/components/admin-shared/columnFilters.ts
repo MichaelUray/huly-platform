@@ -1,10 +1,16 @@
 //
 // Copyright © 2026 Hardcore Engineering Inc.
 //
-// Back-compat re-export from `@hcengineering/access-management-ui`. The
-// deep source path is intentional so Jest in this package can resolve
-// the helper without trying to evaluate the lib's Svelte components
-// (which would fail under ts-jest without svelte-jest).
+// Back-compat shim. Existed before WAC extracted the canonical
+// implementation into @hcengineering/access-management-ui. Inlined
+// here (rather than re-exporting deep) because webpack's bundling
+// rejects deep imports of the lib's TS source. Keep this in sync with
+// access-management-ui/src/utils/mergeColumnFilters.ts.
 //
 
-export { mergeColumnFilters } from '@hcengineering/access-management-ui/src/utils/mergeColumnFilters'
+export function mergeColumnFilters (cf: Record<string, any>): Record<string, any> {
+  return Object.values(cf).reduce<Record<string, any>>((acc, partial) => {
+    if (partial == null) return acc
+    return { ...acc, ...partial }
+  }, {})
+}
