@@ -741,6 +741,11 @@
       "shouldPublish": false
     },
     {
+      "packageName": "@hcengineering/workspace-access-resources",
+      "projectFolder": "plugins/workspace-access-resources",
+      "shouldPublish": false
+    },
+    {
       "packageName": "@hcengineering/login-resources",
       "projectFolder": "plugins/login-resources",
       "shouldPublish": false
