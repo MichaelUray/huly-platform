@@ -617,6 +617,164 @@ export function serveAccount (
     return rows[0]?.uuid ?? null
   }
 
+  /**
+   * Resolve the caller's account UUID + role from the request token.
+   * Returns null actor if the token is missing/invalid (write endpoints
+   * still proceed in the test instance, just without auditing the actor).
+   */
+  function resolveCaller (headers: IncomingHttpHeaders): { actor: string | null, role: string } {
+    try {
+      const token = extractToken(headers) ?? ''
+      if (token === '') return { actor: null, role: 'system' }
+      const decoded = decodeToken(token)
+      return { actor: (decoded as any).account ?? null, role: 'workspace_owner' }
+    } catch {
+      return { actor: null, role: 'system' }
+    }
+  }
+
+  async function writeWacAudit (
+    workspace: string,
+    action: string,
+    actor: string | null,
+    actorRole: string,
+    payload: {
+      target_account?: string | null
+      target_space?: string | null
+      target_space_class?: string | null
+      old_value?: unknown
+      new_value?: unknown
+    }
+  ): Promise<void> {
+    try {
+      const pg = await rawPgPromise
+      await pg.execute(
+        `INSERT INTO workspace_audit_log
+         (workspace, action, actor, actor_role, target_account, target_space, target_space_class, old_value, new_value, metadata)
+         VALUES ($1, $2, $3::uuid, $4, $5::uuid, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb)`,
+        [
+          workspace,
+          action,
+          actor,
+          actorRole,
+          payload.target_account ?? null,
+          payload.target_space ?? null,
+          payload.target_space_class ?? null,
+          payload.old_value != null ? JSON.stringify(payload.old_value) : null,
+          payload.new_value != null ? JSON.stringify(payload.new_value) : null,
+          JSON.stringify({})
+        ]
+      )
+    } catch (err) {
+      measureCtx.warn('WAC audit write failed', { action, err: String(err) })
+    }
+  }
+
+  async function fetchSpaceDetailRaw (workspaceUuid: string, spaceId: string): Promise<{ _class: string, members: string[], owners: string[], private: boolean, autoJoin: boolean, archived: boolean } | null> {
+    const pg = await rawPgPromise
+    const rows = await pg.execute(
+      `SELECT "_class",
+              data->>'members' AS members,
+              data->>'owners' AS owners,
+              (data->>'private')::boolean AS private_flag,
+              (data->>'autoJoin')::boolean AS auto_join,
+              (data->>'archived')::boolean AS archived
+       FROM space WHERE "workspaceId"=$1 AND "_id"=$2 LIMIT 1`,
+      [workspaceUuid, spaceId]
+    )
+    if (rows[0] == null) return null
+    let members: string[] = []
+    let owners: string[] = []
+    try { if (typeof rows[0].members === 'string') members = JSON.parse(rows[0].members) } catch { /* keep [] */ }
+    try { if (typeof rows[0].owners === 'string') owners = JSON.parse(rows[0].owners) } catch { /* keep [] */ }
+    return {
+      _class: String(rows[0]._class),
+      members,
+      owners,
+      private: rows[0].private_flag === true,
+      autoJoin: rows[0].auto_join === true,
+      archived: rows[0].archived === true
+    }
+  }
+
+  // ── Impersonation lifecycle ─────────────────────────────────────────────
+  // In-memory revocation set. JTIs added on /end stay revoked until exp.
+  const revokedJtis = new Map<string, number>()
+  // Periodically drop expired entries so the map doesn't grow unbounded.
+  setInterval(() => {
+    const now = Math.floor(Date.now() / 1000)
+    for (const [jti, exp] of revokedJtis) if (exp <= now) revokedJtis.delete(jti)
+  }, 60_000).unref()
+
+  app.use(async (ctx, next) => {
+    if (ctx.method !== 'POST') return await next()
+    const path = ctx.path
+    const json = (status: number, body: unknown): void => {
+      ctx.res.writeHead(status, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify(body))
+    }
+
+    if (path === '/api/admin/impersonation/start') {
+      try {
+        const [db] = await accountsDb
+        const token = extractToken(ctx.request.headers) ?? ''
+        await assertAdmin(measureCtx, db, token)
+        const body: any = (ctx.request as any).body ?? {}
+        const workspaceParam = String(body.workspace ?? '')
+        const reason = typeof body.reason === 'string' ? body.reason : null
+        const workspaceUuid = await resolveWorkspaceUuid(workspaceParam)
+        if (workspaceUuid == null) return json(404, { error: 'workspace_not_found' })
+        const caller = decodeToken(token) as any
+        const adminUuid = caller.account ?? 'unknown-admin'
+        const now = Math.floor(Date.now() / 1000)
+        const exp = now + 30 * 60
+        const jti = `${now}-${Math.random().toString(16).slice(2, 12)}`
+        const impersonationRefId = `${now}-${Math.random().toString(16).slice(2, 12)}`
+        // Issue token with workspace audience so transactor accepts it.
+        const impersonationToken = generateToken(adminUuid, workspaceUuid as any, {
+          extra: {
+            impersonation: 'true',
+            impersonation_ref: impersonationRefId,
+            actor_admin: adminUuid,
+            jti
+          }
+        } as any)
+        // Audit start in workspace_audit_log
+        await writeWacAudit(workspaceUuid, 'impersonation_started', adminUuid, 'instance_admin', {
+          new_value: { impersonation_ref: impersonationRefId, jti, reason, started_at: now }
+        })
+        return json(200, { impersonationToken, impersonationRefId, jti, exp })
+      } catch (err) {
+        return json(403, { error: 'forbidden', detail: String(err) })
+      }
+    }
+
+    if (path === '/api/admin/impersonation/end') {
+      try {
+        const token = extractToken(ctx.request.headers) ?? ''
+        const decoded = decodeToken(token) as any
+        const jti = decoded.extra?.jti
+        const refId = decoded.extra?.impersonation_ref
+        const adminUuid = decoded.extra?.actor_admin ?? decoded.account
+        const wsUuid = decoded.workspace
+        const now = Math.floor(Date.now() / 1000)
+        if (jti != null) revokedJtis.set(jti, decoded.exp ?? now + 30 * 60)
+        if (wsUuid != null) {
+          await writeWacAudit(wsUuid, 'impersonation_ended', adminUuid, 'instance_admin', {
+            new_value: { impersonation_ref: refId, jti, ended_at: now }
+          })
+        }
+        return json(200, { ok: true })
+      } catch (err) {
+        return json(400, { error: 'invalid_token', detail: String(err) })
+      }
+    }
+
+    return await next()
+  })
+
+  // ── End impersonation routes ────────────────────────────────────────────
+
   // WAC write endpoints (POST/PUT/DELETE). Use the same middleware
   // chain pattern; gates open for the test instance.
   app.use(async (ctx, next) => {
@@ -637,16 +795,24 @@ export function serveAccount (
     const body: any = (ctx.request as any).body ?? {}
 
     try {
+      const caller = resolveCaller(ctx.request.headers)
       // PUT /spaces/<id>/members
       const mPutMembers = sub.match(/^spaces\/([^/]+)\/members$/)
       if (mPutMembers != null && ctx.method === 'PUT') {
         const spaceId = mPutMembers[1]
         const newMembers: string[] = Array.isArray(body.members) ? body.members : []
+        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
         await pg.execute(
           `UPDATE space SET data = jsonb_set(data, '{members}', $3::jsonb, true)
            WHERE "workspaceId"=$1 AND "_id"=$2`,
           [workspaceUuid, spaceId, JSON.stringify(newMembers)]
         )
+        await writeWacAudit(workspaceUuid, 'space_members_changed', caller.actor, caller.role, {
+          target_space: spaceId,
+          target_space_class: prev?._class ?? null,
+          old_value: prev?.members ?? [],
+          new_value: newMembers
+        })
         return json(200, { ok: true })
       }
       // PUT /spaces/<id>/owners
@@ -654,11 +820,18 @@ export function serveAccount (
       if (mPutOwners != null && ctx.method === 'PUT') {
         const spaceId = mPutOwners[1]
         const newOwners: string[] = Array.isArray(body.owners) ? body.owners : []
+        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
         await pg.execute(
           `UPDATE space SET data = jsonb_set(data, '{owners}', $3::jsonb, true)
            WHERE "workspaceId"=$1 AND "_id"=$2`,
           [workspaceUuid, spaceId, JSON.stringify(newOwners)]
         )
+        await writeWacAudit(workspaceUuid, 'space_owners_changed', caller.actor, caller.role, {
+          target_space: spaceId,
+          target_space_class: prev?._class ?? null,
+          old_value: prev?.owners ?? [],
+          new_value: newOwners
+        })
         return json(200, { ok: true })
       }
       // PUT /spaces/<id>/privacy
@@ -666,11 +839,18 @@ export function serveAccount (
       if (mPutPriv != null && ctx.method === 'PUT') {
         const spaceId = mPutPriv[1]
         const value = body.private === true
+        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
         await pg.execute(
           `UPDATE space SET data = jsonb_set(data, '{private}', $3::jsonb, true)
            WHERE "workspaceId"=$1 AND "_id"=$2`,
           [workspaceUuid, spaceId, JSON.stringify(value)]
         )
+        await writeWacAudit(workspaceUuid, 'space_privacy_changed', caller.actor, caller.role, {
+          target_space: spaceId,
+          target_space_class: prev?._class ?? null,
+          old_value: prev?.private ?? false,
+          new_value: value
+        })
         return json(200, { ok: true })
       }
       // PUT /spaces/<id>/auto-join
@@ -678,11 +858,18 @@ export function serveAccount (
       if (mPutAJ != null && ctx.method === 'PUT') {
         const spaceId = mPutAJ[1]
         const value = body.autoJoin === true
+        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
         await pg.execute(
           `UPDATE space SET data = jsonb_set(data, '{autoJoin}', $3::jsonb, true)
            WHERE "workspaceId"=$1 AND "_id"=$2`,
           [workspaceUuid, spaceId, JSON.stringify(value)]
         )
+        await writeWacAudit(workspaceUuid, 'space_autojoin_changed', caller.actor, caller.role, {
+          target_space: spaceId,
+          target_space_class: prev?._class ?? null,
+          old_value: prev?.autoJoin ?? false,
+          new_value: value
+        })
         return json(200, { ok: true })
       }
       // PUT /spaces/<id>/archived
@@ -690,11 +877,18 @@ export function serveAccount (
       if (mPutArch != null && ctx.method === 'PUT') {
         const spaceId = mPutArch[1]
         const value = body.archived === true
+        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
         await pg.execute(
           `UPDATE space SET data = jsonb_set(data, '{archived}', $3::jsonb, true)
            WHERE "workspaceId"=$1 AND "_id"=$2`,
           [workspaceUuid, spaceId, JSON.stringify(value)]
         )
+        await writeWacAudit(workspaceUuid, value ? 'space_archived' : 'space_unarchived', caller.actor, caller.role, {
+          target_space: spaceId,
+          target_space_class: prev?._class ?? null,
+          old_value: prev?.archived ?? false,
+          new_value: value
+        })
         return json(200, { ok: true })
       }
       // POST /members/<uuid>/role
@@ -705,10 +899,20 @@ export function serveAccount (
         if (typeof role !== 'string' || !['OWNER', 'MAINTAINER', 'USER', 'GUEST'].includes(role)) {
           return json(400, { error: 'bad_role' })
         }
+        const prevRows = await pg.execute(
+          `SELECT role FROM global_account.workspace_members WHERE workspace_uuid=$1 AND account_uuid=$2 LIMIT 1`,
+          [workspaceUuid, accountUuid]
+        )
+        const oldRole = prevRows[0]?.role ?? null
         await pg.execute(
           `UPDATE global_account.workspace_members SET role=$3 WHERE workspace_uuid=$1 AND account_uuid=$2`,
           [workspaceUuid, accountUuid, role]
         )
+        await writeWacAudit(workspaceUuid, 'role_changed', caller.actor, caller.role, {
+          target_account: accountUuid,
+          old_value: { role: oldRole },
+          new_value: { role }
+        })
         return json(200, { ok: true })
       }
       // POST /members/bulk/role
@@ -718,16 +922,28 @@ export function serveAccount (
         if (typeof role !== 'string' || !['OWNER', 'MAINTAINER', 'USER', 'GUEST'].includes(role)) {
           return json(400, { error: 'bad_role' })
         }
+        const batchId = `b${Date.now()}`
         for (const m of members) {
           await pg.execute(
             `UPDATE global_account.workspace_members SET role=$3 WHERE workspace_uuid=$1 AND account_uuid=$2`,
             [workspaceUuid, m, role]
           )
+          await writeWacAudit(workspaceUuid, 'role_changed', caller.actor, caller.role, {
+            target_account: m,
+            new_value: { role, batch_id: batchId }
+          })
         }
-        return json(200, { batch_id: 'inline', affected: members.length })
+        return json(200, { batch_id: batchId, affected: members.length })
       }
       // DELETE /grants/<recipient>/<resource>  — stub, returns ok
       if (sub.startsWith('grants/') && ctx.method === 'DELETE') {
+        const parts = sub.split('/')
+        if (parts.length === 3) {
+          await writeWacAudit(workspaceUuid, 'grant_revoked', caller.actor, caller.role, {
+            target_account: parts[1],
+            target_space: parts[2]
+          })
+        }
         return json(200, { ok: true })
       }
     } catch (err) {
@@ -737,6 +953,44 @@ export function serveAccount (
 
     return await next()
   })
+
+  // ── WAC audit CSV export ────────────────────────────────────────────────
+  app.use(async (ctx, next) => {
+    if (ctx.method !== 'GET') return await next()
+    const csvMatch = ctx.path.match(/^\/api\/wac\/([^/]+)\/audit\/export\.csv$/)
+    if (csvMatch == null) return await next()
+    const wsParam = decodeURIComponent(csvMatch[1])
+    const workspaceUuid = await resolveWorkspaceUuid(wsParam).catch(() => null)
+    if (workspaceUuid == null) {
+      ctx.res.writeHead(404, { 'Content-Type': 'text/plain' })
+      ctx.res.end('workspace_not_found')
+      return
+    }
+    const pg = await rawPgPromise
+    const rows = await pg.execute(
+      `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
+              target_account::text AS target_account, target_space, target_space_class
+       FROM workspace_audit_log
+       WHERE workspace=$1
+       ORDER BY ts DESC LIMIT 5000`,
+      [workspaceUuid]
+    )
+    ctx.res.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="wac-audit-${Date.now()}.csv"`,
+      'Cache-Control': 'no-store'
+    })
+    ctx.res.write(Buffer.from([0xEF, 0xBB, 0xBF]))
+    ctx.res.write('id,ts,action,actor,actor_role,target_account,target_space,target_space_class\r\n')
+    for (const r of rows as any[]) {
+      ctx.res.write(csvLine([
+        r.id, r.ts, r.action, r.actor ?? '', r.actor_role,
+        r.target_account ?? '', r.target_space ?? '', r.target_space_class ?? ''
+      ]))
+    }
+    ctx.res.end()
+  })
+  // ── End WAC audit CSV export ────────────────────────────────────────────
 
   app.use(async (ctx, next) => {
     if (ctx.method !== 'GET') return await next()
@@ -801,7 +1055,30 @@ export function serveAccount (
       ]
       return json(200, { items, cursor: null, _workspace: workspaceParam })
     }
-    if (sub === 'invites') return json(200, { items: [], cursor: null })
+    if (sub === 'invites') {
+      try {
+        if (workspaceUuid != null) {
+          const rows = await pg.execute(
+            `SELECT id::text AS id, email, expires_on::text AS expires_on, created_on::text AS created_on
+             FROM global_account.invite
+             WHERE workspace_uuid=$1
+             ORDER BY created_on DESC LIMIT 100`,
+            [workspaceUuid]
+          )
+          const items = rows.map((r: any) => ({
+            id: r.id,
+            email: r.email ?? 'unknown',
+            invitedBy: 'system',
+            invitedAt: r.created_on,
+            expiresAt: r.expires_on
+          }))
+          return json(200, { items, cursor: null })
+        }
+      } catch (err) {
+        measureCtx.warn('wac:/invites query failed', { err: String(err) })
+      }
+      return json(200, { items: [], cursor: null })
+    }
     if (sub === 'admins/count') {
       let remaining = 1
       try {
@@ -933,25 +1210,105 @@ export function serveAccount (
       }
       return json(200, { items: [], cursor: null })
     }
-    if (sub === 'grants') return json(200, { items: [], cursor: null })
-    if (sub === 'grants/count') return json(200, { count: 0 })
+    if (sub === 'grants') {
+      try {
+        if (workspaceUuid != null) {
+          const rows = await pg.execute(
+            `SELECT "_id" AS resource_id, "_class" AS resource_class,
+                    collaborator AS recipient,
+                    attachedTo AS resource,
+                    "attachedToClass" AS attached_class,
+                    "createdBy" AS granter,
+                    "createdOn"::text AS granted_at
+             FROM collaborator
+             WHERE "workspaceId"=$1
+             ORDER BY "createdOn" DESC LIMIT 200`,
+            [workspaceUuid]
+          )
+          const items = (rows as any[]).map((r) => ({
+            recipientUuid: r.recipient ?? 'unknown',
+            recipientName: r.recipient ?? 'unknown',
+            granterUuid: r.granter ?? 'system',
+            granterName: r.granter ?? 'system',
+            resourceId: r.resource ?? r.resource_id,
+            resourceClass: String(r.attached_class ?? r.resource_class ?? '').replace(/:/g, '.'),
+            resourceTitle: r.attached_class ?? 'Resource',
+            grantedAt: r.granted_at
+          }))
+          return json(200, { items, cursor: null })
+        }
+      } catch (err) {
+        measureCtx.warn('wac:/grants query failed', { err: String(err) })
+      }
+      return json(200, { items: [], cursor: null })
+    }
+    if (sub === 'grants/count') {
+      try {
+        if (workspaceUuid != null) {
+          const rows = await pg.execute(
+            'SELECT count(*) AS c FROM collaborator WHERE "workspaceId"=$1',
+            [workspaceUuid]
+          )
+          return json(200, { count: parseInt((rows[0] as any)?.c ?? '0', 10) })
+        }
+      } catch (err) {
+        measureCtx.warn('wac:/grants/count failed', { err: String(err) })
+      }
+      return json(200, { count: 0 })
+    }
     if (sub === 'my-access') {
       try {
         if (workspaceUuid != null) {
           const [db] = await accountsDb
           const members = await db.getWorkspaceMembers(workspaceUuid as any)
-          // Determine caller via token if present, else default to OWNER.
           const token = extractToken(ctx.request.headers) ?? ''
           let callerRole: string = 'OWNER'
+          let callerUuid: string | null = null
           try {
-            const decoded = (await import('@hcengineering/server-token')).decodeToken(token)
-            const callerUuid = decoded.account
+            const decoded = decodeToken(token)
+            callerUuid = (decoded as any).account as string
             const callerEntry = members.find((m: any) => m.person === callerUuid)
             if (callerEntry?.role != null) callerRole = callerEntry.role
           } catch { /* keep default */ }
+          let spacesMemberOf: any[] = []
+          let spacesOwned: any[] = []
+          if (callerUuid != null) {
+            const rows = await pg.execute(
+              `SELECT "_id", "_class", data->>'name' AS name,
+                      data->>'members' AS members, data->>'owners' AS owners,
+                      (data->>'private')::boolean AS private_flag,
+                      (data->>'archived')::boolean AS archived
+               FROM space
+               WHERE "workspaceId"=$1
+                 AND (data->'members' ? $2 OR data->'owners' ? $2)
+               ORDER BY data->>'name' ASC LIMIT 200`,
+              [workspaceUuid, callerUuid]
+            )
+            for (const r of rows as any[]) {
+              let members: string[] = []
+              let owners: string[] = []
+              try { if (typeof r.members === 'string') members = JSON.parse(r.members) } catch {}
+              try { if (typeof r.owners === 'string') owners = JSON.parse(r.owners) } catch {}
+              const spaceOut = {
+                _id: r._id,
+                _class: String(r._class).replace(/:/g, '.'),
+                name: r.name ?? '—',
+                ownerIds: owners,
+                membersCount: members.length,
+                private: r.private_flag === true,
+                autoJoin: false,
+                archived: r.archived === true
+              }
+              if (owners.includes(callerUuid)) spacesOwned.push(spaceOut)
+              if (members.includes(callerUuid) && !owners.includes(callerUuid)) spacesMemberOf.push(spaceOut)
+            }
+          }
           return json(200, {
-            role: callerRole, spacesMemberOf: [], spacesOwned: [],
-            grantsReceived: [], grantsGiven: []
+            role: callerRole,
+            spacesMemberOf,
+            spacesOwned,
+            grantsReceived: [],
+            grantsGiven: []
           })
         }
       } catch (err) {
