@@ -2,7 +2,6 @@
 // Copyright © 2026 Hardcore Engineering Inc.
 //
 
-import type { Doc } from '@hcengineering/core'
 import type { IntlString } from '@hcengineering/platform'
 import type { ComponentType } from 'svelte'
 
@@ -12,8 +11,10 @@ import type { ComponentType } from 'svelte'
  * `<T>` generics on props reliably, so the table itself takes
  * `EntityColumn<any>[]` and each caller enforces type-safety at the
  * call site by typing its own column array as `EntityColumn<MyRow>[]`.
+ * `T` is constrained to `object` instead of `Doc` so non-`Doc` row
+ * types (e.g. plain `MemberRow`) can use the descriptor too.
  */
-export interface EntityColumn<T extends Doc | Record<string, unknown>> {
+export interface EntityColumn<T extends object> {
   /**
    * Either a typed property name of T or a string key for a virtual
    * column (e.g. a computed "activity bucket" that isn't a real field).

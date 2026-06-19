@@ -1,5 +1,14 @@
 import { decodeFilterParam, encodeFilterParam } from '../filterParam'
 
+// jsdom + Node both provide atob/btoa; avoid touching `Buffer` because the
+// `ui` rig's tsconfig does not include @types/node.
+function b64 (utf8: string): string {
+  const bytes = new TextEncoder().encode(utf8)
+  let bin = ''
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i])
+  return btoa(bin)
+}
+
 describe('filterParam round-trip', () => {
   it('round-trips a flat filter', () => {
     const original = { role: 'OWNER', name: 'Älice' }
@@ -15,13 +24,11 @@ describe('filterParam round-trip', () => {
   })
 
   it('rejects __proto__ keys', () => {
-    const raw = Buffer.from('{"__proto__":{"polluted":true}}').toString('base64')
-    expect(() => decodeFilterParam(raw)).toThrow(/forbidden key/)
+    expect(() => decodeFilterParam(b64('{"__proto__":{"polluted":true}}'))).toThrow(/forbidden key/)
   })
 
   it('rejects constructor keys recursively', () => {
-    const raw = Buffer.from('{"a":{"constructor":{"b":1}}}').toString('base64')
-    expect(() => decodeFilterParam(raw)).toThrow(/forbidden key/)
+    expect(() => decodeFilterParam(b64('{"a":{"constructor":{"b":1}}}'))).toThrow(/forbidden key/)
   })
 
   it('returns null on invalid base64', () => {
@@ -29,8 +36,8 @@ describe('filterParam round-trip', () => {
   })
 
   it('returns null on non-object payload', () => {
-    expect(decodeFilterParam(Buffer.from('"a-string"').toString('base64'))).toBeNull()
-    expect(decodeFilterParam(Buffer.from('[1,2]').toString('base64'))).toBeNull()
-    expect(decodeFilterParam(Buffer.from('null').toString('base64'))).toBeNull()
+    expect(decodeFilterParam(b64('"a-string"'))).toBeNull()
+    expect(decodeFilterParam(b64('[1,2]'))).toBeNull()
+    expect(decodeFilterParam(b64('null'))).toBeNull()
   })
 })
