@@ -190,9 +190,19 @@ export function serveAccount (
   })
 
   const csvExportLimiter = new TokenBucketLimiter({ max: 5, windowMs: 60_000 })
+  // M3 — separate WAC CSV-export limiter. Sized identically to the
+  // admin export limiter (5/min/token). Kept as a distinct instance
+  // so a noisy WAC user cannot starve admin exports and vice versa.
+  // Acknowledged D7 violation: this is still process-local. account-
+  // service is load-balanced, so the cap is per-pod, not per-user
+  // cluster-wide. Fixing it for both limiters needs a shared backend
+  // (Redis) and is tracked as a v2 follow-up for the entire export
+  // surface, not just WAC.
+  const wacCsvExportLimiter = new TokenBucketLimiter({ max: 5, windowMs: 60_000 })
   // GC every minute — sub-second precision not needed for cleanup.
   setInterval(() => {
     csvExportLimiter.gc(Date.now())
+    wacCsvExportLimiter.gc(Date.now())
   }, 60_000).unref()
 
   // ── admin_audit_log retention ─────────────────────────────────────────
@@ -923,6 +933,17 @@ export function serveAccount (
     const wsParam = decodeURIComponent(csvMatch[1])
     const auth = await authenticateWac(ctx, wsParam, 'admin', authDeps)
     if (auth === null) return
+    // M3 — rate-limit (per token, 5/min/pod). Same shape as the admin
+    // CSV export route at line ~561.
+    const csvToken = extractToken(ctx.request.headers) ?? ''
+    if (!wacCsvExportLimiter.allow(limiterKey(csvToken), Date.now())) {
+      ctx.res.writeHead(429, {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Retry-After': '60'
+      })
+      ctx.res.end('Too many WAC audit exports — try again in 60 seconds.')
+      return
+    }
     try {
       await wacReadHandlers.handleAuditCsvExport(ctx, auth.workspaceUuid)
     } catch (err) {
