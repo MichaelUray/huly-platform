@@ -647,22 +647,6 @@ export function serveAccount (
     return rows[0]?.uuid ?? null
   }
 
-  /**
-   * Resolve the caller's account UUID + role from the request token.
-   * Returns null actor if the token is missing/invalid (write endpoints
-   * still proceed in the test instance, just without auditing the actor).
-   */
-  function resolveCaller (headers: IncomingHttpHeaders): { actor: string | null, role: string } {
-    try {
-      const token = extractToken(headers) ?? ''
-      if (token === '') return { actor: null, role: 'system' }
-      const decoded = decodeToken(token)
-      return { actor: (decoded as any).account ?? null, role: 'workspace_owner' }
-    } catch {
-      return { actor: null, role: 'system' }
-    }
-  }
-
   // Phase 1 Task 2 — Auth deps shared across all WAC routes. Construct once
   // here (NOT per request) so the closure captures the resolved DB handles.
   const authDeps: WacAuthDeps = {

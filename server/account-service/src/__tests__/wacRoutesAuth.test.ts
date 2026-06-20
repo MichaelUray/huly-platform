@@ -126,16 +126,12 @@ describe('WAC routes — authenticateWac gate (Phase 1 Task 2)', () => {
     // Each dispatch call site forwards (workspaceUuid, callerUuid, ...).
     expect(block).toMatch(/wacWriteHandlers\.handleSpaceMembers\([^)]*callerUuid/)
     expect(block).toMatch(/wacWriteHandlers\.handleMemberRole\([^)]*callerUuid/)
-    // resolveCaller(ctx.request.headers) must NOT be called inside the
-    // WAC write block anymore (still allowed in NON-WAC routes).
-    expect(block).not.toMatch(/resolveCaller\(/)
-  })
-
-  it('resolveCaller is preserved for non-WAC routes', () => {
-    // Sanity: the function still exists for backward compat (other
-    // code paths may use it). We only require it NOT to be called inside
-    // any /api/wac/ middleware.
-    expect(indexSrc).toMatch(/function resolveCaller/)
+    // Independent review (B2) — resolveCaller was dead code (no callers
+    // anywhere after Phase 1 Task 2). It was deleted; this guard asserts
+    // it never gets re-added without justification, since callerUuid now
+    // comes exclusively from `authenticateWac`.
+    expect(indexSrc).not.toMatch(/resolveCaller\(/)
+    expect(indexSrc).not.toMatch(/function resolveCaller/)
   })
 
   it('DELETE /grants/<r>/<res> still gated + dispatched to handleGrantRevoke', () => {
