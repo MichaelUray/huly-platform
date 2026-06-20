@@ -134,3 +134,81 @@ resource types.
 - WebSocket session management — `disconnectWebSocketsByToken` is a hook
 
 This keeps the audit + RBAC + impersonation logic centralized and unit-testable independent of the runtime.
+
+## Architecture (Phase 4)
+
+The package follows a tight DI shape so the same handlers can run inside
+account-service today and behind a separate process tomorrow. There are
+four collaborator surfaces:
+
+| Surface | Purpose | Implemented in (host) |
+|--------|---------|-----------------------|
+| `WacReadHandlers` (`http/readRouter.ts`) | All GET /api/wac/* business logic | `server/account-service/src/index.ts` mounts via `createWacReadHandlers(deps)` |
+| `WacWriteHandlers` (`http/writeRouter.ts`) | POST/PUT/DELETE mutations + audit-row sequencing | Same host, `createWacWriteHandlers(deps)` |
+| `WacTxClient` (interface) | Issues TxOperations against the transactor for mutations that must go through the model | `server/account-service/src/wac/transactorClient.ts` (production) / test stubs |
+| `WacCacheInvalidator` (interface) | Live notification to the platform when a workspace role changes (so open sessions reload their capability set) | `server/account-service/src/wac/cacheInvalidator.ts` (production) / no-op stub in tests |
+
+Auth + workspace-param resolution happens in the host **before** these
+handlers run. The handlers receive the resolved `workspaceUuid` (plus,
+where relevant, `callerUuid` + `callerRole`) as positional arguments —
+they never re-read the request token. This is what lets the same handler
+code be exercised under jest with a plain `KoaCtxLike` stub.
+
+### Atomicity caveat
+
+The write-path is **not transactional across the model + audit log**:
+
+1. `txClient.update(...)` — mutates the workspace state through the
+   transactor's TxOperations.
+2. `pg.execute('INSERT INTO workspace_audit_log ...')` — writes the
+   audit row directly against postgres.
+
+If step 1 succeeds and step 2 fails, the workspace state has changed but
+the audit trail is missing the row. The handlers log the failure via
+`measureCtx.warn('WAC audit write failed', …)` so an operator can
+reconstruct from the transactor's own tx log + the model's `modifiedOn`,
+but the loss is **not automatically backfilled**.
+
+This is the same trade-off the inline implementation made before Phase
+2B, kept here intentionally because:
+
+- The transactor doesn't expose a 2-phase commit hook for postgres-side
+  writes, so true atomicity would require a sidecar tx-log replay.
+- v33 backfill (`backfill/v33BackfillWorkspace`) can synthesize the
+  missing rows from the model after the fact, idempotently.
+
+A v2 enhancement would be to write the audit row first as `pending`,
+flip it to `committed` after the TxOperations resolves, and have a
+reaper sweep `pending` rows older than a few seconds — out of scope for
+this PR.
+
+## Deployment
+
+The host (account-service) wires the handlers in `serveAccount(...)`.
+The relevant environment variables are:
+
+| Env | Default | Effect |
+|-----|---------|--------|
+| `WAC_EXTRA_SPACE_CLASSES` | `""` (empty) | Comma-separated list of additional `_class` strings to allow in `handleSpaces`. Tokens must match `<plugin>:class:<Name>`; malformed entries are silently dropped. v1-managed core classes are always included regardless of this env. |
+| `WAC_DISABLE_LIVE_CACHE_INVALIDATION` | `false` | When `true`, role-change writes don't fan out to the cache invalidator (used by the test stack on `dev.huly.uray.io`). |
+| `ACCOUNTS_URL` | inherited from account-service | Used by the transactor client to call back into the host for the impersonation audience guard. |
+
+### Adding a plugin's Space subclass to WAC
+
+Set `WAC_EXTRA_SPACE_CLASSES=myplugin:class:Foo,other:class:Bar` on the
+account-service deployment. After a pod restart the new classes show up
+in `/api/wac/<ws>/spaces`. They inherit the default capability block:
+`editableHere=true, openInApp=null, v2NotYet=false`. If you need a
+custom `openInApp` deep-link, extend `capabilitiesForRealRow(...)` in
+`http/readRouter.ts` (a code change, not env-driven).
+
+### Process-local state
+
+D7: no process-local security state. account-service is load-balanced,
+so a per-process `Map` cannot enforce anything cluster-wide. v1
+specifically does NOT maintain a JTI revocation map for impersonation
+tokens — the 30-min expiry is the sole revocation mechanism. Cross-pod
+revocation needs a shared backend (Redis or DB) and is tracked as a v2
+follow-up; the `endImpersonation` HTTP route returns `501 not_implemented`
+with `detail: revocation_pending_persistent_store` so the UI can present
+a clear "session will end on expiry" message.
