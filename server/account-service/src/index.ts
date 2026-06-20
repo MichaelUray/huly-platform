@@ -37,6 +37,7 @@ import os from 'os'
 import { migrateFromOldAccounts } from './migration/migration'
 import { TokenBucketLimiter } from './util/rateLimiter'
 import { getDBClient, createDBClient } from '@hcengineering/postgres-base'
+import { authenticateWac, type WacAuthDeps } from './wac/auth'
 
 export * from './migration/utils'
 export * from './migration/types'
@@ -633,6 +634,14 @@ export function serveAccount (
     }
   }
 
+  // Phase 1 Task 2 — Auth deps shared across all WAC routes. Construct once
+  // here (NOT per request) so the closure captures the resolved DB handles.
+  const authDeps: WacAuthDeps = {
+    measureCtx,
+    resolveWorkspaceUuid,
+    accountDb: async () => (await accountsDb)[0]
+  }
+
   async function writeWacAudit (
     workspace: string,
     action: string,
@@ -784,7 +793,7 @@ export function serveAccount (
   // ── End impersonation routes ────────────────────────────────────────────
 
   // WAC write endpoints (POST/PUT/DELETE). Use the same middleware
-  // chain pattern; gates open for the test instance.
+  // chain pattern; auth gated by authenticateWac (Phase 1 Task 2).
   app.use(async (ctx, next) => {
     if (ctx.method === 'GET') return await next()
     const m = ctx.path.match(/^\/api\/wac\/([^/]+)\/(.+)$/)
@@ -797,13 +806,16 @@ export function serveAccount (
       ctx.res.end(JSON.stringify(body))
     }
 
-    const workspaceUuid = await resolveWorkspaceUuid(workspaceParam).catch(() => null)
-    if (workspaceUuid == null) return json(404, { error: 'workspace_not_found' })
+    // All WAC write endpoints require OWNER (edit capability). The helper
+    // writes 401/403/404 to ctx and returns null on failure.
+    const auth = await authenticateWac(ctx, workspaceParam, 'edit', authDeps)
+    if (auth === null) return
+    const { callerUuid, workspaceUuid } = auth
+    const caller = { actor: callerUuid, role: 'workspace_owner' }
     const pg = await rawPgPromise
     const body: any = (ctx.request as any).body ?? {}
 
     try {
-      const caller = resolveCaller(ctx.request.headers)
       // PUT /spaces/<id>/members
       const mPutMembers = sub.match(/^spaces\/([^/]+)\/members$/)
       if (mPutMembers != null && ctx.method === 'PUT') {
@@ -971,12 +983,10 @@ export function serveAccount (
     const csvMatch = ctx.path.match(/^\/api\/wac\/([^/]+)\/audit\/export\.csv$/)
     if (csvMatch == null) return await next()
     const wsParam = decodeURIComponent(csvMatch[1])
-    const workspaceUuid = await resolveWorkspaceUuid(wsParam).catch(() => null)
-    if (workspaceUuid == null) {
-      ctx.res.writeHead(404, { 'Content-Type': 'application/json' })
-      ctx.res.end(JSON.stringify({ error: 'workspace_not_found', workspace: wsParam }))
-      return
-    }
+    // authenticateWac for export.csv requires admin (Phase 1 Task 2).
+    const auth = await authenticateWac(ctx, wsParam, 'admin', authDeps)
+    if (auth === null) return
+    const { workspaceUuid } = auth
     try {
       const pg = await rawPgPromise
       const rows = await pg.execute(
@@ -1021,13 +1031,23 @@ export function serveAccount (
       ctx.res.end(JSON.stringify(body))
     }
 
-    const workspaceUuid = await resolveWorkspaceUuid(workspaceParam).catch(() => null)
+    // Phase 1 Task 2 — pick the required capability for this sub-route.
+    // my-access is per-member (USER+); everything else is MAINTAINER+ (read).
+    // Unknown routes default to 'edit' (safest — OWNER-only).
+    const wacCapability: 'read' | 'read-self' | 'edit' | 'admin' = (
+      sub === 'my-access' ? 'read-self'
+        : (sub === 'members' || sub === 'spaces' || sub.startsWith('spaces/')
+            || sub === 'audit' || sub === 'admins/count' || sub === 'invites'
+            || sub === 'grants' || sub === 'grants/count')
+            ? 'read'
+            : 'edit'
+    )
+    const auth = await authenticateWac(ctx, workspaceParam, wacCapability, authDeps)
+    if (auth === null) return
+    const { callerUuid, workspaceUuid } = auth
     const pg = await rawPgPromise
 
     if (sub === 'members') {
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
         const [db] = await accountsDb
         const members = await db.getWorkspaceMembers(workspaceUuid as any)
@@ -1075,9 +1095,6 @@ export function serveAccount (
       }
     }
     if (sub === 'invites') {
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
         const rows = await pg.execute(
           `SELECT id::text AS id, email, expires_on::text AS expires_on, created_on::text AS created_on
@@ -1100,9 +1117,6 @@ export function serveAccount (
       }
     }
     if (sub === 'admins/count') {
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
         const rows = await pg.execute(
           `SELECT count(*) AS c FROM global_account.workspace_members WHERE workspace_uuid=$1 AND role IN ('OWNER','MAINTAINER')`,
@@ -1116,9 +1130,6 @@ export function serveAccount (
       }
     }
     if (sub === 'spaces') {
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
         const rows = await pg.execute(
           `SELECT s."_id", s."_class",
@@ -1162,9 +1173,6 @@ export function serveAccount (
     }
     if (sub.startsWith('spaces/')) {
       const spaceId = sub.slice('spaces/'.length)
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
         const rows = await pg.execute(
           `SELECT "_id", "_class",
@@ -1202,9 +1210,6 @@ export function serveAccount (
       }
     }
     if (sub === 'audit') {
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
         const rows = await pg.execute(
           `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
@@ -1234,9 +1239,6 @@ export function serveAccount (
       }
     }
     if (sub === 'grants') {
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
         const rows = await pg.execute(
           `SELECT c."_id" AS resource_id,
@@ -1277,9 +1279,6 @@ export function serveAccount (
       }
     }
     if (sub === 'grants/count') {
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
         const rows = await pg.execute(
           'SELECT count(*) AS c FROM collaborator WHERE "workspaceId"=$1',
@@ -1292,26 +1291,9 @@ export function serveAccount (
       }
     }
     if (sub === 'my-access') {
-      if (workspaceUuid == null) {
-        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
-      }
       try {
-        const [db] = await accountsDb
-        const members = await db.getWorkspaceMembers(workspaceUuid as any)
-        const token = extractToken(ctx.request.headers) ?? ''
-        let callerUuid: string | null = null
-        try {
-          const decoded = decodeToken(token)
-          callerUuid = (decoded as any).account as string
-        } catch { /* unauthenticated → no membership */ }
-        if (callerUuid == null) {
-          return json(403, { error: 'no_workspace_membership' })
-        }
-        const callerEntry = members.find((m: any) => m.person === callerUuid)
-        if (callerEntry?.role == null) {
-          return json(403, { error: 'no_workspace_membership' })
-        }
-        const callerRole: string = callerEntry.role
+        // callerUuid + role already verified by authenticateWac above.
+        const callerRole: string = auth.role
         const spacesMemberOf: any[] = []
         const spacesOwned: any[] = []
         const rows = await pg.execute(
