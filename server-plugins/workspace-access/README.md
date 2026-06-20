@@ -169,6 +169,18 @@ the audit trail is missing the row. The handlers log the failure via
 reconstruct from the transactor's own tx log + the model's `modifiedOn`,
 but the loss is **not automatically backfilled**.
 
+### Observability — `wac_audit_orphan` (M1)
+
+Every audit-INSERT failure post-successful-mutation now increments a
+numeric counter via `MeasureContext.measure('wac_audit_orphan', 1)` in
+addition to the existing error breadcrumb. Subscribe to that metric on
+your observability sidecar (Prometheus, Datadog, etc.) to alert on
+audit-row drops without grepping logs.
+
+The matching breadcrumb is still emitted via `measureCtx.error(...)`
+with `attrs.breadcrumb = 'wac_audit_orphan'` so existing log-grep
+alerting keeps working.
+
 This is the same trade-off the inline implementation made before Phase
 2B, kept here intentionally because:
 
