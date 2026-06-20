@@ -9,7 +9,10 @@
 //
 
 import { generateToken } from '@hcengineering/server-token'
+import { systemAccountUuid, readOnlyGuestAccountUuid } from '@hcengineering/core'
 import { authenticateWac, type WacAuthDeps } from '../wac/auth'
+
+const GUEST_ACCOUNT = 'b6996120-416f-49cd-841e-e4a5d2e49c9b'
 
 // Phase 1 Task 1 — authenticateWac helper.
 //
@@ -325,6 +328,75 @@ describe('authenticateWac', () => {
       role: 'DOC_GUEST',
       required: 'read-self'
     })
+  })
+
+  // M4 — token-version skip-list for special service accounts.
+  //
+  // Mirrors `verifyTokenVersion` (server/account/src/utils.ts:209-214):
+  // systemAccountUuid, GUEST_ACCOUNT and readOnlyGuestAccountUuid bypass
+  // the version check. We assert that no `account.findOne` lookup is
+  // issued for these UUIDs — keeping the auth surface aligned with the
+  // canonical helper and avoiding a useless DB round-trip.
+
+  it('M4: systemAccountUuid bypasses token-version DB lookup', async () => {
+    const token = generateToken(systemAccountUuid as any, WORKSPACE as any, undefined)
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ workspaceRole: 'OWNER' })
+    // Wrap the deps to assert no findOne happens.
+    const findOneSpy = jest.fn()
+    const origAccountDb = deps.accountDb
+    deps.accountDb = async () => {
+      const db = (await origAccountDb()) as any
+      const orig = db.account.findOne
+      db.account.findOne = async (q: any) => {
+        findOneSpy(q)
+        return await orig(q)
+      }
+      return db
+    }
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'read', deps)
+    expect(res?.role).toBe('OWNER')
+    expect(findOneSpy).not.toHaveBeenCalled()
+  })
+
+  it('M4: GUEST_ACCOUNT bypasses token-version DB lookup', async () => {
+    const token = generateToken(GUEST_ACCOUNT as any, WORKSPACE as any, { guest: 'true' })
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ workspaceRole: 'GUEST' })
+    const findOneSpy = jest.fn()
+    const origAccountDb = deps.accountDb
+    deps.accountDb = async () => {
+      const db = (await origAccountDb()) as any
+      const orig = db.account.findOne
+      db.account.findOne = async (q: any) => {
+        findOneSpy(q)
+        return await orig(q)
+      }
+      return db
+    }
+    // GUEST still hits insufficient_role for 'read', but the auth machine
+    // must walk past step 3 without touching the DB.
+    await authenticateWac(ctx as any, WORKSPACE, 'read', deps)
+    expect(findOneSpy).not.toHaveBeenCalled()
+  })
+
+  it('M4: readOnlyGuestAccountUuid bypasses token-version DB lookup', async () => {
+    const token = generateToken(readOnlyGuestAccountUuid as any, WORKSPACE as any, undefined)
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ workspaceRole: 'READONLYGUEST' })
+    const findOneSpy = jest.fn()
+    const origAccountDb = deps.accountDb
+    deps.accountDb = async () => {
+      const db = (await origAccountDb()) as any
+      const orig = db.account.findOne
+      db.account.findOne = async (q: any) => {
+        findOneSpy(q)
+        return await orig(q)
+      }
+      return db
+    }
+    await authenticateWac(ctx as any, WORKSPACE, 'read-self', deps)
+    expect(findOneSpy).not.toHaveBeenCalled()
   })
 
   it('keeps GUEST (plain) denying read-self with role=GUEST in the response', async () => {
