@@ -10,24 +10,32 @@
 
 // Phase 2B Task 1 (D3) — TxOperations client for WAC write path.
 //
-// Holds a per-workspace `TxOperations` connection to the Huly transactor.
-// Write-handlers in the next task (P2B-T2) consume this client to mutate
-// space documents through the canonical Huly path so we get:
+// Holds a per-workspace transactor `Client` connection. Write-handlers
+// consume this client to mutate space documents through the canonical Huly
+// path so we get:
 //
 //   * server-side cache invalidation
 //   * websocket broadcast to connected clients
 //   * tx-event audit emission
 //
 // Pool semantics:
-//   * `Map<WorkspaceUuid, Promise<TxOperations>>` keyed by workspaceUuid.
+//   * `Map<WorkspaceUuid, Promise<Client>>` keyed by workspaceUuid.
 //   * First call per workspace triggers a connect; subsequent calls reuse.
 //   * Rejected connect promises are NOT cached — the next caller retries.
 //   * `close()` shuts down every cached client.
 //
 // Auth: an admin-token signed with the system account uuid is used per
 // connection, with `extra={admin:'true', service:'account-service-wac'}`.
+// The token only authorizes the underlying WS connection. The emitted
+// `TxUpdateDoc.modifiedBy` is the *caller's* AccountUuid — we wrap the
+// pooled Client with a fresh `new TxOperations(client, actorUuid)` per
+// write so the transactor's audit/event stream attributes the mutation
+// to the real caller, not to the system account.
+// (Independent review H1 — pre-fix, all WAC mutations were attributed
+// to `core.account.System` because TxOperations was cached with the
+// system PersonId.)
 
-import core, {
+import {
   TxOperations,
   systemAccountUuid,
   type Class,
@@ -35,6 +43,7 @@ import core, {
   type Doc,
   type DocumentUpdate,
   type MeasureContext,
+  type PersonId,
   type Ref,
   type Space,
   type WorkspaceUuid
@@ -124,13 +133,13 @@ export function createWacTxClient (opts: WacTxClientOptions): WacTxClient {
         service: 'account-service-wac'
       }))
 
-  const pool = new Map<WorkspaceUuid, Promise<TxOperations>>()
+  const pool = new Map<WorkspaceUuid, Promise<Client>>()
 
-  function getOrConnect (workspaceUuid: WorkspaceUuid): Promise<TxOperations> {
+  function getOrConnect (workspaceUuid: WorkspaceUuid): Promise<Client> {
     const cached = pool.get(workspaceUuid)
     if (cached !== undefined) return cached
 
-    const pending = (async (): Promise<TxOperations> => {
+    const pending = (async (): Promise<Client> => {
       const token = tokenFactory(workspaceUuid)
       let client: Client
       try {
@@ -162,13 +171,7 @@ export function createWacTxClient (opts: WacTxClientOptions): WacTxClient {
           await prevOnConnect(event, lastTx, data)
         }
       }
-
-      // `core.account.System` is the canonical PersonId used by server-side
-      // tooling (dev/tool, migrations). The token itself carries the
-      // system account uuid (see `generateToken(systemAccountUuid, ...)`)
-      // so authorization is by uuid; the PersonId here only labels the
-      // `modifiedBy` field on emitted txns.
-      return new TxOperations(client, core.account.System)
+      return client
     })()
 
     // Don't cache rejected promises — the next caller should retry the
@@ -185,23 +188,32 @@ export function createWacTxClient (opts: WacTxClientOptions): WacTxClient {
     return pending
   }
 
+  // Wrap the pooled Client with a fresh `TxOperations` bound to the
+  // actorUuid for each write call. TxOperations is a thin wrapper whose
+  // sole stateful field is the `user: PersonId` it stamps as the default
+  // `modifiedBy` on every emitted Tx (see foundations/core/.../operations.ts:50-58).
+  // Creating one per call is essentially free and gives us per-actor
+  // attribution without needing a (workspace, actor)-keyed connection pool.
+  function asActor (client: Client, actorUuid: string): TxOperations {
+    return new TxOperations(client, actorUuid as PersonId)
+  }
+
   return {
     async updateDoc (workspaceUuid, actorUuid, _class, space, _id, update) {
-      const ops = await getOrConnect(workspaceUuid)
-      // The transactor records `modifiedBy` from the token's account; we
-      // pass `actorUuid` through so future server-plugin handlers can
-      // attribute the mutation to the real caller (today the transactor
-      // uses the token-bound account; actorUuid is forwarded for audit).
-      void actorUuid
+      const client = await getOrConnect(workspaceUuid)
+      // H1 — bind the caller as `modifiedBy` so transactor TxEvents
+      // attribute the mutation to the real caller, not core.account.System.
+      const ops = asActor(client, actorUuid)
       await ops.updateDoc(_class, space, _id, update)
     },
     async findOne (workspaceUuid, _class, query) {
-      const ops = await getOrConnect(workspaceUuid)
-      return (await ops.findOne(_class, query)) as any
+      // Read paths don't carry attribution — go through the raw Client.
+      const client = await getOrConnect(workspaceUuid)
+      return (await client.findOne(_class, query)) as any
     },
     async removeDoc (workspaceUuid, actorUuid, _class, space, _id) {
-      const ops = await getOrConnect(workspaceUuid)
-      void actorUuid
+      const client = await getOrConnect(workspaceUuid)
+      const ops = asActor(client, actorUuid)
       await ops.removeDoc(_class, space, _id)
     },
     async close () {
@@ -210,8 +222,8 @@ export function createWacTxClient (opts: WacTxClientOptions): WacTxClient {
       await Promise.all(
         entries.map(async (p) => {
           try {
-            const ops = await p
-            await ops.close()
+            const client = await p
+            await client.close()
           } catch (err) {
             measureCtx.warn('wac transactor close error', { err: String(err) })
           }

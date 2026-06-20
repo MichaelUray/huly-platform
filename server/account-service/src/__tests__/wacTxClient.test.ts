@@ -39,7 +39,7 @@ function makeMeasureCtx (): any {
 }
 
 interface MockClient {
-  updateDocCalls: Array<{ _class: any, space: any, _id: any, update: any }>
+  updateDocCalls: Array<{ _class: any, space: any, _id: any, update: any, modifiedBy: any }>
   findOneCalls: Array<{ _class: any, query: any }>
   closeCalls: number
 }
@@ -56,11 +56,14 @@ function makeMockClient (): { mock: MockClient, client: any } {
     tx: jest.fn(async (tx: any) => {
       // The TxFactory builds a TxUpdateDoc with objectClass/objectSpace
       // /objectId/operations. Record those so the test can assert.
+      // modifiedBy is taken from the TxOperations `user` field — H1
+      // assert that the caller's actorUuid is threaded into the tx.
       mock.updateDocCalls.push({
         _class: tx.objectClass,
         space: tx.objectSpace,
         _id: tx.objectId,
-        update: tx.operations
+        update: tx.operations,
+        modifiedBy: tx.modifiedBy
       })
       return {}
     }),
@@ -208,5 +211,63 @@ describe('createWacTxClient', () => {
 
     await txc.findOne<MinimalDoc>(WS_A, CLASS_REF, { _id: 'doc-1' })
     expect(mock.findOneCalls).toEqual([{ _class: CLASS_REF, query: { _id: 'doc-1' } }])
+  })
+
+  // H1 — TxOperations was historically constructed once per workspace with
+  // `core.account.System` as the PersonId. As a result every emitted Tx had
+  // `modifiedBy = System`, dropping the caller's UUID on the floor (the
+  // `void actorUuid` line in the pre-fix code). The fix wraps the pooled
+  // Client with a fresh `new TxOperations(client, actorUuid)` per write.
+  it('H1: updateDoc threads actorUuid into the emitted Tx.modifiedBy', async () => {
+    const { mock, client } = makeMockClient()
+    const factory: WacClientFactory = jest.fn(async () => client) as any
+    const txc = createWacTxClient({
+      transactorUrl: 'ws://transactor.test',
+      serverSecret: 'secret',
+      measureCtx: makeMeasureCtx(),
+      clientFactory: factory,
+      tokenFactory: () => 'token-A'
+    })
+
+    await txc.updateDoc<MinimalDoc>(WS_A, ACTOR, CLASS_REF, SPACE_REF, 'doc-1' as any, { foo: 'bar' } as any)
+    expect(mock.updateDocCalls).toHaveLength(1)
+    expect(mock.updateDocCalls[0].modifiedBy).toBe(ACTOR)
+
+    // Different caller on the SAME workspace must bind to the new actor —
+    // proves we're not reusing a stale TxOperations.user.
+    const otherActor = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    await txc.updateDoc<MinimalDoc>(WS_A, otherActor, CLASS_REF, SPACE_REF, 'doc-2' as any, { foo: 'baz' } as any)
+    expect(mock.updateDocCalls).toHaveLength(2)
+    expect(mock.updateDocCalls[1].modifiedBy).toBe(otherActor)
+    // Both writes shared the single pooled connection.
+    expect(factory).toHaveBeenCalledTimes(1)
+  })
+
+  it('H1: removeDoc threads actorUuid into the emitted Tx.modifiedBy', async () => {
+    const { mock, client } = makeMockClient()
+    // removeDoc also goes through client.tx — extend the mock recorder.
+    const origTx = client.tx
+    client.tx = jest.fn(async (tx: any) => {
+      mock.updateDocCalls.push({
+        _class: tx.objectClass,
+        space: tx.objectSpace,
+        _id: tx.objectId,
+        update: { _removed: true },
+        modifiedBy: tx.modifiedBy
+      })
+      return await origTx(tx)
+    }) as any
+    const factory: WacClientFactory = jest.fn(async () => client) as any
+    const txc = createWacTxClient({
+      transactorUrl: 'ws://transactor.test',
+      serverSecret: 'secret',
+      measureCtx: makeMeasureCtx(),
+      clientFactory: factory,
+      tokenFactory: () => 'token-A'
+    })
+
+    await txc.removeDoc<MinimalDoc>(WS_A, ACTOR, CLASS_REF, SPACE_REF, 'doc-1' as any)
+    const lastCall = mock.updateDocCalls[mock.updateDocCalls.length - 1]
+    expect(lastCall.modifiedBy).toBe(ACTOR)
   })
 })
