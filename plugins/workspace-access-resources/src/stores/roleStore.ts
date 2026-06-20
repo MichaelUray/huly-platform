@@ -73,14 +73,14 @@ export function canReadWorkspaceWide (r: EffectiveRole): boolean {
 }
 
 export function tabsForRole (r: EffectiveRole): string[] {
-  // My-Access is always available; People/Resources/Audit are workspace-wide reads.
-  const tabs: string[] = []
+  // GUEST cannot enter the Access Center at all (backend gates with 403);
+  // returning [] here makes the surface render the "no access" hint.
+  if (r === 'GUEST') return []
+  // OWNER/MAINTAINER + their variants + IMPERSONATING/INSTANCE_ADMIN
+  // see the full workspace-wide surface; everyone else only sees their
+  // own My-Access tab.
   if (canReadWorkspaceWide(r)) {
-    tabs.push('people', 'resources')
+    return ['people', 'resources', 'my-access', 'audit']
   }
-  tabs.push('my-access')
-  if (canReadWorkspaceWide(r)) {
-    tabs.push('audit')
-  }
-  return tabs
+  return ['my-access']
 }

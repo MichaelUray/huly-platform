@@ -161,6 +161,7 @@
             size={'small'}
             label={getEmbeddedLabel('Save members')}
             disabled={!canEditMembership || !detailLoaded}
+            title={!canEditMembership ? 'Only Workspace Owners and Space Owners can change members.' : undefined}
             on:click={saveMembers}
           />
         </div>
@@ -180,6 +181,7 @@
             size={'small'}
             label={getEmbeddedLabel('Save owners')}
             disabled={!canEditMembership || !detailLoaded}
+            title={!canEditMembership ? 'Only Workspace Owners and Space Owners can change owners.' : undefined}
             on:click={saveOwners}
           />
         </div>
