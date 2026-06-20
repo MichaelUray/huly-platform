@@ -193,11 +193,23 @@ export class GuestPermissionsMiddleware extends BaseMiddleware implements Middle
       account.role === AccountRole.ReadOnlyGuest
     if (!isGuest) return false
 
-    const classCollab = getClassCollaborators(
-      this.context.modelDb,
-      this.context.hierarchy,
-      cudTx.objectClass
-    )
+    let classCollab
+    try {
+      classCollab = getClassCollaborators(this.context.modelDb, this.context.hierarchy, cudTx.objectClass)
+    } catch (err) {
+      // Unknown class (e.g. not registered in hierarchy index) — safe-by-default:
+      // treat as not opted-in to mention-grants-access and allow the operation
+      // through. Mention-grants exposed this code path for previously-unseen
+      // classes; without this guard the middleware would crash with
+      // "ancestors not found: <class>".
+      // eslint-disable-next-line no-console
+      console.debug(
+        '[guestPermissions] getClassCollaborators failed for class',
+        cudTx.objectClass,
+        err instanceof Error ? err.message : err
+      )
+      return false
+    }
     if (classCollab?.provideSecurity !== true) return false
     if (classCollab.mentionsGrantAccess !== true) return false
 
