@@ -93,12 +93,18 @@ interface RoleUpdateCall {
   role: string
 }
 
+interface InvalidateCall {
+  workspace: string
+  account: string
+}
+
 interface Harness {
   deps: WacWriteDeps
   handlers: WacWriteHandlers
   txCalls: TxCall[]
   pgCalls: PgCall[]
   roleCalls: RoleUpdateCall[]
+  invalidateCalls: InvalidateCall[]
   errors: Array<{ msg: string, attrs: any }>
   warns: Array<{ msg: string, attrs: any }>
 }
@@ -110,6 +116,10 @@ interface MakeHarnessOpts {
   auditInsertThrows?: boolean
   pgFindRowOverride?: any[] // explicit response for the SELECT space row
   updateRoleImpl?: (call: RoleUpdateCall) => Promise<void>
+  /** P2B-T5 — install a cacheInvalidator dep that records calls. */
+  withCacheInvalidator?: boolean
+  /** P2B-T5 — make the invalidator throw to verify swallowing. */
+  invalidatorThrows?: boolean
 }
 
 function defaultSpaceRow (id = 'space-1', _class = 'tracker:class:Project'): Record<string, any> {
@@ -129,6 +139,7 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
   const txCalls: TxCall[] = []
   const pgCalls: PgCall[] = []
   const roleCalls: RoleUpdateCall[] = []
+  const invalidateCalls: InvalidateCall[] = []
   const errors: Array<{ msg: string, attrs: any }> = []
   const warns: Array<{ msg: string, attrs: any }> = []
 
@@ -194,8 +205,18 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
     pgClient: async () => pgClient,
     accountDb: async () => accountDb
   }
+  if (opts.withCacheInvalidator === true) {
+    deps.cacheInvalidator = {
+      invalidateAccountInWorkspace: (async (workspace: any, account: any) => {
+        invalidateCalls.push({ workspace: String(workspace), account: String(account) })
+        if (opts.invalidatorThrows === true) {
+          throw new Error('invalidator boom')
+        }
+      }) as any
+    }
+  }
   const handlers = createWacWriteHandlers(deps)
-  return { deps, handlers, txCalls, pgCalls, roleCalls, errors, warns }
+  return { deps, handlers, txCalls, pgCalls, roleCalls, invalidateCalls, errors, warns }
 }
 
 function auditCalls (h: Harness): PgCall[] {
@@ -571,6 +592,117 @@ describe('writeRouter — handleBulkMemberRole', () => {
     await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
     expect(captured.status).toBe(200)
     expect(h.errors.some((e) => e.attrs.breadcrumb === 'wac_audit_orphan')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// P2B-T5 — cacheInvalidator wiring (single + bulk role-change)
+// ---------------------------------------------------------------------------
+
+describe('writeRouter — P2B-T5 cacheInvalidator (handleMemberRole)', () => {
+  it('invokes cacheInvalidator after successful role change', async () => {
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p2', role: 'OWNER' },
+        { person: 'p3', role: 'USER' }
+      ],
+      withCacheInvalidator: true
+    })
+    const { ctx, captured } = makeCtx({ role: 'MAINTAINER' })
+    await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p3')
+    expect(captured.status).toBe(200)
+    expect(h.invalidateCalls).toEqual([{ workspace: 'ws-1', account: 'p3' }])
+    expect(auditCalls(h)).toHaveLength(1)
+  })
+
+  it('skips cacheInvalidator on bad-role 400', async () => {
+    const h = makeHarness({ withCacheInvalidator: true })
+    const { ctx, captured } = makeCtx({ role: 'GOD' })
+    await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p3')
+    expect(captured.status).toBe(400)
+    expect(h.invalidateCalls).toHaveLength(0)
+  })
+
+  it('skips cacheInvalidator when role update throws (no mutation = no signal)', async () => {
+    const h = makeHarness({
+      members: [{ person: 'p1', role: 'USER' }],
+      updateRoleImpl: async () => { throw new Error('db fail') },
+      withCacheInvalidator: true
+    })
+    const { ctx, captured } = makeCtx({ role: 'USER' })
+    await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p1')
+    expect(captured.status).toBe(500)
+    expect(h.invalidateCalls).toHaveLength(0)
+  })
+
+  it('handler does NOT wrap invalidator — contract: invalidator must swallow internally', async () => {
+    // The handler is documented as best-effort: it calls the invalidator
+    // without try/catch. The production impl (cacheInvalidator.ts)
+    // swallows all errors and logs a 'wac_cache_invalidation_failed'
+    // breadcrumb. This test pins that an invalidator which violates the
+    // contract by throwing WILL propagate — so the production impl
+    // MUST keep swallowing. See cacheInvalidator.ts top-of-file note.
+    const h = makeHarness({
+      members: [{ person: 'p1', role: 'USER' }],
+      withCacheInvalidator: true,
+      invalidatorThrows: true
+    })
+    const { ctx } = makeCtx({ role: 'MAINTAINER' })
+    await expect(
+      h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p1')
+    ).rejects.toThrow(/invalidator boom/)
+    // The role mutation already committed before the invalidator ran.
+    expect(h.roleCalls).toHaveLength(1)
+  })
+
+  it('no invalidator dep wired = no calls, handler still 200', async () => {
+    const h = makeHarness({
+      members: [{ person: 'p1', role: 'USER' }]
+    })
+    const { ctx, captured } = makeCtx({ role: 'MAINTAINER' })
+    await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p1')
+    expect(captured.status).toBe(200)
+    expect(h.invalidateCalls).toHaveLength(0)
+  })
+})
+
+describe('writeRouter — P2B-T5 cacheInvalidator (handleBulkMemberRole)', () => {
+  it('invokes cacheInvalidator per-target after each successful mutation', async () => {
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p3', role: 'USER' },
+        { person: 'p4', role: 'USER' }
+      ],
+      withCacheInvalidator: true
+    })
+    const { ctx, captured } = makeCtx({ role: 'MAINTAINER', members: ['p3', 'p4'] })
+    await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(h.invalidateCalls).toEqual([
+      { workspace: 'ws-1', account: 'p3' },
+      { workspace: 'ws-1', account: 'p4' }
+    ])
+  })
+
+  it('cacheInvalidator NOT invoked for the target that failed to mutate', async () => {
+    let call = 0
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'USER' },
+        { person: 'p2', role: 'USER' }
+      ],
+      updateRoleImpl: async () => {
+        call++
+        if (call === 2) throw new Error('boom')
+      },
+      withCacheInvalidator: true
+    })
+    const { ctx, captured } = makeCtx({ role: 'MAINTAINER', members: ['p1', 'p2'] })
+    await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(500)
+    expect(h.invalidateCalls).toEqual([{ workspace: 'ws-1', account: 'p1' }])
   })
 })
 
