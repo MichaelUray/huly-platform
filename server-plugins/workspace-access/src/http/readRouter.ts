@@ -68,6 +68,20 @@ export interface WacReadDeps {
   resolveWorkspaceUuid: (param: string) => Promise<string | null>
   /** Keep-alive response headers used by the host for JSON writes. */
   jsonHeaders?: Record<string, string>
+  /**
+   * Phase 4 T3 — additional `_class` strings appended to the hardcoded
+   * v1 whitelist in `handleSpaces`. Plugins that register their own
+   * `core.class.Space` subclass can be exposed in the WAC Resources
+   * view without a code change by setting `WAC_EXTRA_SPACE_CLASSES` on
+   * the account-service host (comma-separated, colon-form e.g.
+   * `myplugin:class:Foo,other:class:Bar`). The host parses the env and
+   * passes the resulting array down here. Empty / unset → no-op.
+   *
+   * Extra classes inherit the default capability block
+   * (`editableHere=true, openInApp=null, v2NotYet=false`); they are NOT
+   * synthesized as v2-placeholder rows.
+   */
+  extraSpaceClasses?: string[]
 }
 
 export interface WacReadHandlers {
@@ -156,6 +170,40 @@ function bucketize (lastActMs: number | null): ActivityBucket {
 
 function classDotted (v: unknown): string {
   return String(v ?? '').replace(/:/g, '.')
+}
+
+/**
+ * Allowed `_class` shape: `<plugin>:class:<Name>` — letters, digits,
+ * underscores, dots, hyphens in segments. Anything else is rejected
+ * (logged downstream by the host on first call) so an mis-typed env
+ * value can't widen the whitelist to e.g. `*`.
+ */
+const SPACE_CLASS_RE = /^[A-Za-z0-9_.-]+:class:[A-Za-z0-9_.-]+$/
+
+/**
+ * Merge the hardcoded v1 class whitelist with optional extras from
+ * `WAC_EXTRA_SPACE_CLASSES`. Extras are de-duplicated against the base
+ * list and against each other, and silently filtered if they don't look
+ * like a valid `plugin:class:Name` token. Order: base first, then
+ * extras in original env order, for a deterministic IN-list shape.
+ *
+ * Exported so account-service tests (and future plugin tests) can
+ * exercise the parser without spinning up the handler.
+ */
+export function mergeSpaceClassWhitelist (
+  baseClasses: ReadonlyArray<string>,
+  extras: ReadonlyArray<string> | undefined
+): string[] {
+  if (extras == null || extras.length === 0) return [...baseClasses]
+  const seen = new Set(baseClasses)
+  const out = [...baseClasses]
+  for (const raw of extras) {
+    const v = String(raw).trim()
+    if (v === '' || seen.has(v) || !SPACE_CLASS_RE.test(v)) continue
+    seen.add(v)
+    out.push(v)
+  }
+  return out
 }
 
 /**
@@ -326,6 +374,24 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
 
     async handleSpaces (ctx, workspaceUuid, workspaceParam) {
       const pg = await deps.pgClient()
+      // T3 — hardcoded v1-managed core classes (7 entries). Anything outside
+      // this list is invisible to WAC unless explicitly added via
+      // WAC_EXTRA_SPACE_CLASSES on the host (see WacReadDeps.extraSpaceClasses).
+      const baseClasses = [
+        'tracker:class:Project',
+        'document:class:Teamspace',
+        'drive:class:Drive',
+        'card:class:CardSpace',
+        'lead:class:Funnel',
+        'recruit:class:Vacancy',
+        'recruit:class:JobFunnel'
+      ]
+      const allClasses = mergeSpaceClassWhitelist(baseClasses, deps.extraSpaceClasses)
+      // Build a numbered placeholder list ($2,$3,…) so the value list is
+      // bound through libpq rather than interpolated — keeps the path safe
+      // even if a future env value sneaks something non-class-shaped past
+      // the validator in mergeSpaceClassWhitelist.
+      const inPlaceholders = allClasses.map((_, i) => `$${i + 2}`).join(',')
       const rows = await pg.execute(
         `SELECT s."_id", s."_class",
                 s.data->>'name' AS name,
@@ -338,10 +404,10 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
                      AND c."attachedTo" = s."_id") AS members_count
          FROM space s
          WHERE s."workspaceId"=$1
-           AND s."_class" IN ('tracker:class:Project','document:class:Teamspace','drive:class:Drive','card:class:CardSpace','lead:class:Funnel','recruit:class:Vacancy','recruit:class:JobFunnel')
+           AND s."_class" IN (${inPlaceholders})
          ORDER BY s.data->>'name' ASC
          LIMIT 200`,
-        [workspaceUuid]
+        [workspaceUuid, ...allClasses]
       )
       const items: any[] = rows.map((r: any) => {
         const cls = classDotted(r._class)
