@@ -222,8 +222,9 @@ describe('readRouter — handleSpaces', () => {
     const handlers = buildHandlers({ pgClient: async () => pg })
     await handlers.handleSpaces(ctx, 'ws-1', 'workspace-label')
     expect(captured.status).toBe(200)
-    // 2 real rows + 3 v2 placeholders
-    expect(captured.body.items).toHaveLength(5)
+    // M7 — backend emits only real rows now. Placeholder synthesis
+    // moved to AllSpacesTab.svelte client-side.
+    expect(captured.body.items).toHaveLength(2)
     expect(captured.body.items[0]).toEqual({
       _id: 's1',
       _class: 'tracker.class.Project',
@@ -249,57 +250,18 @@ describe('readRouter — handleSpaces', () => {
     })
   })
 
-  it('appends 3 v2-placeholder rows (Chat / Office / Guest-Links)', async () => {
+  it('M7: backend emits NO v2 placeholders (moved to UI)', async () => {
     const { ctx, captured } = makeCtx()
-    // Empty real-row result — placeholders should still be appended.
+    // Empty real-row result — pre-M7 the backend would still append 3
+    // synthetic placeholders. Post-M7 the response is empty.
     const pg = makePg([[]])
     const handlers = buildHandlers({ pgClient: async () => pg })
     await handlers.handleSpaces(ctx, 'ws-1', 'workspace-label')
     expect(captured.status).toBe(200)
-    expect(captured.body.items).toHaveLength(3)
-
-    const [chat, office, guests] = captured.body.items
-    expect(chat).toEqual({
-      _id: 'wac:placeholder:chat-channels',
-      _class: 'chunter.placeholder.v2',
-      name: 'Chat Channels',
-      ownerIds: [],
-      membersCount: 0,
-      private: false,
-      autoJoin: false,
-      archived: false,
-      capabilities: {
-        editableHere: false,
-        openInApp: '/workbench/workspace-label/chunter',
-        v2NotYet: true
-      }
-    })
-    expect(office).toEqual({
-      _id: 'wac:placeholder:office-rooms',
-      _class: 'love.placeholder.v2',
-      name: 'Office Rooms',
-      ownerIds: [],
-      membersCount: 0,
-      private: false,
-      autoJoin: false,
-      archived: false,
-      capabilities: {
-        editableHere: false,
-        openInApp: '/workbench/workspace-label/love',
-        v2NotYet: true
-      }
-    })
-    expect(guests).toEqual({
-      _id: 'wac:placeholder:guest-links',
-      _class: 'guest.placeholder.v2',
-      name: 'Guest Links',
-      ownerIds: [],
-      membersCount: 0,
-      private: false,
-      autoJoin: false,
-      archived: false,
-      capabilities: { editableHere: false, openInApp: null, v2NotYet: true }
-    })
+    expect(captured.body.items).toEqual([])
+    // No v2NotYet entries in any future shape.
+    expect(JSON.stringify(captured.body)).not.toContain('placeholder')
+    expect(JSON.stringify(captured.body)).not.toContain('v2NotYet')
   })
 
   it('maps every whitelisted _class to a deep-link openInApp', async () => {

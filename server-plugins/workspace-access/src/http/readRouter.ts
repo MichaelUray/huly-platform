@@ -423,52 +423,21 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
           capabilities: capabilitiesForRealRow(cls, workspaceParam, r._id)
         }
       })
-      // T1.5 — append v2 placeholder rows so the UI can render
-      // "not managed here yet" cards next to real rows for the
-      // deliberately-excluded v1 resource types.
-      items.push(
-        {
-          _id: 'wac:placeholder:chat-channels',
-          _class: 'chunter.placeholder.v2',
-          name: 'Chat Channels',
-          ownerIds: [],
-          membersCount: 0,
-          private: false,
-          autoJoin: false,
-          archived: false,
-          capabilities: {
-            editableHere: false,
-            openInApp: `/workbench/${workspaceParam}/chunter`,
-            v2NotYet: true
-          }
-        },
-        {
-          _id: 'wac:placeholder:office-rooms',
-          _class: 'love.placeholder.v2',
-          name: 'Office Rooms',
-          ownerIds: [],
-          membersCount: 0,
-          private: false,
-          autoJoin: false,
-          archived: false,
-          capabilities: {
-            editableHere: false,
-            openInApp: `/workbench/${workspaceParam}/love`,
-            v2NotYet: true
-          }
-        },
-        {
-          _id: 'wac:placeholder:guest-links',
-          _class: 'guest.placeholder.v2',
-          name: 'Guest Links',
-          ownerIds: [],
-          membersCount: 0,
-          private: false,
-          autoJoin: false,
-          archived: false,
-          capabilities: { editableHere: false, openInApp: null, v2NotYet: true }
-        }
-      )
+      // M7 — v2 placeholder rows are now emitted by the UI
+      // (AllSpacesTab.svelte) instead of the backend.
+      //
+      // The previous design pushed three synthetic "v2 coming soon"
+      // rows here so the UI could render them next to real rows
+      // without any extra plumbing. That polluted the API contract:
+      // every client of /api/wac/<ws>/spaces — including any future
+      // CLI / admin tooling / dashboard — got the magic placeholders
+      // whether or not it knew how to render them. The UI was the
+      // only consumer that cared, and it already special-cases
+      // `capabilities.v2NotYet === true`, so we can synthesize the
+      // rows there with no functional change.
+      //
+      // The corresponding UI patch lives in
+      // `plugins/workspace-access-resources/src/components/resources/AllSpacesTab.svelte`.
       json(ctx, 200, { items, cursor: null })
     },
 

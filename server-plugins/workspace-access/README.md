@@ -122,10 +122,15 @@ capabilities: {
 }
 ```
 
-`handleSpaces` appends 3 synthetic placeholder rows (`chunter.placeholder.v2`,
-`love.placeholder.v2`, `guest.placeholder.v2`) after the real query so the UI
-shows a consistent "v2 coming soon" surface for the deliberately-excluded
-resource types.
+**M7 — placeholder synthesis moved to the UI.** Pre-fix, `handleSpaces`
+appended 3 synthetic placeholder rows after the real query so the UI
+could render "v2 coming soon" cards. That polluted the API contract:
+every non-UI consumer (CLIs, dashboards, future admin tooling) got the
+magic rows whether they wanted them or not. The UI was the only
+consumer that knew how to render `v2NotYet=true` rows, so the
+synthesis lives there now (`plugins/workspace-access-resources/src/
+components/resources/AllSpacesTab.svelte`). The backend response now
+contains only real space rows.
 
 ## What this package does NOT do
 
