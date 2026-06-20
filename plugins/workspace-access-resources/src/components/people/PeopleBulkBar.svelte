@@ -45,6 +45,8 @@
         <option value="MAINTAINER">Maintainer</option>
         <option value="USER">User</option>
         <option value="GUEST">Guest</option>
+        <option value="READONLY_GUEST">Read-only Guest</option>
+        <option value="DOC_GUEST">Document Guest</option>
       </select>
       <Button
         kind={'primary'}

@@ -31,6 +31,18 @@ export const roleStore = writable<RoleModel>({
   hydrated: false
 })
 
+/**
+ * Predicate: is the raw workspace-role one of the three Guest variants?
+ *
+ * All three (`GUEST`, `READONLY_GUEST`, `DOC_GUEST`) collapse to the
+ * `GUEST` EffectiveRole bucket for v1 — they share the "no read/edit,
+ * my-access only" capability set. Finer-grained per-variant gating is
+ * tracked as a v2 follow-up (see server-plugins/workspace-access/README.md).
+ */
+export function isGuestVariant (r: WorkspaceRole): boolean {
+  return r === 'GUEST' || r === 'READONLY_GUEST' || r === 'DOC_GUEST'
+}
+
 export const effectiveRole = derived(
   [roleStore, impersonationStore],
   ([role, imp]): EffectiveRole => {
@@ -48,6 +60,7 @@ export const effectiveRole = derived(
     if (workspaceRole === 'USER') {
       return ownedSpaceIds.length > 0 ? 'SPACE_OWNER_SCOPED' : 'USER_SELF_SCOPED'
     }
+    // GUEST / READONLY_GUEST / DOC_GUEST all collapse to GUEST for v1.
     return 'GUEST'
   }
 )

@@ -17,7 +17,26 @@ import { decodeTokenVerbose } from '@hcengineering/server-token'
 // not present. Kept in sync with the constant declared in src/index.ts.
 export const AUTH_TOKEN_COOKIE = 'account-metadata-Token'
 
-export type WacRole = 'OWNER' | 'MAINTAINER' | 'USER' | 'GUEST'
+/**
+ * Workspace-level roles surfaced over the WAC wire.
+ *
+ * Mirrors core's `AccountRole` enum (foundations/core/.../classes.ts:604)
+ * but normalized to the WAC wire shape:
+ *   GUEST           = core `Guest`         ('GUEST')
+ *   READONLY_GUEST  = core `ReadOnlyGuest` ('READONLYGUEST')
+ *   DOC_GUEST       = core `DocGuest`      ('DocGuest')
+ *
+ * All three guest variants collapse to the same capability bucket for v1
+ * — they share the "no read/edit, my-access only" surface. Finer-grained
+ * per-variant gating is tracked as a v2 follow-up.
+ */
+export type WacRole =
+  | 'OWNER'
+  | 'MAINTAINER'
+  | 'USER'
+  | 'GUEST'
+  | 'READONLY_GUEST'
+  | 'DOC_GUEST'
 
 export type WacRequiredCapability =
   // any non-guest workspace member (MAINTAINER+OWNER for resource-views;
@@ -88,6 +107,12 @@ function writeJson (ctx: Context, status: number, body: unknown): void {
   ctx.res?.end?.(JSON.stringify(body))
 }
 
+/**
+ * Map a raw DB role-string to its `WacRole`. Handles both wire-form
+ * (`READONLY_GUEST`, `DOC_GUEST`) and core-enum form (`READONLYGUEST`,
+ * `DocGuest`) so the helper is tolerant to both upstream sources without
+ * collapsing the guest variants into a single bucket.
+ */
 function mapRole (raw: string | null | undefined): WacRole {
   if (raw == null) return 'GUEST'
   const u = String(raw).toUpperCase()
@@ -98,10 +123,27 @@ function mapRole (raw: string | null | undefined): WacRole {
       return 'MAINTAINER'
     case 'USER':
       return 'USER'
-    // Anything else (GUEST/DocGuest/ReadOnlyGuest/unknown) collapses to GUEST.
+    case 'GUEST':
+      return 'GUEST'
+    // Wire form + core-enum form (READONLYGUEST without the underscore).
+    case 'READONLY_GUEST':
+    case 'READONLYGUEST':
+      return 'READONLY_GUEST'
+    case 'DOC_GUEST':
+    case 'DOCGUEST':
+      return 'DOC_GUEST'
+    // Anything else (unknown) collapses to GUEST.
     default:
       return 'GUEST'
   }
+}
+
+/**
+ * Predicate: is the role one of the three Guest variants? For v1 all
+ * three share the same capability bucket — no read/edit, my-access only.
+ */
+function isGuestVariant (role: WacRole): boolean {
+  return role === 'GUEST' || role === 'READONLY_GUEST' || role === 'DOC_GUEST'
 }
 
 function capabilityAllows (role: WacRole, required: WacRequiredCapability): boolean {
@@ -112,8 +154,8 @@ function capabilityAllows (role: WacRole, required: WacRequiredCapability): bool
     case 'read':
       return role === 'OWNER' || role === 'MAINTAINER'
     case 'read-self':
-      // Any workspace member, including USER. GUEST denied.
-      return role !== 'GUEST'
+      // Any workspace member, including USER. All guest variants denied.
+      return !isGuestVariant(role)
   }
 }
 

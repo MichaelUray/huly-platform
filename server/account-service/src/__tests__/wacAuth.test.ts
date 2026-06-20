@@ -258,10 +258,85 @@ describe('authenticateWac', () => {
   it('treats an unknown role string as GUEST and denies', async () => {
     const token = generateToken(CALLER as any, WORKSPACE as any, undefined)
     const ctx = makeCtx({ authHeader: bearer(token) })
-    const deps = makeDeps({ workspaceRole: 'DocGuest' })
+    const deps = makeDeps({ workspaceRole: 'TotallyMadeUpRole' })
     const res = await authenticateWac(ctx as any, WORKSPACE, 'read-self', deps)
     expect(res).toBeNull()
     expect(ctx.res.statusCode).toBe(403)
     expect(ctx.res.body).toEqual({ error: 'insufficient_role', role: 'GUEST', required: 'read-self' })
+  })
+
+  // T3 — Guest sub-roles
+  //
+  // The three guest variants (GUEST / READONLY_GUEST / DOC_GUEST) all
+  // share the same capability bucket for v1 — none can access read-self,
+  // but the role is reported back distinctly so the UI can label rows
+  // correctly. The mapper accepts both wire-form (READONLY_GUEST) and
+  // core-enum form (READONLYGUEST, DocGuest) so it's tolerant to both
+  // upstream sources.
+
+  it('maps READONLYGUEST (core form) to READONLY_GUEST and denies read-self', async () => {
+    const token = generateToken(CALLER as any, WORKSPACE as any, undefined)
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ workspaceRole: 'READONLYGUEST' })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'read-self', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.statusCode).toBe(403)
+    expect(ctx.res.body).toEqual({
+      error: 'insufficient_role',
+      role: 'READONLY_GUEST',
+      required: 'read-self'
+    })
+  })
+
+  it('maps READONLY_GUEST (wire form) to READONLY_GUEST and denies read-self', async () => {
+    const token = generateToken(CALLER as any, WORKSPACE as any, undefined)
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ workspaceRole: 'READONLY_GUEST' })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'read-self', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.body).toEqual({
+      error: 'insufficient_role',
+      role: 'READONLY_GUEST',
+      required: 'read-self'
+    })
+  })
+
+  it('maps DocGuest (core form) to DOC_GUEST and denies read-self', async () => {
+    const token = generateToken(CALLER as any, WORKSPACE as any, undefined)
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ workspaceRole: 'DocGuest' })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'read-self', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.body).toEqual({
+      error: 'insufficient_role',
+      role: 'DOC_GUEST',
+      required: 'read-self'
+    })
+  })
+
+  it('maps DOC_GUEST (wire form) to DOC_GUEST and denies read-self', async () => {
+    const token = generateToken(CALLER as any, WORKSPACE as any, undefined)
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ workspaceRole: 'DOC_GUEST' })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'read-self', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.body).toEqual({
+      error: 'insufficient_role',
+      role: 'DOC_GUEST',
+      required: 'read-self'
+    })
+  })
+
+  it('keeps GUEST (plain) denying read-self with role=GUEST in the response', async () => {
+    const token = generateToken(CALLER as any, WORKSPACE as any, undefined)
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ workspaceRole: 'GUEST' })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'read-self', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.body).toEqual({
+      error: 'insufficient_role',
+      role: 'GUEST',
+      required: 'read-self'
+    })
   })
 })

@@ -162,6 +162,34 @@ describe('readRouter — handleMembers', () => {
     )
     await expect(handlers.handleMembers(ctx, 'ws-1', 'ws-1')).rejects.toThrow(/pg-down/)
   })
+
+  // T3 — Guest sub-roles
+  //
+  // handleMembers maps the raw DB role through `mapWacRole`, preserving
+  // GUEST / READONLY_GUEST / DOC_GUEST distinction rather than collapsing
+  // all three into a flat GUEST. Tolerant to both wire form and core-enum
+  // form so it doesn't matter which upstream produced the row.
+
+  it('preserves the three Guest sub-role variants on the wire', async () => {
+    const { ctx, captured } = makeCtx()
+    const accountDb: AccountDbLike = {
+      getWorkspaceMembers: async () => [
+        { person: 'pg', role: 'GUEST' },
+        { person: 'pr', role: 'READONLYGUEST' }, // core enum form
+        { person: 'pr2', role: 'READONLY_GUEST' }, // wire form
+        { person: 'pd', role: 'DocGuest' }, // core enum form
+        { person: 'pd2', role: 'DOC_GUEST' } // wire form
+      ]
+    }
+    // 4 queries per row × 5 rows.
+    const pg = makePg(Array(20).fill([{ n: 0 }]))
+    const handlers = createWacReadHandlers(
+      makeDeps({ accountDb: async () => accountDb, pgClient: async () => pg })
+    )
+    await handlers.handleMembers(ctx, 'ws-1', 'ws-1')
+    const roles = captured.body.items.map((i: any) => i.role)
+    expect(roles).toEqual(['GUEST', 'READONLY_GUEST', 'READONLY_GUEST', 'DOC_GUEST', 'DOC_GUEST'])
+  })
 })
 
 describe('readRouter — handleSpaces', () => {

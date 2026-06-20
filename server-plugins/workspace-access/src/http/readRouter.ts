@@ -131,6 +131,48 @@ function classDotted (v: unknown): string {
 }
 
 /**
+ * Wire-form WAC role. Mirrors the server/account-service WacRole type +
+ * frontend `WorkspaceRole`. Kept inline (rather than imported) so the
+ * plugin doesn't pick up account-service as a runtime dependency.
+ */
+export type WacWireRole =
+  | 'OWNER'
+  | 'MAINTAINER'
+  | 'USER'
+  | 'GUEST'
+  | 'READONLY_GUEST'
+  | 'DOC_GUEST'
+
+/**
+ * Normalize a raw DB role-string to its WAC wire form. Tolerant to both
+ * the wire form (`READONLY_GUEST`) and the core-enum form (`READONLYGUEST`,
+ * `DocGuest`) so handleMembers preserves guest-variant distinction
+ * regardless of which upstream produced the row.
+ */
+function mapWacRole (raw: string | null | undefined): WacWireRole {
+  if (raw == null) return 'USER'
+  const u = String(raw).toUpperCase()
+  switch (u) {
+    case 'OWNER':
+      return 'OWNER'
+    case 'MAINTAINER':
+      return 'MAINTAINER'
+    case 'USER':
+      return 'USER'
+    case 'GUEST':
+      return 'GUEST'
+    case 'READONLY_GUEST':
+    case 'READONLYGUEST':
+      return 'READONLY_GUEST'
+    case 'DOC_GUEST':
+    case 'DOCGUEST':
+      return 'DOC_GUEST'
+    default:
+      return 'GUEST'
+  }
+}
+
+/**
  * Capability-Matrix mapping (T2).
  *
  * For each `_class` whitelisted in `handleSpaces`, return:
@@ -244,7 +286,9 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
           uuid: personUuid,
           name: display,
           email: emailRows[0]?.value ?? '',
-          role: m.role ?? 'USER',
+          // T3 — preserve Guest sub-role distinction (GUEST / READONLY_GUEST
+          // / DOC_GUEST) rather than collapsing all variants to 'GUEST'.
+          role: mapWacRole(m.role),
           activityBucket: bucketize(lastAct),
           spacesCount
         })
@@ -551,4 +595,4 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
 }
 
 // Re-exported for the host's source-grep guard tests + Phase 2B.
-export { csvEscape as __csvEscape, csvLine as __csvLine, bucketize as __bucketize }
+export { csvEscape as __csvEscape, csvLine as __csvLine, bucketize as __bucketize, mapWacRole as __mapWacRole }
