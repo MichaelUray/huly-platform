@@ -739,13 +739,18 @@ export function serveAccount (
   // removed alongside the inline write block.
 
   // ── Impersonation lifecycle ─────────────────────────────────────────────
-  // In-memory revocation set. JTIs added on /end stay revoked until exp.
-  const revokedJtis = new Map<string, number>()
-  // Periodically drop expired entries so the map doesn't grow unbounded.
-  setInterval(() => {
-    const now = Math.floor(Date.now() / 1000)
-    for (const [jti, exp] of revokedJtis) if (exp <= now) revokedJtis.delete(jti)
-  }, 60_000).unref()
+  // D7 — Process-local JTI-revocation was removed. account-service runs
+  // load-balanced across multiple pods, so a per-process `Map<jti, exp>`
+  // could only revoke a token on the pod that handled `/end`; the other
+  // pods would happily accept the same token until its `exp` claim
+  // expired. v1 relies solely on the 30-minute token expiry (enforced in
+  // `assertImpersonationToken` in @hcengineering/workspace-access-server).
+  //
+  // Real cross-pod revocation needs a shared store (Redis/DB) and is
+  // tracked as a v2 follow-up. Until that lands, `/api/admin/
+  // impersonation/end` returns 501 with `revocation_pending_persistent_store`
+  // so the UI can present a clear "session will end on expiry" message
+  // instead of mis-reporting success.
 
   app.use(async (ctx, next) => {
     if (ctx.method !== 'POST') return await next()
@@ -774,7 +779,8 @@ export function serveAccount (
         // Issue token with workspace audience so transactor accepts it.
         // Pass extra as a flat Record<string,string> (not nested under .extra)
         // and set options.exp so the documented 30-minute expiry actually
-        // applies to the JWT and aligns with revokedJtis bookkeeping.
+        // applies to the JWT. Token expiry is the only revocation mechanism
+        // in v1 (see D7 note above).
         const impersonationToken = generateToken(
           adminUuid,
           workspaceUuid as any,
@@ -799,6 +805,10 @@ export function serveAccount (
     }
 
     if (path === '/api/admin/impersonation/end') {
+      // D7 — revocation requires a shared persistent store (out of scope
+      // for v1, see comment block above). Still audit-log the *intent* to
+      // end the session so the timeline reflects what the admin did, then
+      // return 501 with a stable error code the UI can match on.
       try {
         const token = extractToken(ctx.request.headers) ?? ''
         const decoded = decodeToken(token) as any
@@ -807,16 +817,19 @@ export function serveAccount (
         const adminUuid = decoded.extra?.actor_admin ?? decoded.account
         const wsUuid = decoded.workspace
         const now = Math.floor(Date.now() / 1000)
-        if (jti != null) revokedJtis.set(jti, decoded.exp ?? now + 30 * 60)
         if (wsUuid != null) {
-          await writeWacAudit(wsUuid, 'impersonation_ended', adminUuid, 'instance_admin', {
-            new_value: { impersonation_ref: refId, jti, ended_at: now }
+          await writeWacAudit(wsUuid, 'impersonation_end_attempted', adminUuid, 'instance_admin', {
+            new_value: { impersonation_ref: refId, jti, attempted_at: now, outcome: 'revocation_pending_persistent_store' }
           })
         }
-        return json(200, { ok: true })
-      } catch (err) {
-        return json(400, { error: 'invalid_token', detail: String(err) })
+      } catch {
+        // Token may be malformed/expired — still surface 501 below so the
+        // UI gets a single consistent error contract for this endpoint.
       }
+      return json(501, {
+        error: 'not_implemented',
+        detail: 'revocation_pending_persistent_store'
+      })
     }
 
     return await next()

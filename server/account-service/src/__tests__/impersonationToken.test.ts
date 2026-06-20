@@ -13,13 +13,15 @@ import { decodeToken, generateToken } from '@hcengineering/server-token'
 // Before this fix, `/api/admin/impersonation/start` called generateToken with
 // the impersonation claims wrapped as `{ extra: { ... } }` (so the decoded
 // payload had `extra.extra.{impersonation, jti, ...}`) and did NOT pass
-// options.exp. That broke two things:
-//   1. The documented 30-minute expiry never reached the JWT.
-//   2. /end's `revokedJtis.set(jti, ...)` saw `decoded.extra?.jti === undefined`,
-//      so revocation was a silent no-op.
+// options.exp. The documented 30-minute expiry never reached the JWT.
 //
 // This test asserts the canonical shape: claims are flat on `decoded.extra`,
 // and `decoded.exp` is set to ~now + 30 minutes.
+//
+// Note (D7, 2026-06): process-local JTI revocation was removed; v1 relies
+// on the 30-min expiry as the sole revocation mechanism. So the `jti` claim
+// is still surfaced (audit log + future v2 store) but no longer feeds a
+// per-process Map.
 describe('WAC impersonation token shape', () => {
   it('decodes with flat extra claims and expected exp', () => {
     const adminUuid = '123e4567-e89b-12d3-a456-426614174000'
