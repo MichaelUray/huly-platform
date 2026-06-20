@@ -8,33 +8,33 @@ describe('effectiveRole resolver', () => {
   })
 
   it('returns OWNER for plain workspace owner', () => {
-    roleStore.set({ workspaceRole: 'OWNER', ownedSpaceIds: [] })
+    roleStore.set({ workspaceRole: 'OWNER', ownedSpaceIds: [], hydrated: true })
     expect(get(effectiveRole)).toBe('OWNER')
   })
 
   it('promotes Maintainer+SpaceOwner to MAINTAINER_PLUS_SPACE_OWNER', () => {
-    roleStore.set({ workspaceRole: 'MAINTAINER', ownedSpaceIds: ['s1'] })
+    roleStore.set({ workspaceRole: 'MAINTAINER', ownedSpaceIds: ['s1'], hydrated: true })
     expect(get(effectiveRole)).toBe('MAINTAINER_PLUS_SPACE_OWNER')
   })
 
   it('returns SPACE_OWNER_SCOPED for User+SpaceOwner', () => {
-    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: ['s1'] })
+    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: ['s1'], hydrated: true })
     expect(get(effectiveRole)).toBe('SPACE_OWNER_SCOPED')
   })
 
   it('returns USER_SELF_SCOPED for plain user', () => {
-    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: [] })
+    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: [], hydrated: true })
     expect(get(effectiveRole)).toBe('USER_SELF_SCOPED')
   })
 
   it('switches to IMPERSONATING_ADMIN on active impersonation', () => {
-    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: [] })
+    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: [], hydrated: true })
     impersonationStore.set({ state: 'active', exp: 9999, ref: 'r', workspace: 'ws' })
     expect(get(effectiveRole)).toBe('IMPERSONATING_ADMIN')
   })
 
   it('returns INSTANCE_ADMIN_READONLY (NOT IMPERSONATING_ADMIN) for drill-down', () => {
-    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: [] })
+    roleStore.set({ workspaceRole: 'USER', ownedSpaceIds: [], hydrated: true })
     impersonationStore.set({ state: 'drill-down', exp: null, ref: null, workspace: 'ws' })
     expect(get(effectiveRole)).toBe('INSTANCE_ADMIN_READONLY')
   })
