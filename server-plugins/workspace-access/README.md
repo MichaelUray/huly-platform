@@ -169,6 +169,30 @@ the audit trail is missing the row. The handlers log the failure via
 reconstruct from the transactor's own tx log + the model's `modifiedOn`,
 but the loss is **not automatically backfilled**.
 
+### Fail-closed role mapping (M6)
+
+`mapRole(raw)` in `server/account-service/src/wac/auth.ts` collapses
+any unknown role string to `'GUEST'` — the most restrictive bucket.
+This is **intentional fail-closed behaviour**:
+
+- If upstream adds a new `AccountRole` enum value that WAC's wire-form
+  list doesn't yet handle, the new role gets denied access until WAC
+  is updated to recognize it explicitly.
+- Defaulting to `'USER'` or `'MAINTAINER'` would silently grant
+  whatever surface the new role was intended to map to.
+
+When adding a new role:
+
+1. Add the wire-form to `WacRole` in `wac/auth.ts`.
+2. Add the case branch in `mapRole(...)`.
+3. Add the matching entry to `WacWireRole` + `mapWacRole(...)` in
+   `server-plugins/workspace-access/src/http/readRouter.ts`.
+4. Add it to `ALLOWED_ROLES` in
+   `server-plugins/workspace-access/src/http/writeRouter.ts`.
+5. Add the dropdown option in
+   `plugins/workspace-access-resources/src/components/people/PersonDrawer.svelte`.
+6. Add the IntlString to `plugin.ts` + `lang/en.json` + `lang/de.json`.
+
 ### CSV-export rate limit (M3)
 
 `GET /api/wac/<ws>/audit/export.csv` is rate-limited at 5 requests per
