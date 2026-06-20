@@ -8,6 +8,7 @@
   import { createEventDispatcher, onMount } from 'svelte'
   import { Button, DropdownLabelsIntl, type DropdownIntlItem } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../../plugin'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import { peopleApi } from '../../api/peopleApi'
   import type { WorkspaceRole } from '../../types'
@@ -24,15 +25,16 @@
   let error: string | null = null
   let busy: boolean = false
 
+  // H4 — role labels via IntlString.
   const roleItems: DropdownIntlItem[] = [
-    { id: 'OWNER', label: getEmbeddedLabel('Owner') },
-    { id: 'MAINTAINER', label: getEmbeddedLabel('Maintainer') },
-    { id: 'USER', label: getEmbeddedLabel('User') },
-    { id: 'GUEST', label: getEmbeddedLabel('Guest') },
+    { id: 'OWNER', label: wac.string.Owner },
+    { id: 'MAINTAINER', label: wac.string.Maintainer },
+    { id: 'USER', label: wac.string.User },
+    { id: 'GUEST', label: wac.string.Guest },
     // T3 — Guest sub-roles. All three share the same capability bucket
     // in v1 but are reported distinctly so the role label is honest.
-    { id: 'READONLY_GUEST', label: getEmbeddedLabel('Read-only Guest') },
-    { id: 'DOC_GUEST', label: getEmbeddedLabel('Document Guest') }
+    { id: 'READONLY_GUEST', label: wac.string.ReadOnlyGuest },
+    { id: 'DOC_GUEST', label: wac.string.DocGuest }
   ]
 
   $: if (person != null) {
@@ -100,7 +102,7 @@
           <Button
             kind={'primary'}
             size={'medium'}
-            label={getEmbeddedLabel(busy ? 'Saving…' : 'Save role')}
+            label={busy ? wac.string.Loading : wac.string.SaveRole}
             disabled={!canEdit || busy}
             title={!canEdit ? 'Only Workspace Owners can change workspace roles.' : undefined}
             on:click={applyRole}

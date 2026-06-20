@@ -9,6 +9,7 @@
   import { createEventDispatcher, onMount } from 'svelte'
   import { Button, ToggleWithLabel } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../../plugin'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import SpaceTypeIcon from './SpaceTypeIcon.svelte'
   import MemberPickerInput from '../shared/MemberPickerInput.svelte'
@@ -159,7 +160,7 @@
           <Button
             kind={'primary'}
             size={'small'}
-            label={getEmbeddedLabel('Save members')}
+            label={wac.string.SaveMembers}
             disabled={!canEditMembership || !detailLoaded}
             title={!canEditMembership ? 'Only Workspace Owners and Space Owners can change members.' : undefined}
             on:click={saveMembers}
@@ -179,7 +180,7 @@
           <Button
             kind={'primary'}
             size={'small'}
-            label={getEmbeddedLabel('Save owners')}
+            label={wac.string.SaveOwners}
             disabled={!canEditMembership || !detailLoaded}
             title={!canEditMembership ? 'Only Workspace Owners and Space Owners can change owners.' : undefined}
             on:click={saveOwners}

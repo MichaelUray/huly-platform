@@ -112,6 +112,21 @@ row, not per role. `MAINTAINER` is shorthand for "can do everything an
 OWNER can except destroy the workspace"; the only OWNER-only path in v1
 is the workspace-delete confirmation flow (lives outside WAC).
 
+### i18n status (H4)
+
+WAC strings are registered as `IntlString` under the `workspace-access`
+plugin id (`src/plugin.ts`) and loaded lazily from
+`lang/<locale>.json` via `addStringsLoader` in `src/index.ts`. Two
+locales ship today: `en` and `de`.
+
+**Coverage in v1 is partial.** The most user-visible strings — tab
+labels, role labels, save/cancel/export buttons, loading/empty/error
+states (~30 strings) — go through `IntlString`. Roughly twenty
+remaining call-sites still use `getEmbeddedLabel('…')` and will be
+migrated in v2 by extending `plugin.ts`'s `string:` block and adding
+the matching JSON entries. Pattern is proven; finishing the migration
+is mechanical work.
+
 ### UI conventions
 
 - Right-side drawers (PersonDrawer / SpaceDrawer) own their own dirty
