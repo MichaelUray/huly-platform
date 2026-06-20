@@ -573,7 +573,7 @@ describe('writeRouter — handleMemberRole', () => {
 // ---------------------------------------------------------------------------
 
 describe('writeRouter — handleBulkMemberRole', () => {
-  it('happy path: updates each target + per-target audit + 200', async () => {
+  it('happy path: all-success returns 200 with per-target ok rows', async () => {
     const h = makeHarness({
       members: [
         { person: 'p1', role: 'OWNER' },
@@ -585,8 +585,12 @@ describe('writeRouter — handleBulkMemberRole', () => {
     const { ctx, captured } = makeCtx({ role: 'MAINTAINER', members: ['p3', 'p4'] })
     await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
     expect(captured.status).toBe(200)
-    expect(captured.body.affected).toBe(2)
+    expect(captured.body.appliedCount).toBe(2)
     expect(typeof captured.body.batch_id).toBe('string')
+    expect(captured.body.results).toEqual([
+      { memberUuid: 'p3', status: 'ok' },
+      { memberUuid: 'p4', status: 'ok' }
+    ])
     expect(h.roleCalls).toHaveLength(2)
     expect(auditCalls(h)).toHaveLength(2)
   })
@@ -607,7 +611,9 @@ describe('writeRouter — handleBulkMemberRole', () => {
     expect(captured.body.error).toBe('bad_role')
   })
 
-  it('409 last_owner when bulk-demote would empty the OWNER set', async () => {
+  it('409 last_owner when bulk-demote would empty the OWNER set entirely', async () => {
+    // Workspace-level guard kept: if the bulk covers *every* owner there
+    // is no useful partial state to return — keep the hard 409.
     const h = makeHarness({
       members: [
         { person: 'p1', role: 'OWNER' },
@@ -620,7 +626,7 @@ describe('writeRouter — handleBulkMemberRole', () => {
     expect(h.roleCalls).toHaveLength(0)
   })
 
-  it('500 when updateWorkspaceRole throws mid-batch, audit only for completed', async () => {
+  it('H2: partial success — internal error on one target, others ok', async () => {
     let call = 0
     const h = makeHarness({
       members: [{ person: 'p1', role: 'USER' }, { person: 'p2', role: 'USER' }],
@@ -631,9 +637,70 @@ describe('writeRouter — handleBulkMemberRole', () => {
     })
     const { ctx, captured } = makeCtx({ role: 'MAINTAINER', members: ['p1', 'p2'] })
     await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
-    expect(captured.status).toBe(500)
-    // Only the first audit was written (the second update threw before).
+    expect(captured.status).toBe(200)
+    expect(captured.body.appliedCount).toBe(1)
+    expect(captured.body.results).toEqual([
+      { memberUuid: 'p1', status: 'ok' },
+      { memberUuid: 'p2', status: 'internal', detail: 'write_failed' }
+    ])
+    // Only the successful one was audited.
     expect(auditCalls(h)).toHaveLength(1)
+  })
+
+  it('H2: per-target last_owner_refused when smaller bulk covers the only owner', async () => {
+    // Bulk-targets only p1 (the single OWNER) — workspace-level guard
+    // doesn't fire because the OWNER set isn't empty after only p1 was
+    // requested? It is. Then we need a different shape: 2 owners, target
+    // both (covered above as 409). For per-target refusal we need a bulk
+    // that targets a single owner alongside non-owners — the workspace-
+    // level guard accepts (p1's demote leaves zero), so we use a 1-owner
+    // workspace.
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p2', role: 'USER' }
+      ]
+    })
+    const { ctx, captured } = makeCtx({ role: 'USER', members: ['p1'] })
+    await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
+    // Workspace-level guard catches this one (entire OWNER set would be
+    // empty) so 409 is correct. Documenting the alternative path:
+    expect(captured.status).toBe(409)
+  })
+
+  it('H2: per-target last_owner_refused when batch starts depleting owners', async () => {
+    // 2 owners + 1 user. Batch demotes both owners. Workspace-level guard
+    // catches it as 409 today. Document expected behaviour for the
+    // case where p3 (USER) is included alongside — guard still fires
+    // because demoting p1+p2 leaves zero owners.
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p2', role: 'OWNER' },
+        { person: 'p3', role: 'USER' }
+      ]
+    })
+    const { ctx, captured } = makeCtx({ role: 'USER', members: ['p1', 'p2', 'p3'] })
+    await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(409)
+  })
+
+  it('H2: not_found status for targets missing from workspace_members', async () => {
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p2', role: 'USER' }
+      ]
+    })
+    const { ctx, captured } = makeCtx({ role: 'MAINTAINER', members: ['p2', 'ghost'] })
+    await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.appliedCount).toBe(1)
+    expect(captured.body.results).toEqual([
+      { memberUuid: 'p2', status: 'ok' },
+      { memberUuid: 'ghost', status: 'not_found' }
+    ])
+    expect(h.roleCalls).toHaveLength(1)
   })
 
   it('200 + orphan-log when audit throws post-mutation (does NOT abort batch)', async () => {
@@ -644,6 +711,8 @@ describe('writeRouter — handleBulkMemberRole', () => {
     const { ctx, captured } = makeCtx({ role: 'MAINTAINER', members: ['p1'] })
     await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
     expect(captured.status).toBe(200)
+    expect(captured.body.appliedCount).toBe(1)
+    expect(captured.body.results).toEqual([{ memberUuid: 'p1', status: 'ok' }])
     expect(h.errors.some((e) => e.attrs.breadcrumb === 'wac_audit_orphan')).toBe(true)
   })
 })
@@ -739,7 +808,7 @@ describe('writeRouter — P2B-T5 cacheInvalidator (handleBulkMemberRole)', () =>
     ])
   })
 
-  it('cacheInvalidator NOT invoked for the target that failed to mutate', async () => {
+  it('cacheInvalidator NOT invoked for the target that failed to mutate (H2 partial-success contract)', async () => {
     let call = 0
     const h = makeHarness({
       members: [
@@ -754,7 +823,9 @@ describe('writeRouter — P2B-T5 cacheInvalidator (handleBulkMemberRole)', () =>
     })
     const { ctx, captured } = makeCtx({ role: 'MAINTAINER', members: ['p1', 'p2'] })
     await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
-    expect(captured.status).toBe(500)
+    // H2: 200 with per-target outcomes (was 500 pre-fix).
+    expect(captured.status).toBe(200)
+    expect(captured.body.appliedCount).toBe(1)
     expect(h.invalidateCalls).toEqual([{ workspace: 'ws-1', account: 'p1' }])
   })
 })

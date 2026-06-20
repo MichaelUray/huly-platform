@@ -566,6 +566,23 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
     },
 
     async handleBulkMemberRole (ctx, workspaceUuid, callerUuid) {
+      // H2 — per-target outcome contract.
+      //
+      // Pre-fix: the bulk endpoint aborted with HTTP 500 the moment any
+      // single target's `updateWorkspaceRole` threw, even if the prior
+      // targets had already mutated. The client had no way to tell which
+      // updates landed and which didn't, and no rollback was performed
+      // because none is feasible across the audit-log boundary.
+      //
+      // Post-fix contract: the endpoint always returns 200 with a per-
+      // target outcome array. Each entry is one of:
+      //   - 'ok'                — mutation + audit written
+      //   - 'last_owner_refused' — gating refused (per-target check)
+      //   - 'forbidden'         — reserved for future per-target ACL gating
+      //   - 'not_found'         — target not in workspace_members
+      //   - 'internal'          — updateWorkspaceRole threw
+      // The 400 body-validation errors and the workspace-level last-owner
+      // refusal (would empty the OWNER set entirely) are unchanged.
       const body = readBody(ctx)
       if (body == null || !Array.isArray(body.members)) {
         json(ctx, 400, { error: 'bad_request' })
@@ -579,10 +596,14 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
       }
       const db = await deps.accountDb()
       const members = await db.getWorkspaceMembers(workspaceUuid as any)
+      const memberIndex = new Map(members.map((m) => [m.person, m.role ?? null]))
       const ownerSet = new Set(members.filter((m) => m.role === 'OWNER').map((m) => m.person))
 
-      // E3 — last-owner check for bulk role-change: would any owner be
-      // demoted such that the resulting owner-set is empty?
+      // E3 — workspace-level last-owner guard kept as the hard 409: if
+      // *every* requested demote would leave the OWNER set empty there's
+      // no useful partial state to return. The per-target check below
+      // additionally protects against a smaller bulk that targets only
+      // the single remaining owner.
       if (role !== 'OWNER') {
         const remainingOwners = new Set(ownerSet)
         for (const t of targets) remainingOwners.delete(t)
@@ -594,21 +615,47 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
 
       const batchId = `b${Date.now()}`
       const pg = await deps.pgClient()
-      let affected = 0
+      const results: Array<{
+        memberUuid: string
+        status: 'ok' | 'last_owner_refused' | 'forbidden' | 'not_found' | 'internal'
+        detail?: string
+      }> = []
+      let appliedCount = 0
       for (const t of targets) {
+        // Per-target gating BEFORE the mutation. Avoids the H3 TOCTOU
+        // window: even the bulk path now refuses demote of the last
+        // remaining owner when other targets in the same batch already
+        // dropped owner-count to 1.
+        if (!memberIndex.has(t)) {
+          results.push({ memberUuid: t, status: 'not_found' })
+          continue
+        }
+        if (role !== 'OWNER' && memberIndex.get(t) === 'OWNER') {
+          if (ownerSet.size <= 1) {
+            results.push({ memberUuid: t, status: 'last_owner_refused' })
+            continue
+          }
+          // After this demote there is one fewer owner in the live set;
+          // subsequent iterations see the smaller pool.
+          ownerSet.delete(t)
+        }
+
         try {
           await db.updateWorkspaceRole(t as any, workspaceUuid as any, role as any)
-          affected++
         } catch (err) {
           deps.measureCtx.error('wac bulk role update failed', {
             workspace: workspaceUuid,
             target: t,
             err: String(err)
           })
-          json(ctx, 500, { error: 'write_failed', detail: String(err) })
-          return
+          // Sanitize the error message so internal stack traces don't
+          // leak to the client.
+          results.push({ memberUuid: t, status: 'internal', detail: 'write_failed' })
+          continue
         }
-        // P2B-T5 — best-effort live cache-invalidation (per target).
+        // Mutation succeeded — count + invalidate + audit only this one.
+        appliedCount++
+        memberIndex.set(t, role)
         if (deps.cacheInvalidator !== undefined) {
           await deps.cacheInvalidator.invalidateAccountInWorkspace(
             workspaceUuid as WorkspaceUuid,
@@ -627,8 +674,9 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
             new_value: { role, batch_id: batchId }
           }
         )
+        results.push({ memberUuid: t, status: 'ok' })
       }
-      json(ctx, 200, { batch_id: batchId, affected })
+      json(ctx, 200, { batch_id: batchId, appliedCount, results })
     },
 
     async handleGrantRevoke (ctx, workspaceUuid, callerUuid, recipient, resource) {
