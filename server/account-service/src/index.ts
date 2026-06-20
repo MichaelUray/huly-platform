@@ -38,6 +38,7 @@ import { migrateFromOldAccounts } from './migration/migration'
 import { TokenBucketLimiter } from './util/rateLimiter'
 import { getDBClient, createDBClient } from '@hcengineering/postgres-base'
 import { authenticateWac, type WacAuthDeps } from './wac/auth'
+import { createWacTxClient, type WacTxClient } from './wac/transactorClient'
 import { createWacReadHandlers, type WacReadDeps } from '@hcengineering/server-workspace-access'
 
 export * from './migration/utils'
@@ -105,6 +106,16 @@ export function serveAccount (
     console.log('Please provide server secret')
     process.exit(1)
   }
+
+  // Phase 2B Task 1 (D3) — long-lived TxOperations pool to the transactor.
+  // The WAC write-handlers (P2B-T2) will consume this client to mutate
+  // space docs through the canonical Huly path. No route consumes it yet.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const wacTxClient: WacTxClient = createWacTxClient({
+    transactorUrl: transactorUri,
+    serverSecret,
+    measureCtx
+  })
 
   addStringsLoader(accountId, async (lang: string) => {
     switch (lang) {
@@ -1097,6 +1108,9 @@ export function serveAccount (
 
   const close = (): void => {
     onClose?.()
+    void wacTxClient.close().catch((err) => {
+      measureCtx.warn('wac transactor pool close failed', { err: String(err) })
+    })
     void accountsDb.then(([, closeAccountsDb]) => {
       closeAccountsDb()
     })
