@@ -12,11 +12,10 @@
   export let workspace: string
   export let canRevoke: boolean = false
 
-  // TODO Phase 2B: enable when /grants DELETE is implemented via TxOperations.
-  // The backend currently returns 501 not_implemented (wac_grant_revoke_pending_v2);
-  // showing the Revoke button gave operators false confidence that the grant was
-  // actually removed.
-  const REVOKE_GRANT_ENABLED = false
+  // P2B-T6 — backend revoke is now real: txClient.removeDoc on the
+  // collaborator row, audit row 'grant_revoked', live transactor
+  // broadcast. The UI Revoke button is re-enabled.
+  const REVOKE_GRANT_ENABLED = true
 
   const dispatch = createEventDispatcher<{ revoked: { recipient: string, resource: string } }>()
 
