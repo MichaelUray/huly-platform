@@ -6,11 +6,14 @@
 //   - endpoints   : list + edit endpoint helpers (DI-friendly)
 //   - impersonation : token start/end/validate + audit hooks
 //   - backfill    : V33 orchestrator
+//   - http        : Phase 2A — read-route + CSV-export handlers used
+//                   by account-service as a thin host. See
+//                   src/http/readRouter.ts for the policy/IO surface.
 //
-// The package does not own its own HTTP server or DB pool. Wiring into
-// Huly's transactor / account-server is the integration job in a
-// follow-up PR; this layer keeps the auth + audit + RBAC logic so the
-// wiring layer stays tiny.
+// The package does not own its own HTTP server or DB pool. The
+// account-service stays the HTTP host (mount/DI/auth gates); this
+// module owns the read-side policy + business logic so the host file
+// stays small.
 //
 
 export { migrations } from './migrations/loader'
@@ -69,3 +72,13 @@ export type {
   BackfillDeps,
   OrchestratorOptions
 } from './backfill/v33Orchestrator'
+
+export { createWacReadHandlers } from './http/readRouter'
+export type {
+  WacReadDeps,
+  WacReadHandlers,
+  KoaCtxLike,
+  PgClientLike,
+  AccountDbLike,
+  MeasureCtxLike
+} from './http/readRouter'
