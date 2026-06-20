@@ -45,7 +45,22 @@
   }
 
   function onRowClick (e: CustomEvent<{ item: SpaceRow }>): void {
+    // v2-placeholder rows have no edit surface — clicking opens the
+    // underlying app instead of the WAC drawer.
+    if (e.detail.item.capabilities?.v2NotYet === true) {
+      const url = e.detail.item.capabilities.openInApp
+      if (url != null && typeof window !== 'undefined') {
+        window.location.href = url
+      }
+      return
+    }
     dispatch('rowClick', { spaceId: e.detail.item._id })
+  }
+
+  function openInApp (url: string | null | undefined, ev: Event): void {
+    ev.stopPropagation()
+    if (url == null || typeof window === 'undefined') return
+    window.location.href = url
   }
 </script>
 
@@ -57,11 +72,21 @@
       {#if String(col.key) === '_class'}
         <SpaceTypeIcon cls={item._class} />
       {:else if String(col.key) === 'private'}
-        {item.private ? '🔒 Private' : 'Public'}
+        {#if item.capabilities?.v2NotYet}—{:else}{item.private ? '🔒 Private' : 'Public'}{/if}
       {:else if String(col.key) === 'autoJoin'}
-        {item.autoJoin ? '✓ Auto-join' : '—'}
+        {#if item.capabilities?.v2NotYet}—{:else}{item.autoJoin ? '✓ Auto-join' : '—'}{/if}
       {:else if String(col.key) === 'archived'}
-        {item.archived ? '🗄 Archived' : 'Active'}
+        {#if item.capabilities?.v2NotYet}
+          <span class="badge badge-v2" data-test="wac-v2-badge">v2 coming soon</span>
+        {:else if item.capabilities?.openInApp != null && item.capabilities?.editableHere === false}
+          <a
+            class="open-in-app"
+            href={item.capabilities.openInApp}
+            on:click={(ev) => openInApp(item.capabilities?.openInApp, ev)}
+          >Open in App</a>
+        {:else}
+          {item.archived ? '🗄 Archived' : 'Active'}
+        {/if}
       {:else}
         {item[String(col.key)] ?? ''}
       {/if}
@@ -72,4 +97,23 @@
 <style lang="scss">
   .all-spaces { padding: 1rem 1.25rem; }
   .err { padding: 0.75rem; background: rgba(239,68,68,0.1); color: #b91c1c; border-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+  }
+  .badge-v2 {
+    background: color-mix(in srgb, #6366f1 16%, transparent);
+    color: #4338ca;
+    border: 1px solid color-mix(in srgb, #6366f1 25%, transparent);
+  }
+  .open-in-app {
+    font-size: 0.78rem;
+    color: var(--theme-link-color, #2563eb);
+    text-decoration: none;
+    &:hover { text-decoration: underline; }
+  }
 </style>

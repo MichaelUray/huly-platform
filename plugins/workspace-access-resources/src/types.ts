@@ -41,6 +41,29 @@ export type SpaceClass =
   | 'lead.class.Funnel'
   | 'recruit.class.Vacancy'
   | 'recruit.class.JobFunnel'
+  // Synthetic v2-placeholder classes emitted by `handleSpaces` for the
+  // resource types that are deliberately out-of-scope for v1 (D4).
+  // The UI renders them with `capabilities.v2NotYet=true` badges.
+  | 'chunter.placeholder.v2'
+  | 'love.placeholder.v2'
+  | 'guest.placeholder.v2'
+
+/**
+ * Capability-Matrix block returned per resource row by `/api/wac/.../spaces`.
+ *
+ * `editableHere` — whether WAC owns the members/owners/flags edit surface
+ * `openInApp`    — deep-link path to the underlying Huly workbench app, or null
+ * `v2NotYet`     — true for synthetic placeholder rows (Chat / Office / Guest-Links)
+ *
+ * Optional on the type so older payloads (without the capabilities block)
+ * deserialize cleanly during a rolling deploy; the UI treats `undefined`
+ * as the conservative default ("not editable here").
+ */
+export interface SpaceCapabilities {
+  editableHere: boolean
+  openInApp: string | null
+  v2NotYet: boolean
+}
 
 export interface SpaceRow {
   _id: string
@@ -51,6 +74,7 @@ export interface SpaceRow {
   private: boolean
   autoJoin: boolean
   archived: boolean
+  capabilities?: SpaceCapabilities
 }
 
 /**

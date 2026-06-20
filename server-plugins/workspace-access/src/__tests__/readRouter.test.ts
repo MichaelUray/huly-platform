@@ -165,7 +165,7 @@ describe('readRouter — handleMembers', () => {
 })
 
 describe('readRouter — handleSpaces', () => {
-  it('returns spaces with owners parsed and dotted class', async () => {
+  it('returns spaces with owners parsed, dotted class and capability matrix', async () => {
     const { ctx, captured } = makeCtx()
     const pg = makePg([
       [
@@ -192,9 +192,10 @@ describe('readRouter — handleSpaces', () => {
       ]
     ])
     const handlers = buildHandlers({ pgClient: async () => pg })
-    await handlers.handleSpaces(ctx, 'ws-1')
+    await handlers.handleSpaces(ctx, 'ws-1', 'workspace-label')
     expect(captured.status).toBe(200)
-    expect(captured.body.items).toHaveLength(2)
+    // 2 real rows + 3 v2 placeholders
+    expect(captured.body.items).toHaveLength(5)
     expect(captured.body.items[0]).toEqual({
       _id: 's1',
       _class: 'tracker.class.Project',
@@ -203,18 +204,110 @@ describe('readRouter — handleSpaces', () => {
       membersCount: 4,
       private: true,
       autoJoin: false,
-      archived: false
+      archived: false,
+      capabilities: {
+        editableHere: true,
+        openInApp: '/workbench/workspace-label/tracker/s1',
+        v2NotYet: false
+      }
     })
     expect(captured.body.items[1].name).toBe('—')
     expect(captured.body.items[1].ownerIds).toEqual(['u3'])
     expect(captured.body.items[1].membersCount).toBe(0)
+    expect(captured.body.items[1].capabilities).toEqual({
+      editableHere: true,
+      openInApp: '/workbench/workspace-label/drive/s2',
+      v2NotYet: false
+    })
+  })
+
+  it('appends 3 v2-placeholder rows (Chat / Office / Guest-Links)', async () => {
+    const { ctx, captured } = makeCtx()
+    // Empty real-row result — placeholders should still be appended.
+    const pg = makePg([[]])
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleSpaces(ctx, 'ws-1', 'workspace-label')
+    expect(captured.status).toBe(200)
+    expect(captured.body.items).toHaveLength(3)
+
+    const [chat, office, guests] = captured.body.items
+    expect(chat).toEqual({
+      _id: 'wac:placeholder:chat-channels',
+      _class: 'chunter.placeholder.v2',
+      name: 'Chat Channels',
+      ownerIds: [],
+      membersCount: 0,
+      private: false,
+      autoJoin: false,
+      archived: false,
+      capabilities: {
+        editableHere: false,
+        openInApp: '/workbench/workspace-label/chunter',
+        v2NotYet: true
+      }
+    })
+    expect(office).toEqual({
+      _id: 'wac:placeholder:office-rooms',
+      _class: 'love.placeholder.v2',
+      name: 'Office Rooms',
+      ownerIds: [],
+      membersCount: 0,
+      private: false,
+      autoJoin: false,
+      archived: false,
+      capabilities: {
+        editableHere: false,
+        openInApp: '/workbench/workspace-label/love',
+        v2NotYet: true
+      }
+    })
+    expect(guests).toEqual({
+      _id: 'wac:placeholder:guest-links',
+      _class: 'guest.placeholder.v2',
+      name: 'Guest Links',
+      ownerIds: [],
+      membersCount: 0,
+      private: false,
+      autoJoin: false,
+      archived: false,
+      capabilities: { editableHere: false, openInApp: null, v2NotYet: true }
+    })
+  })
+
+  it('maps every whitelisted _class to a deep-link openInApp', async () => {
+    const { ctx, captured } = makeCtx()
+    const pg = makePg([
+      [
+        { _id: 's-tp', _class: 'tracker:class:Project', name: 'P', owners: '[]', members_count: 0 },
+        { _id: 's-ts', _class: 'document:class:Teamspace', name: 'T', owners: '[]', members_count: 0 },
+        { _id: 's-dr', _class: 'drive:class:Drive', name: 'D', owners: '[]', members_count: 0 },
+        { _id: 's-cs', _class: 'card:class:CardSpace', name: 'C', owners: '[]', members_count: 0 },
+        { _id: 's-ln', _class: 'lead:class:Funnel', name: 'L', owners: '[]', members_count: 0 },
+        { _id: 's-vc', _class: 'recruit:class:Vacancy', name: 'V', owners: '[]', members_count: 0 },
+        { _id: 's-jf', _class: 'recruit:class:JobFunnel', name: 'J', owners: '[]', members_count: 0 }
+      ]
+    ])
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleSpaces(ctx, 'ws-1', 'wpa')
+    const apps = captured.body.items
+      .filter((r: any) => r.capabilities.v2NotYet === false)
+      .map((r: any) => r.capabilities.openInApp)
+    expect(apps).toEqual([
+      '/workbench/wpa/tracker/s-tp',
+      '/workbench/wpa/document/s-ts',
+      '/workbench/wpa/drive/s-dr',
+      '/workbench/wpa/card/s-cs',
+      '/workbench/wpa/lead/s-ln',
+      '/workbench/wpa/recruit/s-vc',
+      '/workbench/wpa/recruit/s-jf'
+    ])
   })
 
   it('throws on pg failure', async () => {
     const { ctx } = makeCtx()
     const pg = makePg([new Error('boom')])
     const handlers = buildHandlers({ pgClient: async () => pg })
-    await expect(handlers.handleSpaces(ctx, 'ws-1')).rejects.toThrow(/boom/)
+    await expect(handlers.handleSpaces(ctx, 'ws-1', 'ws-1')).rejects.toThrow(/boom/)
   })
 })
 

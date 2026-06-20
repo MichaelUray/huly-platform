@@ -9,7 +9,12 @@
     'card.class.CardSpace': { label: 'Cards', emoji: '🗂️', color: '#f59e0b' },
     'lead.class.Funnel': { label: 'Funnel', emoji: '🎯', color: '#ec4899' },
     'recruit.class.Vacancy': { label: 'Vacancy', emoji: '💼', color: '#14b8a6' },
-    'recruit.class.JobFunnel': { label: 'Jobs', emoji: '🧑‍💼', color: '#0ea5e9' }
+    'recruit.class.JobFunnel': { label: 'Jobs', emoji: '🧑‍💼', color: '#0ea5e9' },
+    // v2-placeholder rows (Chat / Office / Guest-Links) — rendered with a
+    // grey-toned icon to visually distinguish them from real WAC-editable rows.
+    'chunter.placeholder.v2': { label: 'Chat', emoji: '💬', color: '#9ca3af' },
+    'love.placeholder.v2': { label: 'Office', emoji: '🪑', color: '#9ca3af' },
+    'guest.placeholder.v2': { label: 'Guest-Links', emoji: '🔗', color: '#9ca3af' }
   }
 
   $: info = map[cls] ?? { label: cls, emoji: '•', color: 'var(--theme-darker-color)' }

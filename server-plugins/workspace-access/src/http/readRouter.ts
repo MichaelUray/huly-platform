@@ -72,7 +72,13 @@ export interface WacReadDeps {
 
 export interface WacReadHandlers {
   handleMembers: (ctx: KoaCtxLike, workspaceUuid: string, workspaceParam: string) => Promise<void>
-  handleSpaces: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
+  /**
+   * `workspaceParam` is the URL-form workspace label/UUID that the caller
+   * hit. It's used to build the `capabilities.openInApp` deep-link strings
+   * for both real rows and the v2 placeholders so the UI can route to
+   * `/workbench/<ws>/...` without needing the workspaceUuid.
+   */
+  handleSpaces: (ctx: KoaCtxLike, workspaceUuid: string, workspaceParam: string) => Promise<void>
   handleSpaceDetail: (ctx: KoaCtxLike, workspaceUuid: string, workspaceParam: string, spaceId: string) => Promise<void>
   handleAudit: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
   handleMyAccess: (ctx: KoaCtxLike, workspaceUuid: string, callerUuid: string, callerRole: string) => Promise<void>
@@ -122,6 +128,53 @@ function bucketize (lastActMs: number | null): 'today' | '7d' | '30d' | '90d+' {
 
 function classDotted (v: unknown): string {
   return String(v ?? '').replace(/:/g, '.')
+}
+
+/**
+ * Capability-Matrix mapping (T2).
+ *
+ * For each `_class` whitelisted in `handleSpaces`, return:
+ *  - editableHere: whether WAC owns the members/owners/flags edit surface
+ *  - openInApp:    deep-link to the underlying Huly workbench app, or null
+ *
+ * Currently every v1 class is `editableHere=true`; the openInApp path
+ * mirrors the workbench routes that the front-end already understands
+ * (e.g. `/workbench/<ws>/tracker/<spaceId>`).
+ *
+ * The placeholder rows appended below this query (`chunter.placeholder.v2`,
+ * `love.placeholder.v2`, `guest.placeholder.v2`) supply their own
+ * capabilities block inline.
+ */
+function capabilitiesForRealRow (
+  classDotted: string,
+  workspaceParam: string,
+  spaceId: string
+): { editableHere: boolean, openInApp: string | null, v2NotYet: boolean } {
+  let app: string | null = null
+  switch (classDotted) {
+    case 'tracker.class.Project':
+      app = `/workbench/${workspaceParam}/tracker/${spaceId}`
+      break
+    case 'document.class.Teamspace':
+      app = `/workbench/${workspaceParam}/document/${spaceId}`
+      break
+    case 'drive.class.Drive':
+      app = `/workbench/${workspaceParam}/drive/${spaceId}`
+      break
+    case 'card.class.CardSpace':
+      app = `/workbench/${workspaceParam}/card/${spaceId}`
+      break
+    case 'lead.class.Funnel':
+      app = `/workbench/${workspaceParam}/lead/${spaceId}`
+      break
+    case 'recruit.class.Vacancy':
+    case 'recruit.class.JobFunnel':
+      app = `/workbench/${workspaceParam}/recruit/${spaceId}`
+      break
+    default:
+      app = null
+  }
+  return { editableHere: true, openInApp: app, v2NotYet: false }
 }
 
 function parseJsonArray (v: unknown): string[] {
@@ -199,7 +252,7 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
       json(ctx, 200, { items, cursor: null, _workspace: workspaceParam })
     },
 
-    async handleSpaces (ctx, workspaceUuid) {
+    async handleSpaces (ctx, workspaceUuid, workspaceParam) {
       const pg = await deps.pgClient()
       const rows = await pg.execute(
         `SELECT s."_id", s."_class",
@@ -218,16 +271,66 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
          LIMIT 200`,
         [workspaceUuid]
       )
-      const items = rows.map((r: any) => ({
-        _id: r._id,
-        _class: classDotted(r._class),
-        name: r.name ?? '—',
-        ownerIds: parseJsonArray(r.owners),
-        membersCount: Number(r.members_count ?? 0),
-        private: r.private_flag === true,
-        autoJoin: r.auto_join === true,
-        archived: r.archived === true
-      }))
+      const items: any[] = rows.map((r: any) => {
+        const cls = classDotted(r._class)
+        return {
+          _id: r._id,
+          _class: cls,
+          name: r.name ?? '—',
+          ownerIds: parseJsonArray(r.owners),
+          membersCount: Number(r.members_count ?? 0),
+          private: r.private_flag === true,
+          autoJoin: r.auto_join === true,
+          archived: r.archived === true,
+          capabilities: capabilitiesForRealRow(cls, workspaceParam, r._id)
+        }
+      })
+      // T1.5 — append v2 placeholder rows so the UI can render
+      // "not managed here yet" cards next to real rows for the
+      // deliberately-excluded v1 resource types.
+      items.push(
+        {
+          _id: 'wac:placeholder:chat-channels',
+          _class: 'chunter.placeholder.v2',
+          name: 'Chat Channels',
+          ownerIds: [],
+          membersCount: 0,
+          private: false,
+          autoJoin: false,
+          archived: false,
+          capabilities: {
+            editableHere: false,
+            openInApp: `/workbench/${workspaceParam}/chunter`,
+            v2NotYet: true
+          }
+        },
+        {
+          _id: 'wac:placeholder:office-rooms',
+          _class: 'love.placeholder.v2',
+          name: 'Office Rooms',
+          ownerIds: [],
+          membersCount: 0,
+          private: false,
+          autoJoin: false,
+          archived: false,
+          capabilities: {
+            editableHere: false,
+            openInApp: `/workbench/${workspaceParam}/love`,
+            v2NotYet: true
+          }
+        },
+        {
+          _id: 'wac:placeholder:guest-links',
+          _class: 'guest.placeholder.v2',
+          name: 'Guest Links',
+          ownerIds: [],
+          membersCount: 0,
+          private: false,
+          autoJoin: false,
+          archived: false,
+          capabilities: { editableHere: false, openInApp: null, v2NotYet: true }
+        }
+      )
       json(ctx, 200, { items, cursor: null })
     },
 
