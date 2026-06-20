@@ -39,7 +39,12 @@ import { TokenBucketLimiter } from './util/rateLimiter'
 import { getDBClient, createDBClient } from '@hcengineering/postgres-base'
 import { authenticateWac, type WacAuthDeps } from './wac/auth'
 import { createWacTxClient, type WacTxClient } from './wac/transactorClient'
-import { createWacReadHandlers, type WacReadDeps } from '@hcengineering/server-workspace-access'
+import {
+  createWacReadHandlers,
+  type WacReadDeps,
+  createWacWriteHandlers,
+  type WacWriteDeps
+} from '@hcengineering/server-workspace-access'
 
 export * from './migration/utils'
 export * from './migration/types'
@@ -108,9 +113,8 @@ export function serveAccount (
   }
 
   // Phase 2B Task 1 (D3) — long-lived TxOperations pool to the transactor.
-  // The WAC write-handlers (P2B-T2) will consume this client to mutate
-  // space docs through the canonical Huly path. No route consumes it yet.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Consumed by the WAC write-handlers (P2B-T2/3/4) for the canonical
+  // Huly mutation path. See `wacWriteDeps` below.
   const wacTxClient: WacTxClient = createWacTxClient({
     transactorUrl: transactorUri,
     serverSecret,
@@ -667,6 +671,18 @@ export function serveAccount (
   }
   const wacReadHandlers = createWacReadHandlers(wacReadDeps)
 
+  // Phase 2B Tasks 2+3+4 — write-side handlers live in the same plugin.
+  // The host still owns auth-gating + body-parsing; the handler owns
+  // policy + the TxOperations mutation + sequenced audit-INSERT.
+  const wacWriteDeps: WacWriteDeps = {
+    measureCtx,
+    txClient: wacTxClient,
+    pgClient: async () => (await rawPgPromise) as any,
+    accountDb: async () => (await accountsDb)[0] as any,
+    jsonHeaders: KEEP_ALIVE_HEADERS
+  }
+  const wacWriteHandlers = createWacWriteHandlers(wacWriteDeps)
+
   async function writeWacAudit (
     workspace: string,
     action: string,
@@ -704,32 +720,11 @@ export function serveAccount (
     }
   }
 
-  async function fetchSpaceDetailRaw (workspaceUuid: string, spaceId: string): Promise<{ _class: string, members: string[], owners: string[], private: boolean, autoJoin: boolean, archived: boolean } | null> {
-    const pg = await rawPgPromise
-    const rows = await pg.execute(
-      `SELECT "_class",
-              data->>'members' AS members,
-              data->>'owners' AS owners,
-              (data->>'private')::boolean AS private_flag,
-              (data->>'autoJoin')::boolean AS auto_join,
-              (data->>'archived')::boolean AS archived
-       FROM space WHERE "workspaceId"=$1 AND "_id"=$2 LIMIT 1`,
-      [workspaceUuid, spaceId]
-    )
-    if (rows[0] == null) return null
-    let members: string[] = []
-    let owners: string[] = []
-    try { if (typeof rows[0].members === 'string') members = JSON.parse(rows[0].members) } catch { /* keep [] */ }
-    try { if (typeof rows[0].owners === 'string') owners = JSON.parse(rows[0].owners) } catch { /* keep [] */ }
-    return {
-      _class: String(rows[0]._class),
-      members,
-      owners,
-      private: rows[0].private_flag === true,
-      autoJoin: rows[0].auto_join === true,
-      archived: rows[0].archived === true
-    }
-  }
+  // Phase 2B Tasks 2+3+4 — fetchSpaceDetailRaw was the pre-migration helper
+  // used by the inline write block to compute old_value for the audit row.
+  // The plugin's writeRouter.ts now does its own space lookup (via the
+  // same SELECT shape) directly inside each handler. The helper has been
+  // removed alongside the inline write block.
 
   // ── Impersonation lifecycle ─────────────────────────────────────────────
   // In-memory revocation set. JTIs added on /end stay revoked until exp.
@@ -836,163 +831,60 @@ export function serveAccount (
     const auth = await authenticateWac(ctx, workspaceParam, 'edit', authDeps)
     if (auth === null) return
     const { callerUuid, workspaceUuid } = auth
-    const caller = { actor: callerUuid, role: 'workspace_owner' }
-    const pg = await rawPgPromise
-    const body: any = (ctx.request as any).body ?? {}
 
+    // Phase 2B Tasks 2+3+4 — write-route bodies live in the plugin's
+    // writeRouter.ts. The host owns route-matching + auth-gating + the
+    // 500 wrap on unexpected throw; the plugin owns mutation (via
+    // TxOperations) + sequenced audit-INSERT + last-owner protection.
     try {
       // PUT /spaces/<id>/members
       const mPutMembers = sub.match(/^spaces\/([^/]+)\/members$/)
       if (mPutMembers != null && ctx.method === 'PUT') {
-        const spaceId = mPutMembers[1]
-        const newMembers: string[] = Array.isArray(body.members) ? body.members : []
-        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
-        await pg.execute(
-          `UPDATE space SET data = jsonb_set(data, '{members}', $3::jsonb, true)
-           WHERE "workspaceId"=$1 AND "_id"=$2`,
-          [workspaceUuid, spaceId, JSON.stringify(newMembers)]
-        )
-        await writeWacAudit(workspaceUuid, 'space_members_changed', caller.actor, caller.role, {
-          target_space: spaceId,
-          target_space_class: prev?._class ?? null,
-          old_value: prev?.members ?? [],
-          new_value: newMembers
-        })
-        return json(200, { ok: true })
+        await wacWriteHandlers.handleSpaceMembers(ctx as any, workspaceUuid, callerUuid, mPutMembers[1])
+        return
       }
       // PUT /spaces/<id>/owners
       const mPutOwners = sub.match(/^spaces\/([^/]+)\/owners$/)
       if (mPutOwners != null && ctx.method === 'PUT') {
-        const spaceId = mPutOwners[1]
-        const newOwners: string[] = Array.isArray(body.owners) ? body.owners : []
-        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
-        await pg.execute(
-          `UPDATE space SET data = jsonb_set(data, '{owners}', $3::jsonb, true)
-           WHERE "workspaceId"=$1 AND "_id"=$2`,
-          [workspaceUuid, spaceId, JSON.stringify(newOwners)]
-        )
-        await writeWacAudit(workspaceUuid, 'space_owners_changed', caller.actor, caller.role, {
-          target_space: spaceId,
-          target_space_class: prev?._class ?? null,
-          old_value: prev?.owners ?? [],
-          new_value: newOwners
-        })
-        return json(200, { ok: true })
+        await wacWriteHandlers.handleSpaceOwners(ctx as any, workspaceUuid, callerUuid, mPutOwners[1])
+        return
       }
       // PUT /spaces/<id>/privacy
       const mPutPriv = sub.match(/^spaces\/([^/]+)\/privacy$/)
       if (mPutPriv != null && ctx.method === 'PUT') {
-        const spaceId = mPutPriv[1]
-        const value = body.private === true
-        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
-        await pg.execute(
-          `UPDATE space SET data = jsonb_set(data, '{private}', $3::jsonb, true)
-           WHERE "workspaceId"=$1 AND "_id"=$2`,
-          [workspaceUuid, spaceId, JSON.stringify(value)]
-        )
-        await writeWacAudit(workspaceUuid, 'space_privacy_changed', caller.actor, caller.role, {
-          target_space: spaceId,
-          target_space_class: prev?._class ?? null,
-          old_value: prev?.private ?? false,
-          new_value: value
-        })
-        return json(200, { ok: true })
+        await wacWriteHandlers.handleSpacePrivacy(ctx as any, workspaceUuid, callerUuid, mPutPriv[1])
+        return
       }
       // PUT /spaces/<id>/auto-join
       const mPutAJ = sub.match(/^spaces\/([^/]+)\/auto-join$/)
       if (mPutAJ != null && ctx.method === 'PUT') {
-        const spaceId = mPutAJ[1]
-        const value = body.autoJoin === true
-        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
-        await pg.execute(
-          `UPDATE space SET data = jsonb_set(data, '{autoJoin}', $3::jsonb, true)
-           WHERE "workspaceId"=$1 AND "_id"=$2`,
-          [workspaceUuid, spaceId, JSON.stringify(value)]
-        )
-        await writeWacAudit(workspaceUuid, 'space_autojoin_changed', caller.actor, caller.role, {
-          target_space: spaceId,
-          target_space_class: prev?._class ?? null,
-          old_value: prev?.autoJoin ?? false,
-          new_value: value
-        })
-        return json(200, { ok: true })
+        await wacWriteHandlers.handleSpaceAutoJoin(ctx as any, workspaceUuid, callerUuid, mPutAJ[1])
+        return
       }
       // PUT /spaces/<id>/archived
       const mPutArch = sub.match(/^spaces\/([^/]+)\/archived$/)
       if (mPutArch != null && ctx.method === 'PUT') {
-        const spaceId = mPutArch[1]
-        const value = body.archived === true
-        const prev = await fetchSpaceDetailRaw(workspaceUuid, spaceId)
-        await pg.execute(
-          `UPDATE space SET data = jsonb_set(data, '{archived}', $3::jsonb, true)
-           WHERE "workspaceId"=$1 AND "_id"=$2`,
-          [workspaceUuid, spaceId, JSON.stringify(value)]
-        )
-        await writeWacAudit(workspaceUuid, value ? 'space_archived' : 'space_unarchived', caller.actor, caller.role, {
-          target_space: spaceId,
-          target_space_class: prev?._class ?? null,
-          old_value: prev?.archived ?? false,
-          new_value: value
-        })
-        return json(200, { ok: true })
+        await wacWriteHandlers.handleSpaceArchived(ctx as any, workspaceUuid, callerUuid, mPutArch[1])
+        return
       }
       // POST /members/<uuid>/role
       const mPostRole = sub.match(/^members\/([^/]+)\/role$/)
       if (mPostRole != null && ctx.method === 'POST') {
-        const accountUuid = mPostRole[1]
-        const role = body.role
-        if (typeof role !== 'string' || !['OWNER', 'MAINTAINER', 'USER', 'GUEST'].includes(role)) {
-          return json(400, { error: 'bad_role' })
-        }
-        const prevRows = await pg.execute(
-          `SELECT role FROM global_account.workspace_members WHERE workspace_uuid=$1 AND account_uuid=$2 LIMIT 1`,
-          [workspaceUuid, accountUuid]
-        )
-        const oldRole = prevRows[0]?.role ?? null
-        await pg.execute(
-          `UPDATE global_account.workspace_members SET role=$3 WHERE workspace_uuid=$1 AND account_uuid=$2`,
-          [workspaceUuid, accountUuid, role]
-        )
-        await writeWacAudit(workspaceUuid, 'role_changed', caller.actor, caller.role, {
-          target_account: accountUuid,
-          old_value: { role: oldRole },
-          new_value: { role }
-        })
-        return json(200, { ok: true })
+        await wacWriteHandlers.handleMemberRole(ctx as any, workspaceUuid, callerUuid, mPostRole[1])
+        return
       }
       // POST /members/bulk/role
       if (sub === 'members/bulk/role' && ctx.method === 'POST') {
-        const members: string[] = Array.isArray(body.members) ? body.members : []
-        const role = body.role
-        if (typeof role !== 'string' || !['OWNER', 'MAINTAINER', 'USER', 'GUEST'].includes(role)) {
-          return json(400, { error: 'bad_role' })
-        }
-        const batchId = `b${Date.now()}`
-        for (const m of members) {
-          await pg.execute(
-            `UPDATE global_account.workspace_members SET role=$3 WHERE workspace_uuid=$1 AND account_uuid=$2`,
-            [workspaceUuid, m, role]
-          )
-          await writeWacAudit(workspaceUuid, 'role_changed', caller.actor, caller.role, {
-            target_account: m,
-            new_value: { role, batch_id: batchId }
-          })
-        }
-        return json(200, { batch_id: batchId, affected: members.length })
+        await wacWriteHandlers.handleBulkMemberRole(ctx as any, workspaceUuid, callerUuid)
+        return
       }
-      // DELETE /grants/<recipient>/<resource>  — Phase 2B: implement via TxOperations.
-      // Phase 0: return 501 explicitly so the UI does not get false-confidence
-      // from a silent 200 ok while the data is not actually mutated.
+      // DELETE /grants/<recipient>/<resource>  — 501 stub until P2B-T6.
       if (sub.startsWith('grants/') && ctx.method === 'DELETE') {
         const parts = sub.split('/')
-        const recipient = parts[1] ?? null
-        const resource = parts[2] ?? null
-        measureCtx.warn('wac:/grants DELETE called — endpoint not implemented yet', {
-          workspace: workspaceUuid,
-          recipient,
-          resource
-        })
-        return json(501, { error: 'not_implemented', detail: 'wac_grant_revoke_pending_v2' })
+        const recipient = parts[1] ?? ''
+        const resource = parts[2] ?? ''
+        await wacWriteHandlers.handleGrantRevoke(ctx as any, workspaceUuid, callerUuid, recipient, resource)
+        return
       }
     } catch (err) {
       measureCtx.warn('WAC write failed', { sub, err: String(err) })

@@ -82,3 +82,14 @@ export type {
   AccountDbLike,
   MeasureCtxLike
 } from './http/readRouter'
+
+export { createWacWriteHandlers } from './http/writeRouter'
+export type {
+  WacWriteDeps,
+  WacWriteHandlers,
+  WacTxClientLike,
+  KoaWriteCtxLike,
+  WritePgClientLike,
+  WriteAccountDbLike,
+  WriteMeasureCtxLike
+} from './http/writeRouter'

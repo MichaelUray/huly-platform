@@ -109,4 +109,45 @@ describe('WAC routes — account-service is a thin host (Phase 2A)', () => {
     const matches = indexSrc.match(/authenticateWac\(/g) ?? []
     expect(matches.length).toBeGreaterThanOrEqual(3)
   })
+
+  // ------------------------------------------------------------------
+  // 4. Phase 2B — write routes are now thin too.
+  // ------------------------------------------------------------------
+
+  it('does not embed any write-path SQL (jsonb_set / UPDATE space / data->...)', () => {
+    // Write block previously held: jsonb_set(data, '{members|owners|private|autoJoin|archived}', ...)
+    expect(indexSrc).not.toMatch(/jsonb_set\(data,\s*'\{members\}'/i)
+    expect(indexSrc).not.toMatch(/jsonb_set\(data,\s*'\{owners\}'/i)
+    expect(indexSrc).not.toMatch(/jsonb_set\(data,\s*'\{private\}'/i)
+    expect(indexSrc).not.toMatch(/jsonb_set\(data,\s*'\{autoJoin\}'/i)
+    expect(indexSrc).not.toMatch(/jsonb_set\(data,\s*'\{archived\}'/i)
+    expect(indexSrc).not.toMatch(/UPDATE\s+space\s+SET\s+data/i)
+    expect(indexSrc).not.toMatch(/UPDATE\s+global_account\.workspace_members\s+SET\s+role/i)
+  })
+
+  it('does not retain the fetchSpaceDetailRaw helper', () => {
+    expect(indexSrc).not.toMatch(/async function fetchSpaceDetailRaw/i)
+  })
+
+  it('imports createWacWriteHandlers + WacWriteDeps from the server plugin', () => {
+    expect(indexSrc).toMatch(/createWacWriteHandlers/)
+    expect(indexSrc).toMatch(/WacWriteDeps/)
+  })
+
+  it('wires wacWriteDeps with the wacTxClient + builds wacWriteHandlers', () => {
+    expect(indexSrc).toMatch(/const\s+wacWriteDeps:\s*WacWriteDeps/)
+    expect(indexSrc).toMatch(/txClient:\s*wacTxClient/)
+    expect(indexSrc).toMatch(/const\s+wacWriteHandlers\s*=\s*createWacWriteHandlers\(wacWriteDeps\)/)
+  })
+
+  it('dispatches every write route to the plugin', () => {
+    expect(indexSrc).toMatch(/wacWriteHandlers\.handleSpaceMembers\(/)
+    expect(indexSrc).toMatch(/wacWriteHandlers\.handleSpaceOwners\(/)
+    expect(indexSrc).toMatch(/wacWriteHandlers\.handleSpacePrivacy\(/)
+    expect(indexSrc).toMatch(/wacWriteHandlers\.handleSpaceAutoJoin\(/)
+    expect(indexSrc).toMatch(/wacWriteHandlers\.handleSpaceArchived\(/)
+    expect(indexSrc).toMatch(/wacWriteHandlers\.handleMemberRole\(/)
+    expect(indexSrc).toMatch(/wacWriteHandlers\.handleBulkMemberRole\(/)
+    expect(indexSrc).toMatch(/wacWriteHandlers\.handleGrantRevoke\(/)
+  })
 })

@@ -114,16 +114,18 @@ describe('WAC routes — authenticateWac gate (Phase 1 Task 2)', () => {
     expect(occurrences).toBe(0)
   })
 
-  it('write middleware threads callerUuid into the caller object', () => {
-    // The auditing helper writeWacAudit needs the real caller, not null.
-    // Assert that we pass `callerUuid` (from auth) into `caller` rather
-    // than resolveCaller() in the WAC write block.
+  it('write middleware threads callerUuid into the handler dispatch', () => {
+    // The auditing helper needs the real caller, not null. After Phase 2B
+    // T2/3/4 the inline `caller = { actor: callerUuid, ... }` literal is
+    // gone — callerUuid is passed positionally to each handler.
     const wacWriteStart = indexSrc.indexOf('// WAC write endpoints')
     const wacWriteEnd = indexSrc.indexOf('// ── WAC audit CSV export')
     expect(wacWriteStart).toBeGreaterThan(0)
     expect(wacWriteEnd).toBeGreaterThan(wacWriteStart)
     const block = indexSrc.slice(wacWriteStart, wacWriteEnd)
-    expect(block).toMatch(/actor:\s*callerUuid/)
+    // Each dispatch call site forwards (workspaceUuid, callerUuid, ...).
+    expect(block).toMatch(/wacWriteHandlers\.handleSpaceMembers\([^)]*callerUuid/)
+    expect(block).toMatch(/wacWriteHandlers\.handleMemberRole\([^)]*callerUuid/)
     // resolveCaller(ctx.request.headers) must NOT be called inside the
     // WAC write block anymore (still allowed in NON-WAC routes).
     expect(block).not.toMatch(/resolveCaller\(/)
@@ -136,10 +138,16 @@ describe('WAC routes — authenticateWac gate (Phase 1 Task 2)', () => {
     expect(indexSrc).toMatch(/function resolveCaller/)
   })
 
-  it('DELETE /grants/<r>/<res> still returns 501 AFTER the auth gate', () => {
-    // The DELETE handler in the write middleware must remain — auth gate
-    // runs first (since authenticateWac is at the top of the middleware),
-    // and the existing 501 stub is preserved.
-    expect(indexSrc).toMatch(/wac_grant_revoke_pending_v2/)
+  it('DELETE /grants/<r>/<res> still gated + dispatched to handleGrantRevoke', () => {
+    // After Phase 2B T2/3/4 the 501 stub body moved into the plugin
+    // (writeRouter.ts). The host's responsibility is now to (a) gate via
+    // authenticateWac and (b) dispatch to wacWriteHandlers.handleGrantRevoke
+    // — which still returns 501 with detail wac_grant_revoke_pending_v2.
+    const wacWriteStart = indexSrc.indexOf('// WAC write endpoints')
+    const wacWriteEnd = indexSrc.indexOf('// ── WAC audit CSV export')
+    expect(wacWriteStart).toBeGreaterThan(0)
+    const block = indexSrc.slice(wacWriteStart, wacWriteEnd)
+    expect(block).toMatch(/wacWriteHandlers\.handleGrantRevoke\(/)
+    expect(block).toMatch(/sub\.startsWith\('grants\/'\)\s*&&\s*ctx\.method\s*===\s*'DELETE'/)
   })
 })
