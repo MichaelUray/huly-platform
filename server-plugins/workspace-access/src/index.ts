@@ -93,3 +93,16 @@ export type {
   WriteAccountDbLike,
   WriteMeasureCtxLike
 } from './http/writeRouter'
+
+// M2 — shared audit-row INSERT used by every WAC audit call-site.
+// Hosts that issue their own audit rows (e.g. impersonation lifecycle in
+// account-service) should call `executeWorkspaceAuditInsert` instead of
+// duplicating the SQL.
+export {
+  executeWorkspaceAuditInsert,
+  WORKSPACE_AUDIT_INSERT_SQL
+} from './audit/insert'
+export type {
+  AuditInsertPgClient,
+  WorkspaceAuditPayload
+} from './audit/insert'
