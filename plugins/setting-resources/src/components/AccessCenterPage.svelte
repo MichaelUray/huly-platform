@@ -235,6 +235,7 @@
     headerLabel={setting.string.AccessCenter}
     {initialTab}
     {initialSub}
+    guestSettingsComponent={setting.component.GuestPermissionsEditor}
   />
 {/if}
 

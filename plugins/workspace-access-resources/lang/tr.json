@@ -62,6 +62,8 @@
     "LastOwnerCannotDemote": "Cannot demote the last Owner of this workspace.",
     "LastOwnerHint": "Workspace currently has {count, plural, =1 {1 Owner} other {# Owners}}.",
     "AccessChangedBanner": "Your access in this workspace has changed. Your edit privileges may have been revoked. Please reload.",
-    "Reload": "Reload"
+    "Reload": "Reload",
+    "GuestSettings": "Guest Settings",
+    "GuestSettingsUnavailable": "Guest Settings editor is not available in this context."
   }
 }

@@ -254,7 +254,15 @@ export default plugin(settingId, {
     OfficeSettings: '' as AnyComponent,
     UserRoleSelect: '' as AnyComponent,
     TwoFactorSettings: '' as AnyComponent,
-    AccessCenter: '' as AnyComponent
+    AccessCenter: '' as AnyComponent,
+    // Phase 2.5 — chrome-free editor body for the per-application
+    // guest-permission Doc set (ModulePermissionGroup +
+    // allowReadOnlyGuest / allowGuestSignUp + GuestCommunicationSettings).
+    // Mounted by AccessCenter's `guest-settings` tab; also embedded by
+    // the legacy `/setting/guestPermissions` compat-shim. The legacy
+    // 722-line `GuestPermissionsSettings` component is the chrome-wrap
+    // around this editor.
+    GuestPermissionsEditor: '' as AnyComponent
   },
   string: {
     Settings: '' as IntlString,

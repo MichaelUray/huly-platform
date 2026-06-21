@@ -89,6 +89,16 @@ export function tabsForRole (r: EffectiveRole): string[] {
   // GUEST cannot enter the Access Center at all (backend gates with 403);
   // returning [] here makes the surface render the "no access" hint.
   if (r === 'GUEST') return []
+  // Phase 2.5 — the `guest-settings` tab is OWNER-ONLY (same gate as
+  // the underlying ModulePermissionGroup / allowReadOnlyGuest mutations
+  // on the Tx-client + account-client). MAINTAINER variants get the
+  // workspace-wide view but NOT this editor; the workflow-server gating
+  // would 403 their writes anyway, so hiding the tab avoids promising
+  // a surface that won't function. IMPERSONATING_ADMIN inherits Owner
+  // privileges (every action is dual-audited) and therefore sees it.
+  if (r === 'OWNER' || r === 'IMPERSONATING_ADMIN') {
+    return ['people', 'resources', 'my-access', 'audit', 'guest-settings']
+  }
   // OWNER/MAINTAINER + their variants + IMPERSONATING/INSTANCE_ADMIN
   // see the full workspace-wide surface; everyone else only sees their
   // own My-Access tab.
