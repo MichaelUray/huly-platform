@@ -50,6 +50,16 @@ export type {
   BulkRoleSummary
 } from './api/peopleApi'
 export { resourcesApi } from './api/resourcesApi'
+export {
+  resourcesBulkApi,
+  summarizeResourceBulkResult
+} from './api/resourcesBulkApi'
+export type {
+  ResourceBulkResult,
+  ResourceBulkEntry,
+  ResourceBulkStatus,
+  ResourceBulkSummary
+} from './api/resourcesBulkApi'
 export { myAccessApi } from './api/myAccessApi'
 export { auditApi } from './api/auditApi'
 export { grantedAccessApi } from './api/grantedAccessApi'

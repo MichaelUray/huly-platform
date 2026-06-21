@@ -228,19 +228,29 @@ const wac = plugin(wacPluginId, {
     AuditActionPresetDeleted: '' as IntlString,
     AuditActionPresetApplied: '' as IntlString,
 
-    // A3 — client-side full-text search input above the AllSpacesTab
-    // table. Matches case-insensitively on `name` (substring) and on
-    // `_id` (prefix). Pure UI filter — no server round-trip.
+    // A3 — client-side full-text search input above the AllSpacesTab table.
     ResourceSearchPlaceholder: '' as IntlString,
 
     // A4 — minimal read-only inheritance visualizer (Tier-1).
-    // Renders Workspace → SpaceType → Space as a 3-level tree using
-    // the already-loaded `spaces` list, grouped by `_class`. No
-    // drilldown into child docs, no async grant traversal — that's
-    // deferred to Tier-2.
     ViewHierarchy: '' as IntlString,
     InheritanceTreeTitle: '' as IntlString,
-    InheritanceTreeEmpty: '' as IntlString
+    InheritanceTreeEmpty: '' as IntlString,
+
+    // Wave 5 D — Resources bulk-bar (Archive / Make Private / Transfer
+    // Ownership). All confirm dialogs use Huly's MessageBox; bodies carry
+    // dynamic context (count of selected spaces / target owner name).
+    BulkArchiveSelected: '' as IntlString,
+    BulkSetPrivate: '' as IntlString,
+    BulkTransferOwner: '' as IntlString,
+    ConfirmBulkArchiveTitle: '' as IntlString,
+    ConfirmBulkArchiveMessage: '' as IntlString,
+    ConfirmBulkSetPrivateTitle: '' as IntlString,
+    ConfirmBulkSetPrivateMessage: '' as IntlString,
+    ConfirmBulkAddOwnerTitle: '' as IntlString,
+    ConfirmBulkAddOwnerMessage: '' as IntlString,
+    OwnerPickerTitle: '' as IntlString,
+    OwnerPickerHint: '' as IntlString,
+    OwnerPickerNoMembers: '' as IntlString
   }
 })
 

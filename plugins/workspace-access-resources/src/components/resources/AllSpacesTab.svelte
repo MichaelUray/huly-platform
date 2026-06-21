@@ -16,8 +16,18 @@
   // the v2-placeholder rows mean items.length is normally non-zero;
   // archived/private/etc. filtered views can still come up empty.
   export let emptyLabel: IntlString = wac.string.EmptyAllSpaces
+  // Wave 5 D — selection state for the Resources bulk-bar. When
+  // `selectable=true`, EntityTable renders the row-checkbox column;
+  // selection changes are forwarded via the `selectionChange` event.
+  // The set is filtered server-side to NEVER include v2-placeholder
+  // rows so the bulk endpoint never tries to mutate them.
+  export let selectable: boolean = false
+  export let selectedIds: Set<string> = new Set()
 
-  const dispatch = createEventDispatcher<{ rowClick: { spaceId: string } }>()
+  const dispatch = createEventDispatcher<{
+    rowClick: { spaceId: string }
+    selectionChange: Set<string>
+  }>()
 
   let spaces: SpaceRow[] = []
   let loading: boolean = true
@@ -141,6 +151,19 @@
     dispatch('rowClick', { spaceId: e.detail.item._id })
   }
 
+  // Strip v2-placeholder rows from selection BEFORE bubbling up so the
+  // bulk-bar can never enqueue a placeholder id (it would 404 on the
+  // server with `space_not_found`).
+  function onSelectionChange (e: CustomEvent<{ ids: Set<string> }>): void {
+    const placeholders = new Set(v2Placeholders.map((p) => p._id))
+    const filtered = new Set<string>()
+    for (const id of e.detail.ids) {
+      if (!placeholders.has(id)) filtered.add(id)
+    }
+    selectedIds = filtered
+    dispatch('selectionChange', filtered)
+  }
+
   function openInApp (url: string | null | undefined, ev: Event): void {
     ev.stopPropagation()
     if (url == null || typeof window === 'undefined') return
@@ -167,7 +190,8 @@
   </div>
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
   <EntityTable items={filteredSpaces} {columns} {loading} {sort} idKey="_id"
-    on:sort={onSort} on:rowClick={onRowClick}>
+    {selectable} {selectedIds}
+    on:sort={onSort} on:rowClick={onRowClick} on:selectionChange={onSelectionChange}>
     <svelte:fragment slot="empty">
       <Label label={emptyLabel} />
     </svelte:fragment>
