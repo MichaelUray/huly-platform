@@ -114,6 +114,12 @@ export interface SettingsCategory extends Doc {
 
   expandable?: boolean
   adminOnly?: boolean
+  // Phase 2 T1 — when true, the category is still registered (so deep-links
+  // like /setting/<name> continue to resolve and the component renders) but
+  // it is omitted from the sidebar list. Used to retire legacy entries that
+  // have been folded into Access Center while preserving backwards
+  // compatibility for bookmarked URLs.
+  hidden?: boolean
 }
 
 /**

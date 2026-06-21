@@ -85,7 +85,11 @@
 </script>
 
 {#if kind === 'navigation'}
-  {#each categories as category}
+  <!-- Phase 2 T1 — `hidden: true` categories stay registered (so their
+       deep-link routes still render the legacy component, which in our
+       fork now mounts the Access Center sub-tab via compat-shim) but are
+       omitted from the sidebar list. -->
+  {#each categories.filter((c) => c.hidden !== true) as category}
     <NavItem
       icon={category.icon}
       label={category.label}
