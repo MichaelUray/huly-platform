@@ -87,7 +87,8 @@ export function getMigrations (ns: string, flavor: DBFlavor): [string, string][]
     getV27Migration(ns, flavor),
     getV28Migration(ns, flavor),
     getV29Migration(ns, flavor),
-    getV30Migration(ns, flavor)
+    getV30Migration(ns, flavor),
+    getV31Migration(ns, flavor)
   ]
 }
 
@@ -895,6 +896,46 @@ function getV29Migration (ns: string, _flavor: DBFlavor): [string, string] {
     `
     ALTER TABLE ${ns}.admin_audit_log
       ADD COLUMN IF NOT EXISTS batch_id UUID NULL;
+    `
+  ]
+}
+
+function getV31Migration (ns: string, _flavor: DBFlavor): [string, string] {
+  // V31 — Wave 3 / Task A2: backfill any workspace_members.role rows
+  // that were written with the REST wire form ('READONLY_GUEST',
+  // 'DOC_GUEST') by pre-canonicalization callers (notably the WAC
+  // writeRouter `role as any` casts).
+  //
+  // The DB workspace_role enum only accepts 'READONLYGUEST' / 'DOCGUEST'
+  // (no underscore). The `::text` cast on the role column is REQUIRED
+  // because a direct enum-vs-string comparison would either be rejected
+  // by the planner ('READONLY_GUEST' is not a valid enum label) or
+  // short-circuit silently. Casting both sides to text lets the WHERE
+  // clause match the corrupted rows before the SET coerces them back
+  // into a valid enum value.
+  //
+  // IDEMPOTENT: re-runs after first apply are no-ops because all rows
+  // are already in DB-canonical form.
+  //
+  // SAFETY WITH ACTIVE SESSIONS: after backend canonicalization
+  // (`canonicalToDb` on every write path) lands, no NEW row can be
+  // written in wire form. This migration only mops up the bug-window
+  // residue.
+  //
+  // Note: CockroachDB rejects updates where the new value cannot be
+  // implicitly coerced into the enum, so we keep the same explicit
+  // ::workspace_role cast on the right-hand side. Both PG and CRDB
+  // accept the `::workspace_role` cast.
+  return [
+    'account_db_v31_canonicalize_wire_role_residue',
+    `
+    UPDATE ${ns}.workspace_members
+       SET role = 'READONLYGUEST'::${ns}.workspace_role
+     WHERE role::text = 'READONLY_GUEST';
+
+    UPDATE ${ns}.workspace_members
+       SET role = 'DOCGUEST'::${ns}.workspace_role
+     WHERE role::text = 'DOC_GUEST';
     `
   ]
 }
