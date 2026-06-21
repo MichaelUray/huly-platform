@@ -7,7 +7,7 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { getCurrentLocation } from '@hcengineering/ui'
+  import { getCurrentLocation, Label } from '@hcengineering/ui'
   import { getMetadata } from '@hcengineering/platform'
   import presentation from '@hcengineering/presentation'
   import {
@@ -15,7 +15,8 @@
     setDefaultWacClient,
     WacClient,
     roleStore,
-    myAccessApi
+    myAccessApi,
+    wac
   } from '@hcengineering/workspace-access-resources'
   import setting from '../plugin'
 
@@ -73,13 +74,13 @@
   <p class="hint">No workspace context.</p>
 {:else if loading}
   <div class="status-block" data-test="wac-page-loading">
-    <p>Loading Access Center…</p>
+    <p><Label label={wac.string.LoadingAccessCenter} /></p>
   </div>
 {:else if loadError !== null}
   <div class="status-block error" data-test="wac-page-error">
-    <p class="title">Could not load your workspace role.</p>
+    <p class="title"><Label label={wac.string.LoadWorkspaceRoleError} /></p>
     <p class="detail">{loadError}</p>
-    <button class="retry" on:click={hydrateRole}>Retry</button>
+    <button class="retry" on:click={hydrateRole}><Label label={wac.string.Retry} /></button>
   </div>
 {:else}
   <AccessCenter
