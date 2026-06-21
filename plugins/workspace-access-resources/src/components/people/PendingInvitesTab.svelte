@@ -36,5 +36,11 @@
 
 <style lang="scss">
   .pending { padding: 1rem 1.25rem; }
-  .err { padding: 0.75rem; background: rgba(239,68,68,0.1); color: #b91c1c; border-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .err {
+    padding: 0.75rem;
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
+    border-radius: 0.25rem;
+    margin-bottom: 0.75rem;
+  }
 </style>

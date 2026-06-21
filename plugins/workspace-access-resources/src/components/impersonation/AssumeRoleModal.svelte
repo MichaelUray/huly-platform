@@ -97,15 +97,21 @@
     color: var(--theme-darker-color);
   }
   .primary-red {
-    background: #991b1b;
-    color: white;
+    background: var(--theme-state-negative-color);
+    color: var(--theme-button-contrast-color, white);
     border: 0;
     padding: 0.45rem 1.1rem;
     border-radius: 0.25rem;
     cursor: pointer;
     font-weight: 500;
-    &:hover { background: #7f1d1d; }
+    &:hover { background: var(--theme-state-negative-hover); }
     &:disabled { opacity: 0.5; cursor: progress; }
   }
-  .err { background: rgba(239,68,68,0.1); color: #b91c1c; padding: 0.5rem; border-radius: 0.25rem; margin-top: 0.5rem; }
+  .err {
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    margin-top: 0.5rem;
+  }
 </style>

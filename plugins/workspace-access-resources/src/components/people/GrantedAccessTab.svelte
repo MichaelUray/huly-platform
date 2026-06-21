@@ -74,12 +74,23 @@
 
 <style lang="scss">
   .granted { padding: 1rem 1.25rem; }
-  .err { padding: 0.75rem; background: rgba(239,68,68,0.1); color: #b91c1c; border-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .err {
+    padding: 0.75rem;
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
+    border-radius: 0.25rem;
+    margin-bottom: 0.75rem;
+  }
   .row-with-action { display: flex; align-items: center; gap: 0.75rem; width: 100%; }
   .title { flex: 1; overflow: hidden; text-overflow: ellipsis; }
   .revoke {
-    background: rgba(239,68,68,0.1); color: #b91c1c; border: 0;
-    padding: 0.2rem 0.6rem; border-radius: 0.25rem; cursor: pointer; font-size: 0.78rem;
-    &:hover { background: rgba(239,68,68,0.2); }
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
+    border: 0;
+    padding: 0.2rem 0.6rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    font-size: 0.78rem;
+    &:hover { background: var(--theme-state-negative-border-color); }
   }
 </style>
