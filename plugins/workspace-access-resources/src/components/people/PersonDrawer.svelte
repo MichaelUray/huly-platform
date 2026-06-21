@@ -15,6 +15,7 @@
   import wac from '../../plugin'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import { peopleApi } from '../../api/peopleApi'
+  import { effectivePermissionsApi, type EffectivePermissionsResponse } from '../../api/effectivePermissionsApi'
   import type { WorkspaceRole } from '../../types'
 
   export let workspace: string
@@ -45,6 +46,45 @@
     { id: 'READONLY_GUEST', label: wac.string.ReadOnlyGuest },
     { id: 'DOC_GUEST', label: wac.string.DocGuest }
   ]
+
+  // Effective Permissions Drilldown — collapsible, on-demand. The
+  // section accepts a free-form Space-ID/Ref because Tier-1 does not
+  // ship a fleet-wide enumeration of every space a user might touch;
+  // pasting the resource you actually care about keeps the call cheap
+  // and the audit trail meaningful.
+  let epOpen: boolean = false
+  let epResourceId: string = ''
+  let epLoading: boolean = false
+  let epError: string | null = null
+  let epResult: EffectivePermissionsResponse | null = null
+
+  $: if (person != null) {
+    // Reset the drill-down state whenever the drawer switches person —
+    // a stale decision from a previous tenant in the same drawer would
+    // be actively misleading.
+    epResourceId = ''
+    epError = null
+    epResult = null
+  }
+
+  async function runEffectivePermissions (): Promise<void> {
+    if (person == null) return
+    const trimmed = epResourceId.trim()
+    if (trimmed === '') {
+      epError = 'Enter a Space ID to drill down.'
+      return
+    }
+    epLoading = true
+    epError = null
+    epResult = null
+    try {
+      epResult = await effectivePermissionsApi.query(workspace, person.uuid, trimmed)
+    } catch (e) {
+      epError = e instanceof Error ? e.message : String(e)
+    } finally {
+      epLoading = false
+    }
+  }
 
   $: if (person != null) {
     newRole = person.role
@@ -132,6 +172,77 @@
           />
         </div>
       </section>
+
+      <section class="section ep-section">
+        <button
+          type="button"
+          class="ep-toggle"
+          aria-expanded={epOpen}
+          on:click={() => { epOpen = !epOpen }}
+        >
+          <span class="caret" class:open={epOpen}>▸</span>
+          Effective permissions
+          <span class="hint inline">— drill down by Space ID</span>
+        </button>
+        {#if epOpen}
+          <div class="ep-body">
+            <p class="hint">
+              Resolve why this user can (or cannot) reach a single space-level
+              resource. Tier-1: paste one Space ID per call; bulk audit and
+              parent-space inheritance are not yet supported.
+            </p>
+            <div class="row">
+              <input
+                type="text"
+                class="ep-input"
+                placeholder="Space ID (e.g. 64a0…)"
+                bind:value={epResourceId}
+                disabled={epLoading}
+                on:keydown={(e) => { if (e.key === 'Enter') { void runEffectivePermissions() } }}
+              />
+              <button
+                type="button"
+                class="primary"
+                on:click={runEffectivePermissions}
+                disabled={epLoading || epResourceId.trim() === ''}
+              >
+                {epLoading ? 'Resolving…' : 'Resolve'}
+              </button>
+            </div>
+            {#if epError != null}
+              <p class="err" role="alert">{epError}</p>
+            {/if}
+            {#if epResult != null}
+              <div class="ep-result" data-decision={epResult.decision}>
+                <div class="ep-decision">
+                  <span class="decision-badge" class:allow={epResult.decision === 'allow'} class:deny={epResult.decision === 'deny'}>
+                    {epResult.decision.toUpperCase()}
+                  </span>
+                  <span class="ep-resource-name">{epResult.resource.name}</span>
+                </div>
+                <dl class="ep-meta">
+                  <dt>Resource</dt>
+                  <dd>{epResult.resource.class}</dd>
+                  <dt>Private</dt>
+                  <dd>{epResult.resource.private ? 'yes' : 'no'}</dd>
+                  <dt>Archived</dt>
+                  <dd>{epResult.resource.archived ? 'yes' : 'no'}</dd>
+                  <dt>User role</dt>
+                  <dd>{epResult.user.role}</dd>
+                </dl>
+                <ol class="ep-path">
+                  {#each epResult.path as step (step.step)}
+                    <li>
+                      <span class="step-name">{step.step}</span>
+                      <span class="step-detail">{step.detail}</span>
+                    </li>
+                  {/each}
+                </ol>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </section>
     {/if}
   </svelte:fragment>
 </EntityDrawer>
@@ -149,6 +260,7 @@
     gap: var(--spacing-1);
   }
   .hint { font-size: 0.78rem; color: var(--theme-darker-color); margin: 0; }
+  .hint.inline { display: inline; margin-left: 0.25rem; }
   .muted { color: var(--theme-darker-color); }
   .err {
     background: var(--theme-state-negative-background-color);
@@ -156,4 +268,91 @@
     padding: var(--spacing-1);
     border-radius: 0.25rem;
   }
+
+  /* Effective Permissions Drilldown — collapsible diagnostic section
+     mounted on the bottom half of the drawer. Uses Huly's theme
+     tokens for surface/divider colors so the rgba hard-codes the
+     subagent shipped get linted out (no-hardcoded-colors guard). */
+  .ep-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--theme-divider-color); }
+  .ep-toggle {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--theme-caption-color);
+    font: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 0;
+    text-align: left;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .caret { display: inline-block; transition: transform 120ms ease; }
+  .caret.open { transform: rotate(90deg); }
+  .ep-body { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.6rem; }
+  .ep-input {
+    flex: 1;
+    background: var(--theme-bg-color);
+    border: 1px solid var(--theme-divider-color);
+    color: var(--theme-caption-color);
+    padding: 0.35rem 0.5rem;
+    border-radius: 0.25rem;
+    font: inherit;
+  }
+  .ep-result {
+    background: var(--theme-bg-accent-color);
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 0.35rem;
+    padding: 0.65rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .ep-decision { display: flex; align-items: center; gap: 0.5rem; }
+  .decision-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 0.15rem 0.45rem;
+    border-radius: 0.25rem;
+    background: var(--theme-bg-accent-color);
+    color: var(--theme-caption-color);
+  }
+  .decision-badge.allow {
+    background: var(--theme-state-positive-background-color);
+    color: var(--theme-state-positive-color);
+  }
+  .decision-badge.deny {
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
+  }
+  .ep-resource-name { font-weight: 600; color: var(--theme-caption-color); }
+  .ep-meta {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.15rem 0.65rem;
+    margin: 0;
+    font-size: 0.8rem;
+  }
+  .ep-meta dt { color: var(--theme-darker-color); }
+  .ep-meta dd { margin: 0; color: var(--theme-caption-color); }
+  .ep-path {
+    margin: 0;
+    padding-left: 1.1rem;
+    font-size: 0.8rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .step-name {
+    display: inline-block;
+    font-family: var(--theme-mono-font, ui-monospace, monospace);
+    background: var(--theme-bg-accent-color);
+    padding: 0.05rem 0.3rem;
+    border-radius: 0.2rem;
+    margin-right: 0.4rem;
+  }
+  .step-detail { color: var(--theme-darker-color); }
 </style>
