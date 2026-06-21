@@ -177,9 +177,23 @@ async function migrateIdentifiers (client: MigrationClient): Promise<void> {
 
 export async function migrateAddStartDate (client: MigrationClient): Promise<void> {
   // Issues live in DOMAIN_TASK; Milestones live in DOMAIN_TRACKER.
+  //
+  // Codex A1 blocker: querying with `{ _class: tracker.class.Issue }` only
+  // matches rows whose `_class` is the exact root class — any subclass row
+  // would be skipped and would stay without the new field. Migration sits
+  // at the raw-domain layer (MigrationClient.update bypasses the server-
+  // storage `fillClass` cascade that runtime findAll relies on), so we
+  // must expand the filter ourselves. Mirrors the pattern already used in
+  // `migrateIdentifiers` above.
+  //
+  // Note: `tracker.class.IssueTemplate` is intentionally NOT a descendant
+  // of `tracker.class.Issue` (it extends core.class.Doc and lives in
+  // DOMAIN_TRACKER, not DOMAIN_TASK) — hierarchy.getDescendants reflects
+  // that, so it stays excluded by design.
+  const issueClasses = client.hierarchy.getDescendants(tracker.class.Issue)
   await client.update(
     DOMAIN_TASK,
-    { _class: tracker.class.Issue, startDate: { $exists: false } },
+    { _class: { $in: issueClasses }, startDate: { $exists: false } },
     { startDate: null }
   )
   await client.update(
