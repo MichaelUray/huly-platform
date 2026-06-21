@@ -124,6 +124,7 @@
     "AuditActionPresetCreated": "Vorlage erstellt",
     "AuditActionPresetUpdated": "Vorlage aktualisiert",
     "AuditActionPresetDeleted": "Vorlage gelöscht",
-    "AuditActionPresetApplied": "Vorlage angewendet"
+    "AuditActionPresetApplied": "Vorlage angewendet",
+    "ResourceSearchPlaceholder": "Ressourcen suchen…"
   }
 }

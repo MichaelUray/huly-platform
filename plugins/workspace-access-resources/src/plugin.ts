@@ -208,10 +208,6 @@ const wac = plugin(wacPluginId, {
     AuditActionTokenRevoked: '' as IntlString,
 
     // Permission Templates (Presets) — 6th Owner-only tab.
-    // The 5 keys requested by spec (Tab/Create/Edit/Apply/EmptyState) plus
-    // a small set of action/field/result labels the PresetsView surface
-    // needs. German values are translated; other locales fall back to the
-    // English baseline per the locale-completeness contract.
     PresetsTab: '' as IntlString,
     PresetCreate: '' as IntlString,
     PresetEdit: '' as IntlString,
@@ -230,7 +226,12 @@ const wac = plugin(wacPluginId, {
     AuditActionPresetCreated: '' as IntlString,
     AuditActionPresetUpdated: '' as IntlString,
     AuditActionPresetDeleted: '' as IntlString,
-    AuditActionPresetApplied: '' as IntlString
+    AuditActionPresetApplied: '' as IntlString,
+
+    // A3 — client-side full-text search input above the AllSpacesTab
+    // table. Matches case-insensitively on `name` (substring) and on
+    // `_id` (prefix). Pure UI filter — no server round-trip.
+    ResourceSearchPlaceholder: '' as IntlString
   }
 })
 

@@ -124,6 +124,7 @@
     "AuditActionPresetCreated": "Preset created",
     "AuditActionPresetUpdated": "Preset updated",
     "AuditActionPresetDeleted": "Preset deleted",
-    "AuditActionPresetApplied": "Preset applied"
+    "AuditActionPresetApplied": "Preset applied",
+    "ResourceSearchPlaceholder": "Hledat zdroje…"
   }
 }
