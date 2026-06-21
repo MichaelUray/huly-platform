@@ -38,6 +38,13 @@ export interface KoaCtxLike {
     end: (chunk?: any) => void
     headersSent?: boolean
   }
+  /**
+   * Koa `ctx.query` is `Record<string, string | string[] | undefined>` at
+   * runtime; we surface it as optional so existing handlers that don't
+   * touch query params (the majority) compile without a host change. The
+   * audit handlers read `from`, `to`, `action` for server-side filtering.
+   */
+  query?: Record<string, string | string[] | undefined>
 }
 
 /** Subset of postgres-base DBClient that the handlers exercise. */
@@ -131,6 +138,78 @@ function csvLine (cols: ReadonlyArray<unknown>): string {
 function writeJson (ctx: KoaCtxLike, status: number, body: unknown, headers: Record<string, string>): void {
   ctx.res.writeHead(status, headers)
   ctx.res.end(JSON.stringify(body))
+}
+
+// ---------------------------------------------------------------------------
+// Audit query filtering (Polish A1)
+// ---------------------------------------------------------------------------
+
+export interface AuditFilter {
+  /** ISO-8601 lower bound; rows with ts >= from pass. */
+  from?: string
+  /** ISO-8601 upper bound; rows with ts <= to pass. */
+  to?: string
+  /**
+   * Action enum (e.g. `role_changed`, `member_added`). Matched exact-equal
+   * — the client dropdown sends the canonical key from
+   * `workspaceAuditMapper`.
+   */
+  action?: string
+}
+
+/** ISO-8601 timestamp regex (date or date+time). Rejects anything that
+ *  could let pg parse-time injection slip through. */
+const ISO_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
+/** Action enum slug regex — lowercase + underscores, no SQL specials. */
+const ACTION_RE = /^[a-z][a-z0-9_]{0,63}$/
+
+/**
+ * Parse the optional `from`, `to`, `action` query params into a typed
+ * filter. Invalid values are dropped silently (the dropdown / date-picker
+ * client controls the input set; a malformed value can only come from
+ * direct URL fuzzing, in which case "ignore + return all" is safer than
+ * a 400 that leaks server intent).
+ */
+export function parseAuditQuery (
+  query: Record<string, string | string[] | undefined> | undefined
+): AuditFilter {
+  if (query == null) return {}
+  const first = (v: string | string[] | undefined): string | undefined =>
+    Array.isArray(v) ? v[0] : v
+  const f: AuditFilter = {}
+  const from = first(query.from)
+  if (from != null && ISO_RE.test(from)) f.from = from
+  const to = first(query.to)
+  if (to != null && ISO_RE.test(to)) f.to = to
+  const action = first(query.action)
+  if (action != null && ACTION_RE.test(action)) f.action = action
+  return f
+}
+
+/**
+ * Build the WHERE clause + ordered params for `workspace_audit_log`
+ * queries, gated on `workspace` and optionally narrowed by an audit
+ * filter. The clause is ANDed; $1 is always workspace.
+ */
+export function buildAuditWhere (
+  workspaceUuid: string,
+  filter: AuditFilter
+): { sql: string, params: any[] } {
+  const params: any[] = [workspaceUuid]
+  const parts: string[] = ['workspace=$1']
+  if (filter.from != null) {
+    params.push(filter.from)
+    parts.push(`ts >= $${params.length}::timestamptz`)
+  }
+  if (filter.to != null) {
+    params.push(filter.to)
+    parts.push(`ts <= $${params.length}::timestamptz`)
+  }
+  if (filter.action != null) {
+    params.push(filter.action)
+    parts.push(`action = $${params.length}`)
+  }
+  return { sql: parts.join(' AND '), params }
 }
 
 /** Activity-bucket label exposed by handleMembers. */
@@ -489,15 +568,17 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
 
     async handleAudit (ctx, workspaceUuid) {
       const pg = await deps.pgClient()
+      const filter = parseAuditQuery(ctx.query)
+      const { sql, params } = buildAuditWhere(workspaceUuid, filter)
       const rows = await pg.execute(
         `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
                 target_account::text AS target_account, target_space,
                 metadata
          FROM workspace_audit_log
-         WHERE workspace=$1
+         WHERE ${sql}
          ORDER BY ts DESC
          LIMIT 100`,
-        [workspaceUuid]
+        params
       )
       const items = rows.map((r: any) => ({
         id: r.id,
@@ -643,13 +724,15 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
 
     async handleAuditCsvExport (ctx, workspaceUuid) {
       const pg = await deps.pgClient()
+      const filter = parseAuditQuery(ctx.query)
+      const { sql, params } = buildAuditWhere(workspaceUuid, filter)
       const rows = await pg.execute(
         `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
                 target_account::text AS target_account, target_space, target_space_class
          FROM workspace_audit_log
-         WHERE workspace=$1
+         WHERE ${sql}
          ORDER BY ts DESC LIMIT 5000`,
-        [workspaceUuid]
+        params
       )
       ctx.res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
