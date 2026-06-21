@@ -101,6 +101,13 @@
     "SendSetupLink": "Kurulum bağlantısı gönder",
     "SSOPasswordEmailSent": "Şifrenizi belirlemek için bir bağlantı içeren e-postayı kontrol edin.",
     "SSONoEmailLinked": "Hesabınıza bağlı bir e-posta adresi yok. Önce Hesap Ayarları → Kimlikleri Yönet bölümünden bir tane ekleyin.",
-    "CreateSampleProjects": "Örnek projeler ve demo içerik oluştur"
+    "CreateSampleProjects": "Örnek projeler ve demo içerik oluştur",
+    "AccountDisabledTitle": "Account disabled",
+    "AccountDisabledBody": "Your account has been disabled by an administrator. Please contact your administrator if you believe this is in error.",
+    "SignOut": "Sign out",
+    "AdminPanel": "Admin panel",
+    "AdminUsers": "Users",
+    "AdminWorkspaces": "Workspaces",
+    "BackToWorkbench": "Back to workbench"
   }
 }

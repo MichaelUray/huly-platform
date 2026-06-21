@@ -101,6 +101,13 @@
     "SendSetupLink": "Enviar link de configuração",
     "SSOPasswordEmailSent": "Verifique seu e-mail para encontrar o link de configuração da senha.",
     "SSONoEmailLinked": "Nenhum endereço de e-mail está vinculado à sua conta. Adicione um em Configurações da Conta → Gerenciar Identidades primeiro.",
-    "CreateSampleProjects": "Criar projetos de exemplo e conteúdo de demonstração"
+    "CreateSampleProjects": "Criar projetos de exemplo e conteúdo de demonstração",
+    "AccountDisabledTitle": "Account disabled",
+    "AccountDisabledBody": "Your account has been disabled by an administrator. Please contact your administrator if you believe this is in error.",
+    "SignOut": "Sign out",
+    "AdminPanel": "Admin panel",
+    "AdminUsers": "Users",
+    "AdminWorkspaces": "Workspaces",
+    "BackToWorkbench": "Back to workbench"
   }
 }

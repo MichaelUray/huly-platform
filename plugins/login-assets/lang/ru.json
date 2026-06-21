@@ -101,6 +101,13 @@
     "SendSetupLink": "Отправить ссылку для настройки",
     "SSOPasswordEmailSent": "Проверьте свою электронную почту, чтобы найти ссылку для установки пароля.",
     "SSONoEmailLinked": "К вашей учетной записи не привязан адрес электронной почты. Сначала добавьте его в Настройки аккаунта → Управление идентификаторами.",
-    "CreateSampleProjects": "Создать примеры проектов и демо-контент"
+    "CreateSampleProjects": "Создать примеры проектов и демо-контент",
+    "AccountDisabledTitle": "Account disabled",
+    "AccountDisabledBody": "Your account has been disabled by an administrator. Please contact your administrator if you believe this is in error.",
+    "SignOut": "Sign out",
+    "AdminPanel": "Admin panel",
+    "AdminUsers": "Users",
+    "AdminWorkspaces": "Workspaces",
+    "BackToWorkbench": "Back to workbench"
   }
 }

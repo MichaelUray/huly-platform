@@ -100,6 +100,14 @@
         "TwoFactorAuth": "2단계 인증",
         "EnterTwoFactorCode": "2단계 인증 코드 입력",
         "TwoFactorCode": "2단계 인증 코드",
-        "Verify": "인증"
+        "Verify": "인증",
+        "AccountDisabledTitle": "Account disabled",
+        "AccountDisabledBody": "Your account has been disabled by an administrator. Please contact your administrator if you believe this is in error.",
+        "SignOut": "Sign out",
+        "AdminPanel": "Admin panel",
+        "AdminUsers": "Users",
+        "AdminWorkspaces": "Workspaces",
+        "BackToWorkbench": "Back to workbench",
+        "CreateSampleProjects": "Create sample projects and demo content"
     }
 }
