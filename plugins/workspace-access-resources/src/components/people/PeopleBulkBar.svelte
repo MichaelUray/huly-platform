@@ -6,7 +6,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import { Button, IconAdd, IconClose, IconDelete } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../../plugin'
   import type { WorkspaceRole } from '../../types'
 
   export let count: number = 0
@@ -28,14 +28,14 @@
       kind={'regular'}
       size={'small'}
       icon={IconAdd}
-      label={getEmbeddedLabel('Add to space')}
+      label={wac.string.BulkAddToSpace}
       on:click={() => dispatch('addToSpace')}
     />
     <Button
       kind={'regular'}
       size={'small'}
       icon={IconDelete}
-      label={getEmbeddedLabel('Remove from space')}
+      label={wac.string.BulkRemoveFromSpace}
       on:click={() => dispatch('removeFromSpace')}
     />
     <span class="role-changer">
@@ -51,7 +51,7 @@
       <Button
         kind={'primary'}
         size={'small'}
-        label={getEmbeddedLabel('Apply')}
+        label={wac.string.BulkApply}
         on:click={() => dispatch('changeRole', { role: roleSelect })}
       />
     </span>
@@ -60,7 +60,7 @@
       kind={'ghost'}
       size={'small'}
       icon={IconClose}
-      label={getEmbeddedLabel('Cancel')}
+      label={wac.string.Cancel}
       on:click={() => dispatch('deselectAll')}
     />
   </div>

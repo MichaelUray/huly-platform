@@ -31,6 +31,45 @@
 
     "AccessCenter": "Zugriffszentrum",
     "OpenInApp": "In der App öffnen",
-    "ComingInV2": "Kommt in v2"
+    "ComingInV2": "Kommt in v2",
+
+    "PeopleTabAll": "Alle",
+    "PeopleTabByRole": "Nach Rolle",
+    "PeopleTabInactive": "Inaktiv (90 Tage+)",
+    "PeopleTabGrantedAccess": "Erteilte Zugriffe ({count})",
+    "PeopleTabPending": "Offene Einladungen",
+
+    "ResourcesTabAll": "Alle",
+    "ResourcesTabPrivate": "Nur privat",
+    "ResourcesTabPublic": "Nur öffentlich",
+    "ResourcesTabArchived": "Archiviert",
+    "ResourcesTabAutoJoin": "Auto-Beitritt",
+
+    "MyAccessTabRole": "Meine Rolle",
+    "MyAccessTabMemberOf": "Spaces, in denen ich bin",
+    "MyAccessTabOwned": "Spaces, die ich besitze",
+    "MyAccessTabReceived": "Mir gewährt",
+    "MyAccessTabGiven": "Von mir gewährt",
+
+    "AuditFilterAction": "Aktion enthält…",
+    "AuditFilterActor": "Akteur enthält…",
+    "AuditClear": "Löschen",
+
+    "BulkAddToSpace": "Zu Space hinzufügen",
+    "BulkRemoveFromSpace": "Aus Space entfernen",
+    "BulkApply": "Anwenden",
+    "Role": "Rolle",
+    "Dismiss": "Schliessen",
+
+    "Private": "Privat",
+    "AutoJoin": "Auto-Beitritt",
+    "Archived": "Archiviert",
+
+    "HideList": "Liste ausblenden",
+    "BrowseAll": "Alle durchsuchen",
+
+    "LoadingAccessCenter": "Zugriffszentrum wird geladen…",
+    "LoadWorkspaceRoleError": "Ihre Workspace-Rolle konnte nicht geladen werden.",
+    "Retry": "Erneut versuchen"
   }
 }

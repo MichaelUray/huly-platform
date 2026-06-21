@@ -12,6 +12,8 @@
   import { Breadcrumb, Header, Scroller, TabList } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
   import wac from '../plugin'
+  // `getEmbeddedLabel` is retained as the dynamic fallback for tab ids
+  // that have no registered IntlString — see `tabItems` below.
   import PeopleView from './people/PeopleView.svelte'
   import ResourcesView from './resources/ResourcesView.svelte'
   import MyAccessView from './my-access/MyAccessView.svelte'

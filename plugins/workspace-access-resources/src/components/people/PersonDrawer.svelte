@@ -7,7 +7,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
   import { Button, DropdownLabelsIntl, type DropdownIntlItem } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
   import wac from '../../plugin'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import { peopleApi } from '../../api/peopleApi'
@@ -84,7 +83,7 @@
       <section class="section">
         <h3>Workspace role</h3>
         <DropdownLabelsIntl
-          label={getEmbeddedLabel('Role')}
+          label={wac.string.Role}
           kind={'primary'}
           size={'medium'}
           items={roleItems}
@@ -128,8 +127,8 @@
   .hint { font-size: 0.78rem; color: var(--theme-darker-color); margin: 0; }
   .muted { color: var(--theme-darker-color); }
   .err {
-    background: color-mix(in srgb, #ef4444 12%, transparent);
-    color: #b91c1c;
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
     padding: var(--spacing-1);
     border-radius: 0.25rem;
   }
