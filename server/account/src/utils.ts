@@ -36,7 +36,7 @@ import {
   type WorkspaceUuid
 } from '@hcengineering/core'
 import { getMongoClient } from '@hcengineering/mongo' // TODO: get rid of this import later
-import platform, { getMetadata, PlatformError, Severity, Status, translate } from '@hcengineering/platform'
+import platform, { getMetadata, PlatformError, Severity, Status, type StatusCode, translate } from '@hcengineering/platform'
 import { getDBClient, setDBExtraOptions } from '@hcengineering/postgres'
 import { pbkdf2Sync, randomBytes } from 'crypto'
 import otpGenerator from 'otp-generator'
@@ -1657,7 +1657,7 @@ export async function loginOrSignUpWithProvider (
       await db.person.update({ uuid: personUuid }, { firstName: first, lastName: last })
     } else if (account.disabledAt != null) {
       ctx.warn('Provider login attempt on disabled account', { email: normalizedEmail })
-      throw new PlatformError(new Status(Severity.ERROR, 'account_disabled' as any, {}))
+      throw new PlatformError(new Status(Severity.ERROR, 'account_disabled' as StatusCode, {}))
     }
 
     // We should check and reset password if there's an account with password but no social ids have been

@@ -203,11 +203,13 @@ export async function listAccountsAdmin (
     wsMin: params.workspaceCountRange?.min,
     wsMax: params.workspaceCountRange?.max,
     lastActivityFilter: params.lastActivityFilter,
-    orphan: (params as any).orphan === true ? true : undefined,
+    // Wave-8 D3 — ListAccountsAdminParams.orphan / isAdmin are typed on the
+    // public client interface; the prior casts were redundant.
+    orphan: params.orphan === true ? true : undefined,
     // Pass true/false through (DB layer supports both — false filters OUT
     // admins). Only `undefined` means "no filter applied".
     isAdmin:
-      (params as any).isAdmin === true ? true : (params as any).isAdmin === false ? false : undefined,
+      params.isAdmin === true ? true : params.isAdmin === false ? false : undefined,
     sort: params.sort,
     pagination: { limit: params.pagination.limit, offset: params.pagination.offset }
   }
@@ -282,7 +284,9 @@ export async function getAccountDetails (
     socialIds: socialIds.map((s) => ({
       type: s.type,
       value: s.value,
-      verified: (s as any).verifiedOn != null
+      // Wave-8 D3 — SocialId.verifiedOn is typed (Timestamp | undefined);
+      // the prior cast was redundant.
+      verified: s.verifiedOn != null
     })),
     workspaceMemberships,
     recentAuditEntries

@@ -1904,8 +1904,8 @@
    */
   async function commitIssueDrag (state: DragState, target: { kind: 'issue', doc: Issue }, ops: ApplyOperations): Promise<void> {
     if (state.kind === 'dragging-body') {
-      await ops.update(target.doc, { startDate: (state as any).previewStart, dueDate: (state as any).previewEnd })
-      const delta = (state as any).previewStart - (state as any).originStart
+      await ops.update(target.doc, { startDate: state.previewStart, dueDate: state.previewEnd })
+      const delta = state.previewStart - state.originStart
       if (delta !== 0) {
         // Fetch the full space's issues here rather than reusing the
         // view-filtered `issues` array — otherwise children hidden by an
@@ -1926,11 +1926,11 @@
       // descendants would move them by a wildly unrelated amount.
       // Descendants stay put; the user can drag the
       // (now-scheduled) parent again to do a coordinated shift.
-      await ops.update(target.doc, { startDate: (state as any).previewStart, dueDate: (state as any).previewEnd })
+      await ops.update(target.doc, { startDate: state.previewStart, dueDate: state.previewEnd })
     } else if (state.kind === 'resizing-left') {
-      await ops.update(target.doc, { startDate: (state as any).previewStart })
+      await ops.update(target.doc, { startDate: state.previewStart })
     } else if (state.kind === 'resizing-right') {
-      await ops.update(target.doc, { dueDate: (state as any).previewEnd })
+      await ops.update(target.doc, { dueDate: state.previewEnd })
     }
   }
 
@@ -1943,8 +1943,8 @@
    */
   async function commitMilestoneDrag (state: DragState, target: { kind: 'milestone', doc: Milestone }, ops: ApplyOperations): Promise<void> {
     if (state.kind === 'dragging-body') {
-      await ops.update(target.doc, { startDate: (state as any).previewStart, targetDate: (state as any).previewEnd })
-      const delta = (state as any).previewStart - (state as any).originStart
+      await ops.update(target.doc, { startDate: state.previewStart, targetDate: state.previewEnd })
+      const delta = state.previewStart - state.originStart
       if (delta !== 0) {
         const client = getClient()
         const allInSpace = await client.findAll(tracker.class.Issue, { space: target.doc.space })
@@ -1976,9 +1976,9 @@
         }
       }
     } else if (state.kind === 'resizing-left') {
-      await ops.update(target.doc, { startDate: (state as any).previewStart })
+      await ops.update(target.doc, { startDate: state.previewStart })
     } else if (state.kind === 'resizing-right') {
-      await ops.update(target.doc, { targetDate: (state as any).previewEnd })
+      await ops.update(target.doc, { targetDate: state.previewEnd })
     }
     // Milestones can't enter dragging-unscheduled (no drag-grip in the
     // sidebar for them), so that branch is unreachable.
@@ -2368,7 +2368,7 @@
       const ops = client.apply('gantt-drag')
       const doc = state.target.doc as Issue
       const before = { startDate: doc.startDate ?? null, dueDate: doc.dueDate ?? null }
-      const after = { startDate: (state as any).previewStart as number, dueDate: (state as any).previewEnd as number }
+      const after = { startDate: state.previewStart as number, dueDate: state.previewEnd as number }
       await commitIssueDrag(state, state.target, ops)
       const r = await ops.commit()
       if (!r.result) {
@@ -2435,11 +2435,11 @@
       const allInSpace = await client.findAll(tracker.class.Issue, { space: parent.space })
       const isParent = allInSpace.some((i) => i.parents?.[0]?.parentId === parent._id)
       if (isParent) {
-        const delta = (state as any).previewStart - (state as any).originStart
+        const delta = state.previewStart - state.originStart
         const primaryEdits: PrimaryEdit[] = [{
           issue: parent,
-          newStart: (state as any).previewStart,
-          newDue: (state as any).previewEnd
+          newStart: state.previewStart,
+          newDue: state.previewEnd
         }]
         for (const child of descendantsWithDates(parent, allInSpace)) {
           primaryEdits.push({
@@ -2460,8 +2460,8 @@
       const target = state.target.doc
       const primaryEdits: PrimaryEdit[] = [{
         issue: target,
-        newStart: (state as any).previewStart,
-        newDue: (state as any).previewEnd
+        newStart: state.previewStart,
+        newDue: state.previewEnd
       }]
       const legacyConfirmKind: 'move' | 'resize' | 'none' = confirmMove ? 'move' : 'none'
       await commitWithCascade(primaryEdits, altKey, target.space, legacyConfirmKind)
@@ -2471,7 +2471,7 @@
       const target = state.target.doc
       const primaryEdits: PrimaryEdit[] = [{
         issue: target,
-        newStart: (state as any).previewStart,
+        newStart: state.previewStart,
         newDue: target.dueDate as number
       }]
       const legacyConfirmKind: 'move' | 'resize' | 'none' = confirmResize ? 'resize' : 'none'
@@ -2483,7 +2483,7 @@
       const primaryEdits: PrimaryEdit[] = [{
         issue: target,
         newStart: target.startDate as number,
-        newDue: (state as any).previewEnd
+        newDue: state.previewEnd
       }]
       const legacyConfirmKind: 'move' | 'resize' | 'none' = confirmResize ? 'resize' : 'none'
       await commitWithCascade(primaryEdits, altKey, target.space, legacyConfirmKind)
