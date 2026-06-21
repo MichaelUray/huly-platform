@@ -249,7 +249,7 @@
   .url { font-family: var(--font-mono, monospace); word-break: break-all; }
   .empty { color: var(--theme-darker-color); text-align: center; padding: 1rem; }
   .actions { display: flex; gap: 0.4rem; }
-  .err { color: var(--theme-error-color, #c33); }
+  .err { color: var(--theme-state-negative-color); }
   .test-result { font-family: var(--font-mono, monospace); font-size: 0.85rem; }
 
   .create {
@@ -264,5 +264,5 @@
   .create input, .create select { padding: 0.4rem; }
   .events { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; border: 1px solid var(--theme-divider-color); padding: 0.5rem; }
   .checkbox { flex-direction: row !important; align-items: center; gap: 0.35rem; }
-  button.danger { color: #c33; }
+  button.danger { color: var(--theme-state-negative-color); }
 </style>
