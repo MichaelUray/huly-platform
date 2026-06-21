@@ -88,6 +88,21 @@
     "EmptyPrivateSpaces": "No private spaces.",
     "EmptyPublicSpaces": "No public spaces.",
     "EmptyArchivedSpaces": "No archived spaces.",
-    "EmptyAutoJoinSpaces": "No auto-join spaces."
+    "EmptyAutoJoinSpaces": "No auto-join spaces.",
+    "AuditFilterActionAny": "Any action",
+    "AuditActionRoleChanged": "Role changed",
+    "AuditActionMemberAdded": "Member added",
+    "AuditActionSpaceArchived": "Space archived",
+    "AuditActionSpaceUnarchived": "Space unarchived",
+    "AuditActionSpaceAutojoinChanged": "Auto-join changed",
+    "AuditActionSpacePrivacyChanged": "Privacy changed",
+    "AuditActionSpaceMembersChanged": "Space members changed",
+    "AuditActionSpaceOwnersChanged": "Space owners changed",
+    "AuditActionImpersonationStarted": "Impersonation started",
+    "AuditActionImpersonationEnded": "Impersonation ended",
+    "AuditActionImpersonationIdorAttempt": "Impersonation IDOR attempt",
+    "AuditActionImpersonationReplayAttempt": "Impersonation replay attempt",
+    "AuditActionGrantRevoked": "Grant revoked",
+    "AuditActionTokenRevoked": "Token revoked"
   }
 }

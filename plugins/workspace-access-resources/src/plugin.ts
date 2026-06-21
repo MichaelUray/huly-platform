@@ -181,7 +181,29 @@ const wac = plugin(wacPluginId, {
     EmptyPrivateSpaces: '' as IntlString,
     EmptyPublicSpaces: '' as IntlString,
     EmptyArchivedSpaces: '' as IntlString,
-    EmptyAutoJoinSpaces: '' as IntlString
+    EmptyAutoJoinSpaces: '' as IntlString,
+
+    // Polish-5: Audit toolbar — replace freeform action `EditBox`
+    // (string match-anywhere) with a closed enum dropdown so operators
+    // pick from the canonical set the server writes. The action list
+    // mirrors the literals emitted in server-plugins/workspace-access
+    // (writeRouter.ts + audit/insert.ts + impersonation/index.ts). The
+    // "any action" option clears the filter.
+    AuditFilterActionAny: '' as IntlString,
+    AuditActionRoleChanged: '' as IntlString,
+    AuditActionMemberAdded: '' as IntlString,
+    AuditActionSpaceArchived: '' as IntlString,
+    AuditActionSpaceUnarchived: '' as IntlString,
+    AuditActionSpaceAutojoinChanged: '' as IntlString,
+    AuditActionSpacePrivacyChanged: '' as IntlString,
+    AuditActionSpaceMembersChanged: '' as IntlString,
+    AuditActionSpaceOwnersChanged: '' as IntlString,
+    AuditActionImpersonationStarted: '' as IntlString,
+    AuditActionImpersonationEnded: '' as IntlString,
+    AuditActionImpersonationIdorAttempt: '' as IntlString,
+    AuditActionImpersonationReplayAttempt: '' as IntlString,
+    AuditActionGrantRevoked: '' as IntlString,
+    AuditActionTokenRevoked: '' as IntlString
   }
 })
 
