@@ -151,6 +151,14 @@ interface MakeHarnessOpts {
    * because a concurrent request would have left zero OWNERs.
    */
   atomicRoleUpdateImpl?: (call: RoleUpdateCall) => Promise<boolean>
+  /**
+   * Wave 5 D — multi-row space lookup map keyed by spaceId. Used by the
+   * Resources bulk handlers which call `loadSpaceRow` per row in the
+   * batch; the legacy `spaceRow` field only answers the FIRST SELECT.
+   * When this map is provided, the pgClient stub looks up by params[1]
+   * (the space _id) and returns `[row]` or `[]`.
+   */
+  spaceRowsById?: Record<string, Record<string, any> | null>
 }
 
 function defaultSpaceRow (id = 'space-1', _class = 'tracker:class:Project'): Record<string, any> {
@@ -225,6 +233,14 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
     async execute (query, params = []) {
       pgCalls.push({ query, params })
       const isSpaceSelect = /FROM space WHERE "workspaceId"=\$1 AND "_id"=\$2 LIMIT 1/i.test(query)
+      // Wave 5 D — when the test provides a map of space rows, look up by
+      // params[1] (the space _id). Lets one harness service N lookups in
+      // a bulk-handler iteration.
+      if (isSpaceSelect && opts.spaceRowsById != null) {
+        const id = String(params[1])
+        const row = opts.spaceRowsById[id]
+        return row == null ? [] : [row]
+      }
       if (isSpaceSelect && !spaceLookupDone) {
         spaceLookupDone = true
         if (opts.pgFindRowOverride != null) return opts.pgFindRowOverride
@@ -1234,5 +1250,243 @@ describe('writeRouter — A2 wire→canonical role contract', () => {
     await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
     expect(captured.status).toBe(400)
     expect(h.roleCalls).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Resources bulk-bar — Wave 5 D
+//
+// handleBulkSpaceArchive / handleBulkSpacePrivacy / handleBulkSpaceAddOwner.
+// Per-target outcome contract identical to handleBulkMemberRole: always
+// 200 with `{ batch_id, applied, results: [{ spaceId, status, detail? }] }`.
+// 400 on body-validation errors. Last-owner is NOT relevant for bulk-archive
+// (archived flag does not touch the Owner-set; see the comment in
+// writeRouter.ts above the bulk handlers).
+// ---------------------------------------------------------------------------
+
+function spaceRowAt (id: string, _class = 'tracker:class:Project', overrides: Record<string, any> = {}): Record<string, any> {
+  return {
+    _id: id,
+    _class,
+    space: 'core:space:Space',
+    members: JSON.stringify(['m1', 'm2']),
+    owners: JSON.stringify(['o1']),
+    private_flag: false,
+    auto_join: false,
+    archived: false,
+    ...overrides
+  }
+}
+
+describe('writeRouter — handleBulkSpaceArchive', () => {
+  it('happy path: archives all spaces, returns per-row ok + audits each', async () => {
+    const h = makeHarness({
+      spaceRowsById: {
+        's1': spaceRowAt('s1'),
+        's2': spaceRowAt('s2', 'document:class:Teamspace')
+      }
+    })
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1', 's2'] })
+    await h.handlers.handleBulkSpaceArchive(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.applied).toBe(2)
+    expect(typeof captured.body.batch_id).toBe('string')
+    expect(captured.body.results).toEqual([
+      { spaceId: 's1', status: 'ok' },
+      { spaceId: 's2', status: 'ok' }
+    ])
+    // Two updateDoc calls with archived=true
+    expect(h.txCalls).toHaveLength(2)
+    expect(h.txCalls[0].update).toEqual({ archived: true })
+    expect(h.txCalls[1].update).toEqual({ archived: true })
+    // Two audit rows
+    expect(auditCalls(h)).toHaveLength(2)
+  })
+
+  it('400 on missing / non-array body.spaceIds', async () => {
+    const h = makeHarness()
+    const { ctx, captured } = makeCtx({ spaceIds: 'not-an-array' })
+    await h.handlers.handleBulkSpaceArchive(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(400)
+    expect(captured.body).toEqual({ error: 'bad_request' })
+    expect(h.txCalls).toHaveLength(0)
+  })
+
+  it('partial failure: missing space → not_found, ok rows still applied', async () => {
+    const h = makeHarness({
+      spaceRowsById: {
+        's1': spaceRowAt('s1'),
+        's2': null  // gone / never existed
+      }
+    })
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1', 's2'] })
+    await h.handlers.handleBulkSpaceArchive(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.applied).toBe(1)
+    expect(captured.body.results).toEqual([
+      { spaceId: 's1', status: 'ok' },
+      { spaceId: 's2', status: 'not_found' }
+    ])
+    expect(h.txCalls).toHaveLength(1)
+    expect(auditCalls(h)).toHaveLength(1)
+  })
+
+  it('partial failure: updateDoc throws on one row → internal, others ok', async () => {
+    const h = makeHarness({
+      spaceRowsById: {
+        's1': spaceRowAt('s1'),
+        's2': spaceRowAt('s2')
+      },
+      updateDocImpl: async (call) => {
+        if (call._id === 's2') throw new Error('boom')
+      }
+    })
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1', 's2'] })
+    await h.handlers.handleBulkSpaceArchive(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.applied).toBe(1)
+    expect(captured.body.results).toEqual([
+      { spaceId: 's1', status: 'ok' },
+      { spaceId: 's2', status: 'internal', detail: 'write_failed' }
+    ])
+    // Only the successful row produces an audit row.
+    expect(auditCalls(h)).toHaveLength(1)
+  })
+
+  it('audit row carries action=space_archived for every applied row', async () => {
+    const h = makeHarness({
+      spaceRowsById: { 's1': spaceRowAt('s1'), 's2': spaceRowAt('s2') }
+    })
+    const { ctx } = makeCtx({ spaceIds: ['s1', 's2'] })
+    await h.handlers.handleBulkSpaceArchive(ctx, 'ws-1', 'caller-1')
+    const audits = auditCalls(h)
+    expect(audits).toHaveLength(2)
+    // Sanity: SQL is the shared INSERT and both inserts target the right
+    // action column. The executeWorkspaceAuditInsert helper drives the SQL
+    // so we can only verify by params here — action is one of the early
+    // positional parameters (see audit/insert.ts).
+    for (const a of audits) {
+      expect(a.params.includes('space_archived')).toBe(true)
+    }
+  })
+})
+
+describe('writeRouter — handleBulkSpacePrivacy', () => {
+  it('happy path: applies private=true to each space + audit per row', async () => {
+    const h = makeHarness({
+      spaceRowsById: { 's1': spaceRowAt('s1'), 's2': spaceRowAt('s2') }
+    })
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1', 's2'], private: true })
+    await h.handlers.handleBulkSpacePrivacy(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.applied).toBe(2)
+    expect(h.txCalls[0].update).toEqual({ private: true })
+    expect(h.txCalls[1].update).toEqual({ private: true })
+    expect(auditCalls(h)).toHaveLength(2)
+    for (const a of auditCalls(h)) {
+      expect(a.params.includes('space_privacy_changed')).toBe(true)
+    }
+  })
+
+  it('400 when body.private is not a boolean', async () => {
+    const h = makeHarness()
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1'], private: 'yes' })
+    await h.handlers.handleBulkSpacePrivacy(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(400)
+    expect(captured.body).toEqual({ error: 'bad_request' })
+  })
+
+  it('400 when spaceIds is not an array', async () => {
+    const h = makeHarness()
+    const { ctx, captured } = makeCtx({ spaceIds: null, private: true })
+    await h.handlers.handleBulkSpacePrivacy(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(400)
+  })
+
+  it('partial: 1 not_found + 1 ok', async () => {
+    const h = makeHarness({
+      spaceRowsById: { 's1': spaceRowAt('s1'), 'ghost': null }
+    })
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1', 'ghost'], private: false })
+    await h.handlers.handleBulkSpacePrivacy(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.applied).toBe(1)
+    expect(captured.body.results).toEqual([
+      { spaceId: 's1', status: 'ok' },
+      { spaceId: 'ghost', status: 'not_found' }
+    ])
+  })
+})
+
+describe('writeRouter — handleBulkSpaceAddOwner', () => {
+  it('happy path: appends new owner to each space + audit per row', async () => {
+    const h = makeHarness({
+      spaceRowsById: {
+        's1': spaceRowAt('s1', 'tracker:class:Project', { owners: JSON.stringify(['o1']) }),
+        's2': spaceRowAt('s2', 'document:class:Teamspace', { owners: JSON.stringify(['o1', 'o2']) })
+      }
+    })
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1', 's2'], ownerUuid: 'o9' })
+    await h.handlers.handleBulkSpaceAddOwner(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.applied).toBe(2)
+    expect(h.txCalls).toHaveLength(2)
+    expect(h.txCalls[0].update).toEqual({ owners: ['o1', 'o9'] })
+    expect(h.txCalls[1].update).toEqual({ owners: ['o1', 'o2', 'o9'] })
+    const audits = auditCalls(h)
+    expect(audits).toHaveLength(2)
+    for (const a of audits) {
+      expect(a.params.includes('space_owners_changed')).toBe(true)
+    }
+  })
+
+  it('idempotent: ownerUuid already present → no mutation, status still ok', async () => {
+    const h = makeHarness({
+      spaceRowsById: {
+        's1': spaceRowAt('s1', 'tracker:class:Project', { owners: JSON.stringify(['o1', 'o9']) })
+      }
+    })
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1'], ownerUuid: 'o9' })
+    await h.handlers.handleBulkSpaceAddOwner(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.applied).toBe(1)
+    expect(captured.body.results).toEqual([{ spaceId: 's1', status: 'ok' }])
+    // No updateDoc call and no audit row since nothing changed.
+    expect(h.txCalls).toHaveLength(0)
+    expect(auditCalls(h)).toHaveLength(0)
+  })
+
+  it('400 when ownerUuid is missing / not a string', async () => {
+    const h = makeHarness()
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1'], ownerUuid: 42 })
+    await h.handlers.handleBulkSpaceAddOwner(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(400)
+  })
+
+  it('400 when ownerUuid is empty string', async () => {
+    const h = makeHarness()
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1'], ownerUuid: '' })
+    await h.handlers.handleBulkSpaceAddOwner(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(400)
+  })
+
+  it('partial: 1 not_found + 1 ok (existing owner preserved on ok row)', async () => {
+    const h = makeHarness({
+      spaceRowsById: {
+        's1': spaceRowAt('s1', 'tracker:class:Project', { owners: JSON.stringify(['o1']) }),
+        'ghost': null
+      }
+    })
+    const { ctx, captured } = makeCtx({ spaceIds: ['s1', 'ghost'], ownerUuid: 'o9' })
+    await h.handlers.handleBulkSpaceAddOwner(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(captured.body.applied).toBe(1)
+    expect(captured.body.results).toEqual([
+      { spaceId: 's1', status: 'ok' },
+      { spaceId: 'ghost', status: 'not_found' }
+    ])
+    // The applied row appended the new owner without removing the old one.
+    expect(h.txCalls).toHaveLength(1)
+    expect(h.txCalls[0].update).toEqual({ owners: ['o1', 'o9'] })
   })
 })
