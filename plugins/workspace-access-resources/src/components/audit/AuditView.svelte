@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Button, DropdownLabelsIntl, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload, type DropdownIntlItem } from '@hcengineering/ui'
+  import { Button, DatePicker, DropdownLabelsIntl, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload, type DropdownIntlItem } from '@hcengineering/ui'
   import wac from '../../plugin'
   import { AuditLogView, AuditLogExportButton } from '@hcengineering/access-management-ui'
   import { auditApi } from '../../api/auditApi'
@@ -15,21 +15,39 @@
   let cursor: string | null = null
   let loading: boolean = true
   let error: string | null = null
-  // Polish-5 — `actionFilter` is now a fixed enum picked from the
-  // closed list below (empty string = "any action"). The actor filter
-  // is unchanged. The action list mirrors the literals emitted in
+  // Polish-5 — `actionFilter` is a fixed enum picked from the closed
+  // list below (empty string = "any action"). The actor filter is
+  // unchanged. The action list mirrors the literals emitted in
   // server-plugins/workspace-access (writeRouter.ts +
   // audit/insert.ts + impersonation/index.ts) — keep in sync when a
   // new action is added.
-  // NOTE: the readRouter currently ignores the `filter` query param
-  // (see server-plugins/workspace-access/src/http/readRouter.ts
-  // handleAudit). The dropdown still ships now because (a) the UX
-  // surface is strictly better than a freeform text input and (b) the
-  // server change is mechanical once we have a polish window — the
-  // values sent are already the canonical action strings.
+  //
+  // A1+A2 — server now honors from/to/action via decodeFilterParam
+  // (server-plugins/workspace-access/src/http/readRouter.ts) — these
+  // values flow through the existing base64-JSON filter encoding.
   let actionFilter: string = ''
   let actorFilter: string = ''
+  // A2 — date-range as wall-clock millis. We convert to ISO at the
+  // send-edge so the server's ISO_RE regex (date-only or full
+  // timestamp) accepts the value. Null = no bound.
+  let fromMs: number | null = null
+  let toMs: number | null = null
   let showDsgvoBanner: boolean = false
+
+  function msToIso (ms: number | null, kind: 'from' | 'to'): string | undefined {
+    if (ms == null) return undefined
+    // Render as date-only (YYYY-MM-DD) so the operator's "June 21st"
+    // mental model maps cleanly. For `to` we shift to end-of-day so the
+    // upper bound is inclusive of events on that calendar day.
+    const d = new Date(ms)
+    if (kind === 'to') {
+      d.setHours(23, 59, 59, 999)
+      return d.toISOString()
+    }
+    // 'from' clamps to start-of-day in local TZ.
+    d.setHours(0, 0, 0, 0)
+    return d.toISOString()
+  }
 
   // The dropdown's "all actions" sentinel needs a non-empty id (the
   // DropdownIntlItem.id is `string | number`). Use a Symbol-like marker
@@ -62,16 +80,24 @@
     void refresh(true)
   }
 
+  function buildFilter (): Record<string, unknown> {
+    const filter: Record<string, unknown> = {}
+    if (actionFilter !== '') filter.action = actionFilter
+    if (actorFilter !== '') filter.actor = actorFilter
+    const fromIso = msToIso(fromMs, 'from')
+    if (fromIso != null) filter.from = fromIso
+    const toIso = msToIso(toMs, 'to')
+    if (toIso != null) filter.to = toIso
+    return filter
+  }
+
   async function refresh (reset: boolean = true): Promise<void> {
     loading = true
     error = null
     try {
-      const filter: Record<string, unknown> = {}
-      if (actionFilter !== '') filter.action = actionFilter
-      if (actorFilter !== '') filter.actor = actorFilter
       const res = await auditApi.list(workspace, {
         cursor: reset ? undefined : cursor ?? undefined,
-        filter
+        filter: buildFilter()
       })
       entries = reset ? res.items : [...entries, ...res.items]
       cursor = res.cursor
@@ -115,12 +141,35 @@
         on:input={() => refresh(true)}
       />
     </div>
+    <div class="filter-date">
+      <DatePicker
+        bind:value={fromMs}
+        title={wac.string.AuditFilterFrom}
+        withTime={false}
+        on:change={() => refresh(true)}
+      />
+    </div>
+    <div class="filter-date">
+      <DatePicker
+        bind:value={toMs}
+        title={wac.string.AuditFilterTo}
+        withTime={false}
+        on:change={() => refresh(true)}
+      />
+    </div>
     <Button
       kind={'ghost'}
       size={'small'}
       icon={IconClose}
       label={wac.string.AuditClear}
-      on:click={() => { actionFilter = ''; actorFilter = ''; selectedAction = ANY_ACTION; void refresh(true) }}
+      on:click={() => {
+        actionFilter = ''
+        actorFilter = ''
+        selectedAction = ANY_ACTION
+        fromMs = null
+        toMs = null
+        void refresh(true)
+      }}
     />
     <span class="spacer"></span>
     {#if canExport}
@@ -157,7 +206,7 @@
             on:click={() => (showDsgvoBanner = false)}
           />
           <AuditLogExportButton
-            endpoint={auditApi.exportUrl(workspace, { action: actionFilter, actor: actorFilter })}
+            endpoint={auditApi.exportUrl(workspace, buildFilter())}
             token={getEffectiveBearerToken()}
             on:exported={onConfirmExport}
           />
@@ -182,6 +231,7 @@
     border-radius: 0.25rem;
   }
   .filter-dropdown { flex: 0 0 14rem; }
+  .filter-date { flex: 0 0 10rem; }
   .spacer { flex: 1; }
   .err { background: var(--theme-state-negative-background-color); color: var(--theme-state-negative-color); padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
   .dsgvo-modal {

@@ -94,10 +94,12 @@ const wac = plugin(wacPluginId, {
     MyAccessTabReceived: '' as IntlString,
     MyAccessTabGiven: '' as IntlString,
 
-    // C5 sweep — Audit toolbar (3)
+    // C5 sweep — Audit toolbar (3) + A2 date-range (2)
     AuditFilterAction: '' as IntlString,
     AuditFilterActor: '' as IntlString,
     AuditClear: '' as IntlString,
+    AuditFilterFrom: '' as IntlString,
+    AuditFilterTo: '' as IntlString,
 
     // C5 sweep — Bulk bar / drawers (5)
     BulkAddToSpace: '' as IntlString,
