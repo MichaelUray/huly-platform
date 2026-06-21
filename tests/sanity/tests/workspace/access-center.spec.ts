@@ -136,6 +136,52 @@ test.describe('Access Center (Phase 2.5)', () => {
     await expect(accessCenterPage.guestSettingsEditor()).toBeVisible()
   })
 
+  test('Legacy /setting/owners deep-link still resolves and lands on People → All', async ({
+    page
+  }) => {
+    // E4 amendment (H2) — extend coverage beyond `/setting/guestPermissions`
+    // to the other two legacy routes. `/setting/owners` mounts
+    // `Members.svelte`, which is a thin shim around AccessCenterPage
+    // with `initialTab="people"` + `initialSub="all"`.
+    await signUpFreshOwner(page)
+    const settingsUrl = page.url()
+    const ownersLink = settingsUrl.replace(/\/setting\/.*$/, '/setting/owners')
+    await page.goto(ownersLink)
+    await expect(accessCenterPage.wacRoot()).toBeVisible()
+    await expect(accessCenterPage.tab('people')).toBeVisible()
+    // The People tab is the active surface; we don't assert sub-tab
+    // chrome explicitly because the People-tab page-object doesn't
+    // currently expose a deterministic sub-tab data-test attribute.
+    // The wacRoot + people-tab visibility combination already proves
+    // the shim landed on the right Access Center surface.
+  })
+
+  test('Legacy /setting/allSpaces deep-link still resolves and renders the legacy Spaces editor (B2 revert)', async ({
+    page
+  }) => {
+    // E4 amendment (B2 + H2) — Codex blocked the Phase 2 shim that
+    // pointed `/setting/allSpaces` to Access Center → Resources because
+    // Resources lists only managed-v1 classes and does NOT expose
+    // role assignments on the `core.space.Space` SpaceType registry.
+    // The shim was reverted (`Spaces.svelte` keeps the original
+    // AccountArrayEditor + per-role table); the sidebar entry stays
+    // hidden via `hidden: true`. This test pins that semantic split:
+    // the deep-link renders the OLD editor, NOT the WAC root.
+    await signUpFreshOwner(page)
+    const settingsUrl = page.url()
+    const spacesLink = settingsUrl.replace(/\/setting\/.*$/, '/setting/allSpaces')
+    await page.goto(spacesLink)
+    // WAC root must NOT appear — this route is no longer a WAC shim.
+    await expect(accessCenterPage.wacRoot()).toHaveCount(0)
+    // The legacy editor renders a per-role table inside a hulyComponent
+    // wrapper with a "Spaces" breadcrumb. Use the breadcrumb label as a
+    // stable anchor (matches `setting.string.Spaces` from the plugin
+    // resources). The role-row chrome (`.antiGrid-row`) confirms the
+    // editor body mounted.
+    await expect(page.getByText('Spaces', { exact: true })).toBeVisible()
+    await expect(page.locator('.hulyComponent .antiGrid-row').first()).toBeVisible()
+  })
+
   test('Owner can navigate between all tabs without errors', async ({ page }) => {
     await signUpFreshOwner(page)
     await accessCenterPage.openAccessCenterFromSidebar()
