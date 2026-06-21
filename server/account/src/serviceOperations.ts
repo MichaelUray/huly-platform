@@ -147,6 +147,10 @@ export async function listWorkspaces (
   }
 ): Promise<WorkspaceInfoWithStatus[]> {
   const { region, mode } = params
+  // Wave 5 B6: enforce verifyTokenVersion BEFORE granting admin/service access.
+  // Service tokens (system/tool/backup/github) survive because verifyTokenVersion
+  // skips non-UUID principals via its special-account skip-list.
+  await verifyTokenVersion(ctx, db, token)
   const { extra } = decodeTokenVerbose(ctx, token)
 
   if (!['tool', 'backup', 'admin', 'github'].includes(extra?.service) && extra?.admin !== 'true') {
@@ -163,6 +167,9 @@ export async function listAccounts (
   token: string,
   params: { search?: string, skip?: number, limit?: number }
 ): Promise<AccountAggregatedInfo[]> {
+  // Wave 5 B6: enforce verifyTokenVersion so revoked admin tokens (token_version
+  // bumped via password reset / admin demote) cannot list admin data.
+  await verifyTokenVersion(ctx, db, token)
   const { extra } = decodeTokenVerbose(ctx, token)
   const isAdmin = extra?.admin === 'true'
 
@@ -715,6 +722,10 @@ export async function performWorkspaceOperation (
   }
 ): Promise<boolean> {
   const { workspaceId, event, params } = parameters
+  // Wave 5 B6: enforce verifyTokenVersion before admin-gated branch.
+  // Self-unarchive path (non-admin user re-opening their own workspace) is also
+  // covered: stale-version user tokens must not be able to mutate workspace state.
+  await verifyTokenVersion(ctx, db, token)
   const { extra, workspace, account: callerAccount } = decodeTokenVerbose(ctx, token)
 
   if (extra?.admin !== 'true') {
@@ -1228,6 +1239,12 @@ export async function addSocialIdToPerson (
       ['github', 'telegram-bot', 'gmail', 'tool', 'workspace', 'hulygram', 'google-calendar', 'ai-assistant'],
       extra
     )
+  } else {
+    // Wave 5 B6: when caller relies on extra.admin (rather than a service token),
+    // enforce token-version so revoked admin tokens cannot still mutate persons.
+    // verifyAllowedServices already short-circuits service tokens above; reach
+    // this branch only with the admin claim.
+    await verifyTokenVersion(ctx, db, token)
   }
 
   if (person == null || person === '' || !Object.values(SocialIdType).includes(type) || value == null || value === '') {

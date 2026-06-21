@@ -2071,6 +2071,10 @@ export async function getWorkspaceInfo (
   if (!skipAssignmentCheck) {
     let role = await db.getWorkspaceRole(account, workspaceUuid)
     if (role === null && isAdmin) {
+      // Wave 5 B6: when admin claim grants role on a non-member workspace,
+      // verify token version so revoked admin tokens cannot still pull
+      // workspace info they would otherwise have no access to.
+      await verifyTokenVersion(ctx, db, token)
       role = AccountRole.Admin
     }
 
