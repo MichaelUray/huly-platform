@@ -139,7 +139,20 @@ const wac = plugin(wacPluginId, {
     // without an editorComponent prop (e.g. someone mounts AccessCenter
     // directly without going through AccessCenterPage). Should never
     // surface in production since AccessCenterPage always wires it up.
-    GuestSettingsUnavailable: '' as IntlString
+    GuestSettingsUnavailable: '' as IntlString,
+
+    // Polish-1: MessageBox titles + bodies for the four destructive
+    // confirms previously implemented via window.confirm(). Each entry
+    // is paired with a body string that carries the dynamic context
+    // (member-count + target role / space name / grantee name etc.).
+    ConfirmBulkRoleTitle: '' as IntlString,
+    ConfirmBulkRoleMessage: '' as IntlString,
+    ConfirmLeaveSpaceTitle: '' as IntlString,
+    ConfirmLeaveSpaceMessage: '' as IntlString,
+    ConfirmDeclineGrantTitle: '' as IntlString,
+    ConfirmDeclineGrantMessage: '' as IntlString,
+    ConfirmRevokeGrantTitle: '' as IntlString,
+    ConfirmRevokeGrantMessage: '' as IntlString
   }
 })
 

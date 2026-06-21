@@ -5,7 +5,10 @@
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
+  import { showPopup } from '@hcengineering/ui'
+  import { MessageBox } from '@hcengineering/presentation'
   import { EntityTable, type EntityColumn } from '@hcengineering/access-management-ui'
+  import wac from '../../plugin'
   import { grantedAccessApi } from '../../api/grantedAccessApi'
   import type { GrantRow } from '../../types'
 
@@ -45,14 +48,24 @@
   onMount(refresh)
 
   async function revoke (row: GrantRow): Promise<void> {
-    if (!confirm(`Revoke ${row.recipientName}'s access to ${row.resourceTitle}?`)) return
-    try {
-      await grantedAccessApi.revoke(workspace, row.recipientUuid, row.resourceId)
-      dispatch('revoked', { recipient: row.recipientUuid, resource: row.resourceId })
-      await refresh()
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-    }
+    // Polish-1: Huly MessageBox replaces the native confirm() — same
+    // safety prompt but themed, focus-managed, and translatable.
+    showPopup(MessageBox, {
+      label: wac.string.ConfirmRevokeGrantTitle,
+      labelProps: { title: row.resourceTitle },
+      message: wac.string.ConfirmRevokeGrantMessage,
+      params: { recipient: row.recipientName },
+      dangerous: true,
+      action: async () => {
+        try {
+          await grantedAccessApi.revoke(workspace, row.recipientUuid, row.resourceId)
+          dispatch('revoked', { recipient: row.recipientUuid, resource: row.resourceId })
+          await refresh()
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e)
+        }
+      }
+    })
   }
 </script>
 

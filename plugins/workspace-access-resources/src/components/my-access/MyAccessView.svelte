@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { TabList } from '@hcengineering/ui'
+  import { TabList, showPopup } from '@hcengineering/ui'
+  import { MessageBox } from '@hcengineering/presentation'
   import wac from '../../plugin'
   import SpaceDrawer from '../resources/SpaceDrawer.svelte'
   import { myAccessApi, type MyAccessSummary } from '../../api/myAccessApi'
@@ -37,23 +38,40 @@
   onMount(load)
 
   async function leave (space: SpaceRow): Promise<void> {
-    if (!confirm(`Leave space "${space.name}"?`)) return
-    try {
-      await myAccessApi.leaveSpace(workspace, space._id)
-      await load()
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-    }
+    // Polish-1: native confirm() prompts are unstyled, blocking, and
+    // inaccessible to translators. Route through Huly's MessageBox so
+    // the dialog is themed + i18n-able + Esc-cancelable.
+    showPopup(MessageBox, {
+      label: wac.string.ConfirmLeaveSpaceTitle,
+      labelProps: { name: space.name },
+      message: wac.string.ConfirmLeaveSpaceMessage,
+      dangerous: true,
+      action: async () => {
+        try {
+          await myAccessApi.leaveSpace(workspace, space._id)
+          await load()
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e)
+        }
+      }
+    })
   }
 
   async function decline (g: GrantRow): Promise<void> {
-    if (!confirm(`Decline access to "${g.resourceTitle}"?`)) return
-    try {
-      await myAccessApi.declineGrant(workspace, g.resourceId)
-      await load()
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-    }
+    showPopup(MessageBox, {
+      label: wac.string.ConfirmDeclineGrantTitle,
+      labelProps: { title: g.resourceTitle },
+      message: wac.string.ConfirmDeclineGrantMessage,
+      dangerous: true,
+      action: async () => {
+        try {
+          await myAccessApi.declineGrant(workspace, g.resourceId)
+          await load()
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e)
+        }
+      }
+    })
   }
 </script>
 

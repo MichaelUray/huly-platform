@@ -64,6 +64,14 @@
     "AccessChangedBanner": "Your access in this workspace has changed. Your edit privileges may have been revoked. Please reload.",
     "Reload": "Reload",
     "GuestSettings": "Guest Settings",
-    "GuestSettingsUnavailable": "Guest Settings editor is not available in this context."
+    "GuestSettingsUnavailable": "Guest Settings editor is not available in this context.",
+    "ConfirmBulkRoleTitle": "Change role of {count, plural, =1 {1 member} other {# members}}?",
+    "ConfirmBulkRoleMessage": "This will set the workspace role of the selected member(s) to {role}. Permissions update immediately.",
+    "ConfirmLeaveSpaceTitle": "Leave space \"{name}\"?",
+    "ConfirmLeaveSpaceMessage": "You will lose access to this space. An owner will need to add you back.",
+    "ConfirmDeclineGrantTitle": "Decline access to \"{title}\"?",
+    "ConfirmDeclineGrantMessage": "The grant will be revoked. You can ask the granter to re-share if you change your mind.",
+    "ConfirmRevokeGrantTitle": "Revoke access to \"{title}\"?",
+    "ConfirmRevokeGrantMessage": "{recipient} will lose access to this resource immediately."
   }
 }
