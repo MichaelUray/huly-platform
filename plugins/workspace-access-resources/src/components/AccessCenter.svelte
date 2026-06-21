@@ -47,9 +47,20 @@
    */
   export let headerIcon: Asset | undefined = undefined
   export let headerLabel: IntlString | undefined = undefined
+  /**
+   * Phase 2 T1 — legacy Settings entries (`/setting/owners`,
+   * `/setting/guestPermissions`, `/setting/allSpaces`) consolidated into
+   * Access Center. The compat-shim components pass `initialTab` (and
+   * optionally `initialSub`) so the right tab is selected on first
+   * mount. If the requested tab is not in the role-filtered `tabs`
+   * array the existing safety net at the `tabs.includes(active)` guard
+   * falls back to `tabs[0]`.
+   */
+  export let initialTab: string | undefined = undefined
+  export let initialSub: string | undefined = undefined
 
   let assumeOpen: boolean = false
-  let active: string = 'my-access'
+  let active: string = initialTab ?? 'my-access'
 
   // H4 — tab labels via IntlString (registered in plugin.ts, translated
   // in lang/<locale>.json). Fallback to embedded label if a future tab id
@@ -152,7 +163,7 @@
       <Scroller align={'center'} padding={'var(--spacing-3)'} bottomPadding={'var(--spacing-3)'}>
         <div class="hulyComponent-content">
           {#if active === 'people'}
-            <PeopleView {workspace} {canEdit} />
+            <PeopleView {workspace} {canEdit} {initialSub} />
           {:else if active === 'resources'}
             <ResourcesView {workspace} canEditFlags={canEdit} canEditMembership={canEdit} />
           {:else if active === 'my-access'}

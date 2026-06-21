@@ -20,10 +20,19 @@
 
   export let workspace: string
   export let canEdit: boolean = false
+  // Phase 2 T1 — optional initial sub-tab so the legacy `/setting/owners`
+  // and `/setting/guestPermissions` shims can land users on `all` or
+  // `by-role` respectively. Ignored if the value is not a known Tab.
+  export let initialSub: string | undefined = undefined
 
   type Tab = 'all' | 'by-role' | 'inactive' | 'granted' | 'pending'
 
-  let sub: Tab = 'all'
+  const validInitialSub: Tab | undefined =
+    initialSub === 'all' || initialSub === 'by-role' || initialSub === 'inactive' ||
+    initialSub === 'granted' || initialSub === 'pending'
+      ? initialSub
+      : undefined
+  let sub: Tab = validInitialSub ?? 'all'
   let selectedIds: Set<string> = new Set()
   let drawerPerson: { uuid: string; name: string; role: WorkspaceRole } | null = null
   let drawerOpen: boolean = false

@@ -55,7 +55,7 @@ const ALLOWLIST = new Set<string>([
   // AccessCenter — falls back to the raw tab id when a new tab id is
   // introduced without a registered IntlString. Allows the tabs list to
   // grow without breaking the UI.
-  'src/components/AccessCenter.svelte:77',
+  'src/components/AccessCenter.svelte:88',
   // MemberPickerInput — `placeholder` is a caller-supplied raw string;
   // each caller is responsible for keying its own copy. Removing this
   // would force MemberPickerInput to accept an IntlString instead,
