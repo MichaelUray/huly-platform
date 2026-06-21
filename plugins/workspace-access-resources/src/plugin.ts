@@ -116,7 +116,14 @@ const wac = plugin(wacPluginId, {
     // C5 sweep — Access Center page (Settings shell) (3)
     LoadingAccessCenter: '' as IntlString,
     LoadWorkspaceRoleError: '' as IntlString,
-    Retry: '' as IntlString
+    Retry: '' as IntlString,
+
+    // Wave 5 / Task C2 — last-Owner warning & hint in PersonDrawer.
+    // Renamed from "Last Admin" since post-rename we count only Owners
+    // (D5: MAINTAINER is read-only, not an admin in the WAC sense).
+    // Pluralization handled by ICU `plural` in the IntlString value.
+    LastOwnerCannotDemote: '' as IntlString,
+    LastOwnerHint: '' as IntlString
   }
 })
 

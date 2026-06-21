@@ -70,6 +70,9 @@
 
     "LoadingAccessCenter": "Zugriffszentrum wird geladen…",
     "LoadWorkspaceRoleError": "Ihre Workspace-Rolle konnte nicht geladen werden.",
-    "Retry": "Erneut versuchen"
+    "Retry": "Erneut versuchen",
+
+    "LastOwnerCannotDemote": "Der letzte Owner dieses Workspaces kann nicht herabgestuft werden.",
+    "LastOwnerHint": "Workspace hat derzeit {count, plural, =1 {1 Owner} other {# Owner}}."
   }
 }

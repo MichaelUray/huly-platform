@@ -993,7 +993,7 @@ export function serveAccount (
       sub === 'my-access' ? 'read-self'
         : (sub === 'members' || sub === 'spaces' || sub.startsWith('spaces/')
             || sub === 'audit' || sub.startsWith('audit/')
-            || sub === 'admins/count' || sub === 'invites'
+            || sub === 'owners/count' || sub === 'invites'
             || sub === 'grants' || sub === 'grants/count')
             ? 'read'
             : 'edit'
@@ -1015,8 +1015,8 @@ export function serveAccount (
         await wacReadHandlers.handleInvites(ctx, workspaceUuid)
         return
       }
-      if (sub === 'admins/count') {
-        await wacReadHandlers.handleAdminsCount(ctx, workspaceUuid)
+      if (sub === 'owners/count') {
+        await wacReadHandlers.handleOwnersCount(ctx, workspaceUuid)
         return
       }
       if (sub === 'spaces') {

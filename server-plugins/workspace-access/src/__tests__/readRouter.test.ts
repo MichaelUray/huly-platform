@@ -545,29 +545,74 @@ describe('readRouter — handleMyAccess', () => {
   })
 })
 
-describe('readRouter — handleAdminsCount', () => {
-  it('returns the count of OWNER+MAINTAINER as `remaining`', async () => {
+describe('readRouter — handleOwnersCount', () => {
+  // Wave 5 / Task C2 — hard-rename from /admins/count to /owners/count.
+  // The endpoint now counts ONLY AccountRole.Owner ('OWNER') — Maintainers
+  // are read-only per D5 and must NOT be counted as admins/owners. Source
+  // of truth is AccountDB.getWorkspaceMembers (single round-trip, no SQL).
+  it('counts only OWNER (1 of 1+2+3 members) as `remaining`', async () => {
     const { ctx, captured } = makeCtx()
-    const pg = makePg([[{ c: '3' }]])
-    const handlers = buildHandlers({ pgClient: async () => pg })
-    await handlers.handleAdminsCount(ctx, 'ws-1')
+    const accountDb: AccountDbLike = {
+      getWorkspaceMembers: async () => [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p2', role: 'MAINTAINER' },
+        { person: 'p3', role: 'MAINTAINER' },
+        { person: 'p4', role: 'USER' },
+        { person: 'p5', role: 'USER' },
+        { person: 'p6', role: 'USER' }
+      ]
+    }
+    const handlers = buildHandlers({ accountDb: async () => accountDb })
+    await handlers.handleOwnersCount(ctx, 'ws-1')
     expect(captured.status).toBe(200)
-    expect(captured.body).toEqual({ remaining: 3 })
+    expect(captured.body).toEqual({ remaining: 1 })
   })
 
-  it('defaults to 0 when the row is absent', async () => {
+  it('returns 0 when no OWNER exists', async () => {
     const { ctx, captured } = makeCtx()
-    const pg = makePg([[]])
-    const handlers = buildHandlers({ pgClient: async () => pg })
-    await handlers.handleAdminsCount(ctx, 'ws-1')
+    const accountDb: AccountDbLike = {
+      getWorkspaceMembers: async () => [
+        { person: 'p1', role: 'MAINTAINER' },
+        { person: 'p2', role: 'USER' }
+      ]
+    }
+    const handlers = buildHandlers({ accountDb: async () => accountDb })
+    await handlers.handleOwnersCount(ctx, 'ws-1')
     expect(captured.body).toEqual({ remaining: 0 })
   })
 
-  it('throws on pg failure', async () => {
+  it('returns 0 for an empty workspace member list', async () => {
+    const { ctx, captured } = makeCtx()
+    const accountDb: AccountDbLike = { getWorkspaceMembers: async () => [] }
+    const handlers = buildHandlers({ accountDb: async () => accountDb })
+    await handlers.handleOwnersCount(ctx, 'ws-1')
+    expect(captured.body).toEqual({ remaining: 0 })
+  })
+
+  it('counts multiple OWNERs when present', async () => {
+    const { ctx, captured } = makeCtx()
+    const accountDb: AccountDbLike = {
+      getWorkspaceMembers: async () => [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p2', role: 'OWNER' },
+        { person: 'p3', role: 'OWNER' },
+        { person: 'p4', role: 'MAINTAINER' }
+      ]
+    }
+    const handlers = buildHandlers({ accountDb: async () => accountDb })
+    await handlers.handleOwnersCount(ctx, 'ws-1')
+    expect(captured.body).toEqual({ remaining: 3 })
+  })
+
+  it('throws when AccountDB enumeration fails', async () => {
     const { ctx } = makeCtx()
-    const pg = makePg([new Error('count-down')])
-    const handlers = buildHandlers({ pgClient: async () => pg })
-    await expect(handlers.handleAdminsCount(ctx, 'ws-1')).rejects.toThrow(/count-down/)
+    const accountDb: AccountDbLike = {
+      getWorkspaceMembers: async () => {
+        throw new Error('count-down')
+      }
+    }
+    const handlers = buildHandlers({ accountDb: async () => accountDb })
+    await expect(handlers.handleOwnersCount(ctx, 'ws-1')).rejects.toThrow(/count-down/)
   })
 })
 
@@ -764,7 +809,7 @@ describe('readRouter — factory surface', () => {
       'handleSpaceDetail',
       'handleAudit',
       'handleMyAccess',
-      'handleAdminsCount',
+      'handleOwnersCount',
       'handleInvites',
       'handleGrants',
       'handleGrantsCount',

@@ -70,6 +70,9 @@
 
     "LoadingAccessCenter": "Loading Access Center…",
     "LoadWorkspaceRoleError": "Could not load your workspace role.",
-    "Retry": "Retry"
+    "Retry": "Retry",
+
+    "LastOwnerCannotDemote": "Cannot demote the last Owner of this workspace.",
+    "LastOwnerHint": "Workspace currently has {count, plural, =1 {1 Owner} other {# Owners}}."
   }
 }
