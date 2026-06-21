@@ -68,6 +68,7 @@
   // toolbar — the toolbar Filter button + Ctrl+F popup were redundant
   // with the FilterBar and confused users (two state-sets per session).
   import { UndoManager, type UndoEntry, type UndoResult } from './lib/undo-manager'
+  import { keyEventToCommand } from './lib/keyboard-commands'
   import { createFlashStore, flashIssues } from './lib/flash-store'
   import { reduce } from './lib/drag-controller'
   import { buildLayout } from './lib/layout'
@@ -2685,103 +2686,71 @@
   }
 
   function onKey (e: KeyboardEvent): void {
-    // Phase 3c — Cmd+Z / Ctrl+Z (Undo) and Cmd+Shift+Z / Ctrl+Shift+Z (Redo).
-    // Checked FIRST so they win against the Phase-1 zoom/pan shortcuts which
-    // share the +/-/Tab/Arrow keyspace. Skip when a text input owns focus so
-    // the browser's native text-undo keeps working in DependencyEditor /
-    // inline cell edits / CreateIssue.
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
-      if (isTextInputFocused()) return
-      // Require focus inside the Gantt root — same guard as the rest of onKey.
-      if (!(containerEl?.contains(document.activeElement) ?? false)) return
-      e.preventDefault()
-      if (e.shiftKey) {
-        void handleRedo()
-      } else {
+    // W10-D2 — mapping is in lib/keyboard-commands.ts; the component-side
+    // switch dispatches each command to the matching reactive/store/popup
+    // call. Command implementations stay here (they touch reactive state),
+    // but the (key, modifiers) → command-name table is pure logic and now
+    // unit-tested in lib/__tests__/keyboard-commands.test.ts.
+    const cmd = keyEventToCommand(e, {
+      isTextInputFocused: isTextInputFocused(),
+      isDragActive: $activeDrag.kind !== 'idle',
+      hasMultiSelection: multiSelectedIssueIds.size > 0,
+      containsActiveElement: containerEl?.contains(document.activeElement) ?? false
+    })
+    if (cmd === null) return
+    switch (cmd.type) {
+      case 'undo':
+        e.preventDefault()
         void handleUndo()
-      }
-      return
-    }
-    // Only react when focus is inside the Gantt root — otherwise we'd hijack
-    // global shortcuts.
-    if (!(containerEl?.contains(document.activeElement) ?? false)) return
-    if (e.key === 'Tab') {
-      moveFocus(e.shiftKey ? -1 : 1)
-      e.preventDefault()
-      return
-    }
-    if (e.key === 'ArrowRight') {
-      void shiftFocused(e.shiftKey ? 7 : 1)
-      e.preventDefault()
-      return
-    }
-    if (e.key === 'ArrowLeft') {
-      void shiftFocused(e.shiftKey ? -7 : -1)
-      e.preventDefault()
-      return
-    }
-    if (e.key === 'Escape' && $activeDrag.kind !== 'idle') {
-      activeDrag.set({ kind: 'idle' })
-      e.preventDefault()
-      return
-    }
-    // Esc clears the multi-selection when no drag is in
-    // flight. Sits AFTER the drag-cancel branch so the user's first Esc
-    // press still cancels an in-flight drag (Phase 3c behaviour); only
-    // the next Esc clears the selection.
-    if (e.key === 'Escape' && multiSelectedIssueIds.size > 0) {
-      multiSelectedIssueIds = clearSelection()
-      lastClickedIssueId = null
-      e.preventDefault()
-      return
-    }
-    // Cmd-A / Ctrl-A selects every visible scheduled
-    // issue. Respects the sidebar's filter + sort order via
-    // `orderedSelectableIds`. Skips when a text input owns focus so the
-    // browser's native Select-All keeps working in CreateIssue / inline
-    // editors.
-    if ((e.metaKey || e.ctrlKey) && (e.key === 'a' || e.key === 'A') && !e.shiftKey) {
-      if (isTextInputFocused()) return
-      multiSelectedIssueIds = selectAll(orderedSelectableIds)
-      // Pin the anchor for subsequent Shift-Click ranges.
-      if (orderedSelectableIds.length > 0) {
-        lastClickedIssueId = orderedSelectableIds[orderedSelectableIds.length - 1]
-      }
-      e.preventDefault()
-      return
-    }
-    // PR6: zoom shortcuts. `+` / `=` zoom in, `-` zoom out. The same
-    // key positions as the browser's native zoom but scoped to the Gantt.
-    if (e.key === '+' || e.key === '=') {
-      cycleZoom(1)
-      e.preventDefault()
-      return
-    }
-    if (e.key === '-' || e.key === '_') {
-      cycleZoom(-1)
-      e.preventDefault()
-      return
-    }
-    // Phase 1 — bare-key shortcuts T/D/W/M/Q. Skip when an editable
-    // target (input/textarea/contenteditable) owns focus so the user
-    // can still type these letters in CreateIssue / inline cells.
-    if (!isTextInputFocused() && !e.metaKey && !e.ctrlKey && !e.altKey) {
-      if (e.key === 't' || e.key === 'T') { jumpToToday();      e.preventDefault(); return }
-      if (e.key === 'd' || e.key === 'D') { setZoom('day');     e.preventDefault(); return }
-      if (e.key === 'w' || e.key === 'W') { setZoom('week');    e.preventDefault(); return }
-      if (e.key === 'm' || e.key === 'M') { setZoom('month');   e.preventDefault(); return }
-      if (e.key === 'q' || e.key === 'Q') { setZoom('quarter'); e.preventDefault(); return }
-    }
-    // PR6: '?' or Shift+/ shows the keyboard help overlay.
-    if (e.key === '?') {
-      showPopup(GanttHelpPopup, {}, 'middle')
-      e.preventDefault()
-      return
-    }
-    // PR6: 'e' / 'E' exports the visible Gantt SVG to PNG.
-    if (e.key === 'e' || e.key === 'E') {
-      void exportToPng()
-      e.preventDefault()
+        return
+      case 'redo':
+        e.preventDefault()
+        void handleRedo()
+        return
+      case 'moveFocus':
+        moveFocus(cmd.dir)
+        e.preventDefault()
+        return
+      case 'shift':
+        void shiftFocused(cmd.days)
+        e.preventDefault()
+        return
+      case 'cancelDrag':
+        activeDrag.set({ kind: 'idle' })
+        e.preventDefault()
+        return
+      case 'clearSelection':
+        multiSelectedIssueIds = clearSelection()
+        lastClickedIssueId = null
+        e.preventDefault()
+        return
+      case 'selectAll':
+        multiSelectedIssueIds = selectAll(orderedSelectableIds)
+        // Pin the anchor for subsequent Shift-Click ranges.
+        if (orderedSelectableIds.length > 0) {
+          lastClickedIssueId = orderedSelectableIds[orderedSelectableIds.length - 1]
+        }
+        e.preventDefault()
+        return
+      case 'cycleZoom':
+        cycleZoom(cmd.delta)
+        e.preventDefault()
+        return
+      case 'jumpToToday':
+        jumpToToday()
+        e.preventDefault()
+        return
+      case 'setZoom':
+        setZoom(cmd.zoom)
+        e.preventDefault()
+        return
+      case 'showHelp':
+        showPopup(GanttHelpPopup, {}, 'middle')
+        e.preventDefault()
+        return
+      case 'exportPng':
+        void exportToPng()
+        e.preventDefault()
     }
     // E — Phase-3b Ctrl/Cmd+F toggle removed together with the
     // gantt-toolbar Filter button. The standard FilterBar in IssuesView
