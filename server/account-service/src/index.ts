@@ -1103,20 +1103,18 @@ export function serveAccount (
         if (userUuid === '' || resourceId === '') {
           return json(400, { error: 'bad_request', code: 'effective_permissions_bad_request' })
         }
-        return json(200, {
-          user: { uuid: userUuid, name: '—', role: 'USER' },
-          resource: {
-            id: resourceId,
-            class: 'tracker:class:Project',
-            name: 'Demo Space',
-            private: true,
-            archived: false
-          },
-          decision: 'allow',
-          path: [
-            { step: 'space-member', detail: 'User is listed in space.members (stub fixture)' }
-          ],
-          _workspace: workspaceUuid
+        // Tier-1: route exists and shape is contract-stable, but the
+        // backing plugin call against accounts-db + transactor is not
+        // wired yet. Return 501 with a clear marker so the client renders
+        // an informative "unavailable" state instead of believing a
+        // fixture decision (the no-fallback guard test forbids stub
+        // fixtures here — see __tests__/wacNoFallback.test.ts).
+        return json(501, {
+          error: 'not_implemented',
+          code: 'effective_permissions_not_wired',
+          detail: 'Effective permissions backend not wired yet; route + shape are stable.',
+          _workspace: workspaceUuid,
+          _query: { user: userUuid, resource: resourceId }
         })
       }
     } catch (err) {
