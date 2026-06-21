@@ -54,6 +54,22 @@ export interface WorkspaceAuditPayload {
   new_value?: unknown
   /** Free-form metadata blob — caller-supplied jsonb. */
   metadata?: Record<string, unknown>
+  /**
+   * A3 — Impersonation actor attribution.
+   *
+   * When set, the audit row is being written on behalf of an
+   * instance-admin who entered the workspace via the impersonation
+   * flow. The value is the admin's account UUID and is folded into
+   * the row's `metadata` jsonb as `impersonation_actor_admin` so the
+   * admin-side timeline reflects "X (admin) did Y while impersonating
+   * workspace owner Z" instead of "owner Z did Y".
+   *
+   * Callers pass this when `WacAuthContext.impersonation === true`.
+   * The mutation `actor` column continues to record the OWNER-equivalent
+   * caller (= the admin UUID under impersonation, per `authenticateWac`'s
+   * early-branch) so existing queries don't change shape.
+   */
+  impersonationActorAdmin?: string | null
 }
 
 /**
@@ -77,6 +93,14 @@ export async function executeWorkspaceAuditInsert (
   pg: AuditInsertPgClient,
   payload: WorkspaceAuditPayload
 ): Promise<void> {
+  // A3 — fold the impersonation attribution into the metadata blob so the
+  // single canonical SQL statement (and `workspace_audit_log.metadata`
+  // jsonb column) doesn't need a new column. Read side queries this as
+  // `metadata->>'impersonation_actor_admin'`.
+  const baseMetadata: Record<string, unknown> = { ...(payload.metadata ?? {}) }
+  if (payload.impersonationActorAdmin != null && payload.impersonationActorAdmin !== '') {
+    baseMetadata.impersonation_actor_admin = payload.impersonationActorAdmin
+  }
   await pg.execute(WORKSPACE_AUDIT_INSERT_SQL, [
     payload.workspace,
     payload.action,
@@ -87,6 +111,6 @@ export async function executeWorkspaceAuditInsert (
     payload.target_space_class ?? null,
     payload.old_value != null ? JSON.stringify(payload.old_value) : null,
     payload.new_value != null ? JSON.stringify(payload.new_value) : null,
-    JSON.stringify(payload.metadata ?? {})
+    JSON.stringify(baseMetadata)
   ])
 }

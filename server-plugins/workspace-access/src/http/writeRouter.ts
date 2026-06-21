@@ -188,20 +188,34 @@ export interface WacWriteDeps {
   jsonHeaders?: Record<string, string>
 }
 
+/**
+ * A3 — Optional impersonation attribution.
+ *
+ * When set, the mutation was issued by an instance-admin via the WAC
+ * impersonation flow. `callerUuid` is the admin UUID (per
+ * `authenticateWac`'s OWNER-equivalent early-branch); `actorAdmin` is
+ * the same value, forwarded into the audit row's
+ * `metadata.impersonation_actor_admin` field so the timeline reflects
+ * "X (admin) did Y while impersonating workspace Z".
+ *
+ * Tests that don't care about impersonation pass `undefined` — handlers
+ * thread the value through to the audit insert without any other effect.
+ */
 export interface WacWriteHandlers {
-  handleSpaceMembers: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string) => Promise<void>
-  handleSpaceOwners: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string) => Promise<void>
-  handleSpacePrivacy: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string) => Promise<void>
-  handleSpaceAutoJoin: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string) => Promise<void>
-  handleSpaceArchived: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string) => Promise<void>
-  handleMemberRole: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, memberUuid: string) => Promise<void>
-  handleBulkMemberRole: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string) => Promise<void>
+  handleSpaceMembers: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string, actorAdmin?: string) => Promise<void>
+  handleSpaceOwners: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string, actorAdmin?: string) => Promise<void>
+  handleSpacePrivacy: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string, actorAdmin?: string) => Promise<void>
+  handleSpaceAutoJoin: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string, actorAdmin?: string) => Promise<void>
+  handleSpaceArchived: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string, actorAdmin?: string) => Promise<void>
+  handleMemberRole: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, memberUuid: string, actorAdmin?: string) => Promise<void>
+  handleBulkMemberRole: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, actorAdmin?: string) => Promise<void>
   handleGrantRevoke: (
     ctx: KoaWriteCtxLike,
     workspaceUuid: string,
     callerUuid: string,
     recipient: string,
-    resource: string
+    resource: string,
+    actorAdmin?: string
   ) => Promise<void>
 }
 
@@ -359,6 +373,13 @@ async function writeAuditPostMutation (
     target_space_class?: string | null
     old_value?: unknown
     new_value?: unknown
+    /**
+     * A3 — When the mutation was issued via the WAC impersonation flow,
+     * the admin's UUID. Forwarded to `audit/insert.ts:executeWorkspaceAuditInsert`
+     * which folds it into the audit row's `metadata.impersonation_actor_admin`
+     * jsonb field.
+     */
+    impersonationActorAdmin?: string | null
   }
 ): Promise<void> {
   try {
@@ -373,7 +394,8 @@ async function writeAuditPostMutation (
       target_space: payload.target_space,
       target_space_class: payload.target_space_class,
       old_value: payload.old_value,
-      new_value: payload.new_value
+      new_value: payload.new_value,
+      impersonationActorAdmin: payload.impersonationActorAdmin ?? null
     })
   } catch (err) {
     // Atomicity caveat: mutation goes via WS to transactor, audit goes via pg.
@@ -454,7 +476,8 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
       ctx: KoaWriteCtxLike,
       workspaceUuid: string,
       callerUuid: string,
-      spaceId: string
+      spaceId: string,
+      actorAdmin?: string
     ): Promise<void> => {
       const body = readBody(ctx)
       if (body == null) {
@@ -498,7 +521,8 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           target_space: spaceId,
           target_space_class: spaceRow._class,
           old_value: (spaceRow as any)[bodyField] ?? false,
-          new_value: newValue
+          new_value: newValue,
+          impersonationActorAdmin: actorAdmin ?? null
         }
       )
       json(ctx, 200, { ok: true })
@@ -509,7 +533,7 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
   // Handlers
   // -----------------------------------------------------------------------
   return {
-    async handleSpaceMembers (ctx, workspaceUuid, callerUuid, spaceId) {
+    async handleSpaceMembers (ctx, workspaceUuid, callerUuid, spaceId, actorAdmin) {
       const body = readBody(ctx)
       if (body == null || !Array.isArray(body.members)) {
         json(ctx, 400, { error: 'bad_request' })
@@ -552,13 +576,14 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           target_space: spaceId,
           target_space_class: spaceRow._class,
           old_value: spaceRow.members,
-          new_value: newMembers
+          new_value: newMembers,
+          impersonationActorAdmin: actorAdmin ?? null
         }
       )
       json(ctx, 200, { ok: true })
     },
 
-    async handleSpaceOwners (ctx, workspaceUuid, callerUuid, spaceId) {
+    async handleSpaceOwners (ctx, workspaceUuid, callerUuid, spaceId, actorAdmin) {
       const body = readBody(ctx)
       if (body == null || !Array.isArray(body.owners)) {
         json(ctx, 400, { error: 'bad_request' })
@@ -608,7 +633,8 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           target_space: spaceId,
           target_space_class: spaceRow._class,
           old_value: spaceRow.owners,
-          new_value: newOwners
+          new_value: newOwners,
+          impersonationActorAdmin: actorAdmin ?? null
         }
       )
       json(ctx, 200, { ok: true })
@@ -618,7 +644,7 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
     handleSpaceAutoJoin: makeFlagHandler('autoJoin', () => 'space_autojoin_changed'),
     handleSpaceArchived: makeFlagHandler('archived', (v) => (v ? 'space_archived' : 'space_unarchived')),
 
-    async handleMemberRole (ctx, workspaceUuid, callerUuid, memberUuid) {
+    async handleMemberRole (ctx, workspaceUuid, callerUuid, memberUuid, actorAdmin) {
       const body = readBody(ctx)
       if (body == null) {
         json(ctx, 400, { error: 'bad_request' })
@@ -721,13 +747,14 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           // audit body. AccountDB now returns canonical roles, so
           // serialize them back to wire here.
           old_value: { role: oldRole == null ? null : accountRoleToWire(oldRole) },
-          new_value: { role: accountRoleToWire(canonicalRole) }
+          new_value: { role: accountRoleToWire(canonicalRole) },
+          impersonationActorAdmin: actorAdmin ?? null
         }
       )
       json(ctx, 200, { ok: true })
     },
 
-    async handleBulkMemberRole (ctx, workspaceUuid, callerUuid) {
+    async handleBulkMemberRole (ctx, workspaceUuid, callerUuid, actorAdmin) {
       // H2 — per-target outcome contract.
       //
       // Pre-fix: the bulk endpoint aborted with HTTP 500 the moment any
@@ -835,7 +862,8 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           {
             target_account: t,
             // Audit wire-shape contract preserved.
-            new_value: { role: accountRoleToWire(canonicalRole), batch_id: batchId }
+            new_value: { role: accountRoleToWire(canonicalRole), batch_id: batchId },
+            impersonationActorAdmin: actorAdmin ?? null
           }
         )
         results.push({ memberUuid: t, status: 'ok' })
@@ -843,7 +871,7 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
       json(ctx, 200, { batch_id: batchId, appliedCount, results })
     },
 
-    async handleGrantRevoke (ctx, workspaceUuid, callerUuid, recipient, resource) {
+    async handleGrantRevoke (ctx, workspaceUuid, callerUuid, recipient, resource, actorAdmin) {
       // P2B-T6 — real revocation. A WAC "grant" maps to a
       // `core.class.Collaborator` row that attaches a recipient
       // (AccountUuid) to a resource Doc with optional permissions.
@@ -910,7 +938,8 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
         {
           target_account: recipient,
           target_space: resource,
-          old_value: { collaborator_id: String(collab._id) }
+          old_value: { collaborator_id: String(collab._id) },
+          impersonationActorAdmin: actorAdmin ?? null
         }
       )
       json(ctx, 200, { ok: true })
