@@ -104,7 +104,7 @@
         "AccountDisabledTitle": "Account disabled",
         "AccountDisabledBody": "Your account has been disabled by an administrator. Please contact your administrator if you believe this is in error.",
         "SignOut": "Sign out",
-        "AdminPanel": "Admin panel",
+        "AdminPanel": "글로벌 관리자 패널",
         "AdminUsers": "Users",
         "AdminWorkspaces": "Workspaces",
         "BackToWorkbench": "Back to workbench",
