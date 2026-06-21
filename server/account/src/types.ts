@@ -477,6 +477,26 @@ export interface AccountDB {
    */
   pruneAuditOlderThan: (beforeMs: number) => Promise<number>
   generatePersonUuid: () => Promise<PersonUuid>
+
+  /**
+   * A3 — Authoritative instance-admin check.
+   *
+   * Returns true iff the account's verified primary EMAIL social-id matches
+   * an entry of the `ADMIN_EMAILS` env-allowlist (case-insensitive trim).
+   * This mirrors the `isAdmin` derivation already used by
+   * `listAccountsAdmin` (server/account/src/serviceOperations.ts:274 and
+   * server/account/src/collections/postgres/listAccountsAdminPg.ts:200) so
+   * there is exactly one source of truth for "is this account an instance
+   * admin?" instead of trusting the `extra.admin === 'true'` token claim,
+   * which a revoked-admin still carries until their token expires.
+   *
+   * Used by `authenticateWac` to accept WAC impersonation tokens issued by
+   * `/api/admin/impersonation/start` even though the admin has no
+   * `workspace_members` row in the target workspace.
+   *
+   * Returns false for unknown accounts.
+   */
+  isInstanceAdmin: (accountUuid: AccountUuid) => Promise<boolean>
 }
 
 export interface DbCollection<T> {

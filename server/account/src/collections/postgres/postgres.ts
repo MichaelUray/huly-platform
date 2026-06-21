@@ -1558,4 +1558,33 @@ export class PostgresAccountDB implements AccountDB {
     })
     return results.map((r) => r.accountUuid)
   }
+
+  // A3 — Authoritative instance-admin check.
+  //
+  // Returns true iff the account has a verified EMAIL social_id whose value
+  // (case-insensitive, trimmed) matches an entry in `process.env.ADMIN_EMAILS`.
+  // Same derivation as the existing `isAdmin` column in `listAccountsAdminPg`
+  // (line ~200) and `getAccountInfoAdmin` in serviceOperations (line ~274) —
+  // exactly one source of truth.
+  //
+  // The env var is read on every call so test harnesses can mutate it
+  // between cases without re-instantiating the DB; the set is tiny.
+  async isInstanceAdmin (accountUuid: AccountUuid): Promise<boolean> {
+    const adminEmails = (process.env.ADMIN_EMAILS ?? '')
+      .split(',')
+      .map((e) => e.trim().toLowerCase())
+      .filter((e) => e.length > 0)
+    if (adminEmails.length === 0) return false
+    const ns = this.ns
+    const rows = await this.client.unsafe(
+      `SELECT 1 FROM ${ns}.social_id
+       WHERE person_uuid = $1::uuid
+         AND key LIKE 'email:%'
+         AND verified_on IS NOT NULL
+         AND LOWER(value) = ANY($2::TEXT[])
+       LIMIT 1`,
+      [accountUuid as unknown as string, adminEmails]
+    )
+    return Array.isArray(rows) ? rows.length > 0 : false
+  }
 }
