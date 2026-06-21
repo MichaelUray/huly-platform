@@ -106,50 +106,61 @@
   }
 </script>
 
-{#if count > 0}
-  <div class="bulk-bar" role="region" aria-label="Bulk actions">
-    <span class="count">{count} selected</span>
+<!-- Always rendered so the table below does not jump when the operator
+     toggles the first / last row. Disabled state when nothing is
+     selected; live region announces the selection-count to AT. -->
+<div
+  class="bulk-bar"
+  class:is-empty={count === 0}
+  role="region"
+  aria-label="Bulk actions"
+  aria-disabled={count === 0}
+>
+  <span class="count" aria-live="polite">{count} selected</span>
+  <Button
+    kind={'regular'}
+    size={'small'}
+    icon={IconAdd}
+    label={wac.string.BulkAddToSpace}
+    disabled={count === 0}
+    on:click={() => dispatch('addToSpace')}
+  />
+  <Button
+    kind={'regular'}
+    size={'small'}
+    icon={IconDelete}
+    label={wac.string.BulkRemoveFromSpace}
+    disabled={count === 0}
+    on:click={() => dispatch('removeFromSpace')}
+  />
+  <span class="role-changer">
+    Change role
+    <select bind:value={roleSelect} aria-label="New role" disabled={count === 0}>
+      <option value="OWNER">Owner</option>
+      <option value="MAINTAINER">Maintainer</option>
+      <option value="USER">User</option>
+      <option value="GUEST">Guest</option>
+      <option value="READONLY_GUEST">Read-only Guest</option>
+      <option value="DOC_GUEST">Document Guest</option>
+    </select>
     <Button
-      kind={'regular'}
+      kind={'primary'}
       size={'small'}
-      icon={IconAdd}
-      label={wac.string.BulkAddToSpace}
-      on:click={() => dispatch('addToSpace')}
+      label={wac.string.BulkApply}
+      disabled={count === 0}
+      on:click={() => dispatch('changeRole', { role: roleSelect })}
     />
-    <Button
-      kind={'regular'}
-      size={'small'}
-      icon={IconDelete}
-      label={wac.string.BulkRemoveFromSpace}
-      on:click={() => dispatch('removeFromSpace')}
-    />
-    <span class="role-changer">
-      Change role
-      <select bind:value={roleSelect} aria-label="New role">
-        <option value="OWNER">Owner</option>
-        <option value="MAINTAINER">Maintainer</option>
-        <option value="USER">User</option>
-        <option value="GUEST">Guest</option>
-        <option value="READONLY_GUEST">Read-only Guest</option>
-        <option value="DOC_GUEST">Document Guest</option>
-      </select>
-      <Button
-        kind={'primary'}
-        size={'small'}
-        label={wac.string.BulkApply}
-        on:click={() => dispatch('changeRole', { role: roleSelect })}
-      />
-    </span>
-    <span class="spacer"></span>
-    <Button
-      kind={'ghost'}
-      size={'small'}
-      icon={IconClose}
-      label={wac.string.Cancel}
-      on:click={() => dispatch('deselectAll')}
-    />
-  </div>
-{/if}
+  </span>
+  <span class="spacer"></span>
+  <Button
+    kind={'ghost'}
+    size={'small'}
+    icon={IconClose}
+    label={wac.string.Cancel}
+    disabled={count === 0}
+    on:click={() => dispatch('deselectAll')}
+  />
+</div>
 
 {#if summary != null}
   <div
@@ -202,16 +213,29 @@
 {/if}
 
 <style lang="scss">
+  /*
+   * Sits ABOVE the data list (PeopleView renders it before the active
+   * sub-tab) and is ALWAYS rendered so toggling the first/last row does
+   * not shift the table. When nothing is selected the whole bar is
+   * dimmed via `.is-empty` (in addition to per-control `disabled` attrs)
+   * so the visual cue and the actual interaction-block stay in sync.
+   */
   .bulk-bar {
-    position: sticky;
-    bottom: 0;
     display: flex;
     align-items: center;
     gap: var(--spacing-1);
     padding: var(--spacing-1_5) var(--spacing-2);
+    margin-bottom: var(--spacing-1_5);
     background: var(--theme-bg-accent-color);
-    border-top: 1px solid var(--theme-divider-color);
-    z-index: 50;
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 0.25rem;
+    transition: opacity 120ms ease;
+  }
+  .bulk-bar.is-empty {
+    opacity: 0.55;
+  }
+  .bulk-bar.is-empty .count {
+    color: var(--theme-darker-color);
   }
   .count {
     font-weight: 600;

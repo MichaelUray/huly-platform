@@ -18,24 +18,30 @@
   }>()
 </script>
 
-<div class="bar" class:hidden={count === 0}>
-  <span class="label">{count} selected</span>
-  <button class="link" on:click={() => dispatch('deselect-all')}>Clear</button>
+<div
+  class="bar"
+  class:is-empty={count === 0}
+  role="region"
+  aria-label="Bulk actions"
+  aria-disabled={count === 0}
+>
+  <span class="label" aria-live="polite">{count} selected</span>
+  <button class="link" disabled={count === 0} on:click={() => dispatch('deselect-all')}>Clear</button>
   <div class="spacer" />
-  <Button label={getEmbeddedLabel('Add to workspace')} on:click={() => dispatch('add')} />
-  <Button label={getEmbeddedLabel('Remove from workspace')} on:click={() => dispatch('remove')} />
-  <Button label={getEmbeddedLabel('Disable')} kind={'dangerous'} on:click={() => dispatch('disable')} />
-  <Button label={getEmbeddedLabel('Enable')} on:click={() => dispatch('enable')} />
-  <Button label={getEmbeddedLabel('Send password reset')} on:click={() => dispatch('reset')} />
+  <Button label={getEmbeddedLabel('Add to workspace')} disabled={count === 0} on:click={() => dispatch('add')} />
+  <Button label={getEmbeddedLabel('Remove from workspace')} disabled={count === 0} on:click={() => dispatch('remove')} />
+  <Button label={getEmbeddedLabel('Disable')} kind={'dangerous'} disabled={count === 0} on:click={() => dispatch('disable')} />
+  <Button label={getEmbeddedLabel('Enable')} disabled={count === 0} on:click={() => dispatch('enable')} />
+  <Button label={getEmbeddedLabel('Send password reset')} disabled={count === 0} on:click={() => dispatch('reset')} />
 </div>
 
 <style lang="scss">
   /*
    * Sticky bulk-action bar pinned to the top of the scroll container, just
-   * above the table — follows the standard data-grid convention rather than
-   * the bottom-toolbar pattern. Hidden (display:none) when no rows are
-   * selected so it does not steal keyboard focus or screen-reader narration
-   * during single-row workflows.
+   * above the table — follows the standard data-grid convention. Stays
+   * ALWAYS mounted; when no rows are selected it dims via .is-empty and
+   * every interactive control receives `disabled` so the table layout
+   * does not jump when the first row gets ticked.
    */
   .bar {
     position: sticky;
@@ -52,10 +58,15 @@
     width: 100%;
     max-width: 76rem;
     z-index: 5;
+    transition: opacity 120ms ease;
   }
 
-  .hidden {
-    display: none;
+  .bar.is-empty {
+    opacity: 0.55;
+  }
+
+  .bar.is-empty .label {
+    color: var(--theme-darker-color);
   }
 
   .label {
@@ -74,6 +85,12 @@
 
     &:hover {
       text-decoration: underline;
+    }
+
+    &:disabled {
+      color: var(--theme-darker-color);
+      cursor: default;
+      text-decoration: none;
     }
   }
 
