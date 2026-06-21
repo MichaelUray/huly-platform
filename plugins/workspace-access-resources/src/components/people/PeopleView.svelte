@@ -134,7 +134,13 @@
   }
 </script>
 
-<div class="people-view" id="wac-panel-people" role="tabpanel">
+<div
+  class="people-view"
+  id="wac-panel-people"
+  role="tabpanel"
+  data-test-id="wac-panel-people"
+  data-active-sub={sub}
+>
   <div class="sub-tabs">
     <TabList
       items={subItems}
