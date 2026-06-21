@@ -42,7 +42,13 @@ export {
   getEffectiveBearerToken,
   setRegularTokenGetter
 } from './api/wacClient'
-export { peopleApi } from './api/peopleApi'
+export { peopleApi, summarizeBulkRoleResult } from './api/peopleApi'
+export type {
+  BulkRoleEntry,
+  BulkRoleResult,
+  BulkRoleStatus,
+  BulkRoleSummary
+} from './api/peopleApi'
 export { resourcesApi } from './api/resourcesApi'
 export { myAccessApi } from './api/myAccessApi'
 export { auditApi } from './api/auditApi'
