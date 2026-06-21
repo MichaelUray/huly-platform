@@ -60,14 +60,7 @@ const ALLOWLIST = new Set<string>([
   // each caller is responsible for keying its own copy. Removing this
   // would force MemberPickerInput to accept an IntlString instead,
   // which is a wider refactor than C5's scope.
-  'src/components/shared/MemberPickerInput.svelte:84',
-  // PeopleView Granted-access tab label — TabList does not forward
-  // per-item `params` to the underlying Label, so the ICU `{count}`
-  // interpolation can't go through labelIntl. The "Granted access"
-  // base label IS translated via translate() and the count is
-  // appended outside the ICU layer. Discovered via Playwright E2E
-  // 2026-06-21 (Codex re-review W13).
-  'src/components/people/PeopleView.svelte:56'
+  'src/components/shared/MemberPickerInput.svelte:84'
 ])
 
 describe('no hardcoded strings (getEmbeddedLabel sweep)', () => {
