@@ -38,13 +38,6 @@ export interface KoaCtxLike {
     end: (chunk?: any) => void
     headersSent?: boolean
   }
-  /**
-   * Koa `ctx.query` is `Record<string, string | string[] | undefined>` at
-   * runtime; we surface it as optional so existing handlers that don't
-   * touch query params (the majority) compile without a host change. The
-   * audit handlers read `from`, `to`, `action` for server-side filtering.
-   */
-  query?: Record<string, string | string[] | undefined>
 }
 
 /** Subset of postgres-base DBClient that the handlers exercise. */
@@ -103,13 +96,21 @@ export interface WacReadHandlers {
    */
   handleSpaces: (ctx: KoaCtxLike, workspaceUuid: string, workspaceParam: string) => Promise<void>
   handleSpaceDetail: (ctx: KoaCtxLike, workspaceUuid: string, workspaceParam: string, spaceId: string) => Promise<void>
-  handleAudit: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
+  handleAudit: (
+    ctx: KoaCtxLike,
+    workspaceUuid: string,
+    rawFilter?: Record<string, unknown>
+  ) => Promise<void>
   handleMyAccess: (ctx: KoaCtxLike, workspaceUuid: string, callerUuid: string, callerRole: string) => Promise<void>
   handleOwnersCount: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
   handleInvites: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
   handleGrants: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
   handleGrantsCount: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
-  handleAuditCsvExport: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
+  handleAuditCsvExport: (
+    ctx: KoaCtxLike,
+    workspaceUuid: string,
+    rawFilter?: Record<string, unknown>
+  ) => Promise<void>
 }
 
 // ---------------------------------------------------------------------------
@@ -164,25 +165,23 @@ const ISO_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d
 const ACTION_RE = /^[a-z][a-z0-9_]{0,63}$/
 
 /**
- * Parse the optional `from`, `to`, `action` query params into a typed
- * filter. Invalid values are dropped silently (the dropdown / date-picker
- * client controls the input set; a malformed value can only come from
- * direct URL fuzzing, in which case "ignore + return all" is safer than
- * a 400 that leaks server intent).
+ * Validate the optional `from`, `to`, `action` fields out of a
+ * pre-decoded filter object (the host already runs the shared
+ * `decodeFilterParam` so this layer never sees raw base64). Invalid
+ * values are dropped silently — the dropdown / date-picker client
+ * controls the input set; a malformed value can only come from direct
+ * URL fuzzing, in which case "ignore + return all" is safer than a 400
+ * that leaks server intent.
  */
-export function parseAuditQuery (
-  query: Record<string, string | string[] | undefined> | undefined
-): AuditFilter {
-  if (query == null) return {}
-  const first = (v: string | string[] | undefined): string | undefined =>
-    Array.isArray(v) ? v[0] : v
+export function parseAuditFilter (raw: Record<string, unknown> | undefined): AuditFilter {
+  if (raw == null) return {}
   const f: AuditFilter = {}
-  const from = first(query.from)
-  if (from != null && ISO_RE.test(from)) f.from = from
-  const to = first(query.to)
-  if (to != null && ISO_RE.test(to)) f.to = to
-  const action = first(query.action)
-  if (action != null && ACTION_RE.test(action)) f.action = action
+  const from = raw.from
+  if (typeof from === 'string' && ISO_RE.test(from)) f.from = from
+  const to = raw.to
+  if (typeof to === 'string' && ISO_RE.test(to)) f.to = to
+  const action = raw.action
+  if (typeof action === 'string' && ACTION_RE.test(action)) f.action = action
   return f
 }
 
@@ -566,9 +565,9 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
       })
     },
 
-    async handleAudit (ctx, workspaceUuid) {
+    async handleAudit (ctx, workspaceUuid, rawFilter) {
       const pg = await deps.pgClient()
-      const filter = parseAuditQuery(ctx.query)
+      const filter = parseAuditFilter(rawFilter)
       const { sql, params } = buildAuditWhere(workspaceUuid, filter)
       const rows = await pg.execute(
         `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
@@ -722,9 +721,9 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
       json(ctx, 200, { count: parseInt((rows[0] as any)?.c ?? '0', 10) })
     },
 
-    async handleAuditCsvExport (ctx, workspaceUuid) {
+    async handleAuditCsvExport (ctx, workspaceUuid, rawFilter) {
       const pg = await deps.pgClient()
-      const filter = parseAuditQuery(ctx.query)
+      const filter = parseAuditFilter(rawFilter)
       const { sql, params } = buildAuditWhere(workspaceUuid, filter)
       const rows = await pg.execute(
         `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,

@@ -15,7 +15,7 @@
 
 import {
   createWacReadHandlers,
-  parseAuditQuery,
+  parseAuditFilter,
   buildAuditWhere,
   type WacReadDeps,
   type WacReadHandlers,
@@ -33,12 +33,9 @@ interface CapturedResponse {
   endCalled: boolean
 }
 
-function makeCtx (
-  query?: Record<string, string | string[] | undefined>
-): { ctx: KoaCtxLike, captured: CapturedResponse } {
+function makeCtx (): { ctx: KoaCtxLike, captured: CapturedResponse } {
   const captured: CapturedResponse = { raw: [], endCalled: false }
   const ctx: KoaCtxLike = {
-    query,
     res: {
       writeHead (status, headers) {
         captured.status = status
@@ -505,8 +502,8 @@ describe('readRouter — handleAudit', () => {
     await expect(handlers.handleAudit(ctx, 'ws-1')).rejects.toThrow(/audit-down/)
   })
 
-  // ── A1: filter ?from=&to=&action= ──────────────────────────────────
-  it('passes ts >= $2::timestamptz when ?from=… is provided', async () => {
+  // ── A1: filter from/to/action via host-decoded raw filter ──────────
+  it('passes ts >= $2::timestamptz when from is provided', async () => {
     let lastQuery = ''
     let lastParams: any[] = []
     const pg: PgClientLike = {
@@ -516,9 +513,9 @@ describe('readRouter — handleAudit', () => {
         return []
       }
     }
-    const { ctx } = makeCtx({ from: '2026-06-01T00:00:00Z' })
+    const { ctx } = makeCtx()
     const handlers = buildHandlers({ pgClient: async () => pg })
-    await handlers.handleAudit(ctx, 'ws-1')
+    await handlers.handleAudit(ctx, 'ws-1', { from: '2026-06-01T00:00:00Z' })
     expect(lastQuery).toMatch(/ts >= \$2::timestamptz/)
     expect(lastParams).toEqual(['ws-1', '2026-06-01T00:00:00Z'])
   })
@@ -533,13 +530,13 @@ describe('readRouter — handleAudit', () => {
         return []
       }
     }
-    const { ctx } = makeCtx({
+    const { ctx } = makeCtx()
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleAudit(ctx, 'ws-1', {
       from: '2026-06-01',
       to: '2026-06-30',
       action: 'role_changed'
     })
-    const handlers = buildHandlers({ pgClient: async () => pg })
-    await handlers.handleAudit(ctx, 'ws-1')
     expect(lastQuery).toMatch(/ts >= \$2::timestamptz AND ts <= \$3::timestamptz AND action = \$4/)
     expect(lastParams).toEqual(['ws-1', '2026-06-01', '2026-06-30', 'role_changed'])
   })
@@ -552,18 +549,16 @@ describe('readRouter — handleAudit', () => {
         return []
       }
     }
-    const { ctx } = makeCtx({
+    const { ctx } = makeCtx()
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleAudit(ctx, 'ws-1', {
       from: "2026'; DROP TABLE workspace_audit_log;--",
       action: 'role_changed; DELETE'
     })
-    const handlers = buildHandlers({ pgClient: async () => pg })
-    await handlers.handleAudit(ctx, 'ws-1')
-    // Both values fail the ISO_RE / ACTION_RE guards → dropped → only
-    // workspace param remains.
     expect(lastParams).toEqual(['ws-1'])
   })
 
-  it('returns 200 with the unfiltered set when no query is provided', async () => {
+  it('returns 200 with the unfiltered set when filter is not given', async () => {
     let lastQuery = ''
     const pg: PgClientLike = {
       async execute (q, _p) {
@@ -579,28 +574,27 @@ describe('readRouter — handleAudit', () => {
   })
 })
 
-describe('readRouter — parseAuditQuery + buildAuditWhere (A1 pure helpers)', () => {
-  it('parseAuditQuery accepts ISO date-only', () => {
-    expect(parseAuditQuery({ from: '2026-06-01' })).toEqual({ from: '2026-06-01' })
+describe('readRouter — parseAuditFilter + buildAuditWhere (A1 pure helpers)', () => {
+  it('parseAuditFilter accepts ISO date-only', () => {
+    expect(parseAuditFilter({ from: '2026-06-01' })).toEqual({ from: '2026-06-01' })
   })
 
-  it('parseAuditQuery accepts full ISO timestamp with timezone', () => {
-    expect(parseAuditQuery({ to: '2026-06-30T23:59:59+02:00' })).toEqual({
+  it('parseAuditFilter accepts full ISO timestamp with timezone', () => {
+    expect(parseAuditFilter({ to: '2026-06-30T23:59:59+02:00' })).toEqual({
       to: '2026-06-30T23:59:59+02:00'
     })
   })
 
-  it('parseAuditQuery rejects invalid ISO, action with special chars, undefined input', () => {
-    expect(parseAuditQuery({ from: 'yesterday' })).toEqual({})
-    expect(parseAuditQuery({ action: 'role;changed' })).toEqual({})
-    expect(parseAuditQuery({ action: 'TOO_LOUD' })).toEqual({})
-    expect(parseAuditQuery(undefined)).toEqual({})
+  it('parseAuditFilter rejects invalid ISO + action with special chars + undefined input', () => {
+    expect(parseAuditFilter({ from: 'yesterday' })).toEqual({})
+    expect(parseAuditFilter({ action: 'role;changed' })).toEqual({})
+    expect(parseAuditFilter({ action: 'TOO_LOUD' })).toEqual({})
+    expect(parseAuditFilter(undefined)).toEqual({})
   })
 
-  it('parseAuditQuery takes first value when array is given', () => {
-    expect(parseAuditQuery({ from: ['2026-06-01', '2026-07-01'] })).toEqual({
-      from: '2026-06-01'
-    })
+  it('parseAuditFilter ignores non-string values (defends against object/number injection)', () => {
+    expect(parseAuditFilter({ from: 42 as unknown as string })).toEqual({})
+    expect(parseAuditFilter({ action: ['role_changed'] as unknown as string })).toEqual({})
   })
 
   it('buildAuditWhere produces base clause when filter is empty', () => {
