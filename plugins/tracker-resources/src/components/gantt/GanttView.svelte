@@ -49,13 +49,14 @@
   import GanttSaveViewPopup from './GanttSaveViewPopup.svelte'
   import GanttSidebar from './GanttSidebar.svelte'
   import {
-    extractGanttSavedView,
-    isoDateForTimestamp,
-    mergeGanttSavedView,
-    timestampForIsoDate,
-    type GanttSavedViewOptions
+    timestampForIsoDate
   } from './lib/gantt-view-options'
   import { filterGanttFilteredViews } from './lib/saved-views'
+  import {
+    buildSavedViewOptionsBlob,
+    isCurrentGanttViewModified as libIsCurrentGanttViewModified,
+    resolveApplyGanttSavedView
+  } from './lib/saved-view-actions'
   import { DEFAULT_COLUMNS, DEFAULT_WIDTHS, computeTotalWidth, type SidebarColumnKey } from './lib/sidebar-columns'
   import { setConfirming, isConfirming } from './lib/confirm-gate'
   import { cycleSort, comparatorFor, type GanttSortState } from './lib/sidebar-sort'
@@ -554,39 +555,24 @@
   // saveCurrentGanttView() / updateCurrentGanttView() further down.
   let lastAppliedSavedViewId: string | null = null
   async function applyGanttSavedView (raw: Record<string, unknown> | undefined): Promise<void> {
-    const opts = extractGanttSavedView(raw)
-    zoom = opts.zoomLevel
+    // W10-D2 seam 5 — pure desired-state resolution in
+    // lib/saved-view-actions.ts; component-side wrapper does the four
+    // store-set calls + the scroll anchor (which need `tick()` and DOM
+    // refs).
+    const desired = resolveApplyGanttSavedView(raw)
+    zoom = desired.zoom
     userPxPerDay = null
-    // Pull (and default-reset) the four new toolbar fields. Defaults must
-    // match the spec (Status / on / on / off) so stale state from a
-    // previous saved view cannot leak into the loaded view.
-    const mode = raw?.ganttBarColorBy
-    ganttBarColorBy.set(
-      (typeof mode === 'string' && (['status', 'priority', 'assignee', 'component', 'milestone', 'none'] as const).includes(mode as any))
-        ? (mode as BarColorMode)
-        : 'status'
-    )
-    ganttShowPastDueOverlay.set(
-      typeof raw?.ganttShowPastDueOverlay === 'boolean'
-        ? raw.ganttShowPastDueOverlay
-        : true
-    )
-    ganttShowBlockedOverlay.set(
-      typeof raw?.ganttShowBlockedOverlay === 'boolean'
-        ? raw.ganttShowBlockedOverlay
-        : true
-    )
-    ganttShowSubIssueProgress.set(
-      typeof raw?.ganttShowSubIssueProgress === 'boolean'
-        ? raw.ganttShowSubIssueProgress
-        : false
-    )
+    // Defaults already applied by the resolver.
+    ganttBarColorBy.set(desired.barColorBy)
+    ganttShowPastDueOverlay.set(desired.showPastDueOverlay)
+    ganttShowBlockedOverlay.set(desired.showBlockedOverlay)
+    ganttShowSubIssueProgress.set(desired.showSubIssueProgress)
     // Wait one tick so the new zoom propagates into `timeScale` before we
     // scroll — otherwise toX() uses the previous pxPerDay and the anchor
     // lands at the wrong column (Spec §"Pan-Anchor-Race bei langsamem Mount").
     await tick()
-    if (opts.panAnchorDate !== undefined) {
-      const t = timestampForIsoDate(opts.panAnchorDate)
+    if (desired.panAnchorDate !== undefined) {
+      const t = timestampForIsoDate(desired.panAnchorDate)
       if (Number.isFinite(t) && hScrollEl != null) {
         const x = timeScale.toX(t)
         hScrollEl.scrollTo({ left: Math.max(0, x), behavior: 'auto' })
@@ -618,20 +604,22 @@
   }
 
   function buildSavedViewOptions (fixTimeWindow: boolean): Record<string, unknown> {
-    const base = (viewOptions as Record<string, unknown> | undefined) ?? {}
-    const payload: GanttSavedViewOptions = {
-      zoomLevel: zoom,
-      ganttBarColorBy: $ganttBarColorBy,
-      ganttShowPastDueOverlay: $ganttShowPastDueOverlay,
-      ganttShowBlockedOverlay: $ganttShowBlockedOverlay,
-      ganttShowSubIssueProgress: $ganttShowSubIssueProgress
-    }
-    if (fixTimeWindow && hScrollEl != null) {
-      // Anchor = the visible-left date in the time scale (UTC midnight).
-      const t = timeScale.fromX(hScrollEl.scrollLeft)
-      payload.panAnchorDate = isoDateForTimestamp(t)
-    }
-    return mergeGanttSavedView(base, payload)
+    // W10-D2 seam 5 — blob builder + ISO-date serialization in
+    // lib/saved-view-actions.ts.
+    const anchorTs = (fixTimeWindow && hScrollEl != null)
+      ? timeScale.fromX(hScrollEl.scrollLeft)
+      : undefined
+    return buildSavedViewOptionsBlob(
+      viewOptions as Record<string, unknown> | undefined,
+      {
+        zoom,
+        barColorBy: $ganttBarColorBy,
+        showPastDueOverlay: $ganttShowPastDueOverlay,
+        showBlockedOverlay: $ganttShowBlockedOverlay,
+        showSubIssueProgress: $ganttShowSubIssueProgress
+      },
+      anchorTs
+    )
   }
 
   async function saveCurrentGanttView (
@@ -779,18 +767,18 @@
   // the toolbar's <select>-element dropdown. Save/Load now route
   // through openMoreActionsMenu → openSaveViewPopup / openLoadViewMenu.
 
-  function isCurrentGanttViewModified (fv: FilteredView | undefined): boolean {
-    if (fv === undefined || fv.viewletId !== viewlet?._id) return false
-    const saved = (fv.viewOptions as Record<string, unknown> | undefined) ?? {}
-    if (saved.ganttZoomLevel !== zoom) return true
-    if ((saved.ganttBarColorBy ?? 'status') !== $ganttBarColorBy) return true
-    if ((saved.ganttShowPastDueOverlay ?? true) !== $ganttShowPastDueOverlay) return true
-    if ((saved.ganttShowBlockedOverlay ?? true) !== $ganttShowBlockedOverlay) return true
-    if ((saved.ganttShowSubIssueProgress ?? false) !== $ganttShowSubIssueProgress) return true
-    return false
-  }
-
-  $: savedViewModified = isCurrentGanttViewModified($selectedFilterStore)
+  // W10-D2 seam 5 — comparator moved to lib/saved-view-actions.ts.
+  $: savedViewModified = libIsCurrentGanttViewModified(
+    $selectedFilterStore,
+    viewlet?._id,
+    {
+      zoom,
+      barColorBy: $ganttBarColorBy,
+      showPastDueOverlay: $ganttShowPastDueOverlay,
+      showBlockedOverlay: $ganttShowBlockedOverlay,
+      showSubIssueProgress: $ganttShowSubIssueProgress
+    }
+  )
 
   // Inline-extracted handler — keeping the TS cast out of an `on:click={…}`
   // attribute, which the Svelte 4 parser does not tolerate (// build-fix: inline `as Record<…>` inside an attribute value tripped
