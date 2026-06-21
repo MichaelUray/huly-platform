@@ -2,6 +2,31 @@
 
 WAC server module — endpoints, migrations, impersonation lifecycle. Designed to be plugged into Huly's transactor / account-server in a thin wiring layer.
 
+## Glossary
+
+WAC uses precise terminology to avoid the Workspace/Space overload that
+is common in Huly platform documentation:
+
+- **Workspace** — the tenant container. One Huly deployment can host many
+  Workspaces; users in Workspace A cannot see anything in Workspace B
+  unless explicitly invited. Workspace-level membership is what
+  `accountClient.getWorkspaceMembers` returns and what the `OWNER /
+  MAINTAINER / USER / GUEST` role enum gates.
+- **Space** — a container *inside* a Workspace (Project, Drive,
+  Teamspace, CardSpace, Funnel, Vacancy, JobFunnel, ...). Each Space
+  has its own members/owners list and access-control mixins. In code:
+  `core.class.Space` / `core.class.TypedSpace`.
+- **SpaceType** — the schema-class of a Space (e.g.
+  `tracker.class.Project`). Different SpaceTypes have different default
+  fields, default workflows and admin lists. In code:
+  `core.class.SpaceType`.
+
+The server endpoints reflect this hierarchy: `/wac/people/*` operates
+on Workspace-level membership and roles; `/wac/resources/*` operates on
+Spaces inside the Workspace and their per-Space access mixins;
+`/wac/my-access` returns the current caller's slice across both
+levels; `/wac/audit/*` exposes the mutation log spanning both layers.
+
 ## Migrations
 
 `migrations` is a `ReadonlyArray<Migration>` exposing V31-V33 in order:
