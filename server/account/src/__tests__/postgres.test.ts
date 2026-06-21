@@ -539,6 +539,68 @@ describe('PostgresAccountDB', () => {
         )
       })
 
+      // Wave 3 / Task A2 — every write path converts canonical → DB form
+      // BEFORE the SQL binding. ReadOnlyGuest/DocGuest are the bug-shape;
+      // pin the wire-bound value to the DB enum literal explicitly so a
+      // future refactor cannot silently regress the canonicalization.
+      it('canonicalToDb on assignWorkspace ReadOnlyGuest binds READONLYGUEST', async () => {
+        const { AccountRole: AR } = await import('@hcengineering/core')
+        await accountDb.assignWorkspace(accountId, workspaceId, AR.ReadOnlyGuest)
+        const call = (mockClient as jest.Mock).mock.calls.find(
+          (c) => Array.isArray(c[0]) && String(c[0][0]).includes('INSERT INTO')
+        )
+        expect(call).toBeDefined()
+        // tag-template arg order: (strings, table, workspace, account, role)
+        expect(call?.[4]).toBe('READONLYGUEST')
+      })
+
+      it('canonicalToDb on assignWorkspace DocGuest binds DOCGUEST (all uppercase)', async () => {
+        const { AccountRole: AR } = await import('@hcengineering/core')
+        await accountDb.assignWorkspace(accountId, workspaceId, AR.DocGuest)
+        const call = (mockClient as jest.Mock).mock.calls.find(
+          (c) => Array.isArray(c[0]) && String(c[0][0]).includes('INSERT INTO')
+        )
+        expect(call?.[4]).toBe('DOCGUEST')
+      })
+
+      it('canonicalToDb on updateWorkspaceRole ReadOnlyGuest binds READONLYGUEST', async () => {
+        const { AccountRole: AR } = await import('@hcengineering/core')
+        await accountDb.updateWorkspaceRole(accountId, workspaceId, AR.ReadOnlyGuest)
+        const call = (mockClient as jest.Mock).mock.calls.find(
+          (c) => Array.isArray(c[0]) && String(c[0][0]).includes('UPDATE ')
+        )
+        // tag-template arg order: (strings, table, role, workspace, account)
+        expect(call?.[2]).toBe('READONLYGUEST')
+      })
+
+      it('dbToCanonical on getWorkspaceRole maps READONLYGUEST → AccountRole.ReadOnlyGuest', async () => {
+        const { AccountRole: AR } = await import('@hcengineering/core')
+        spyValue = [{ role: 'READONLYGUEST' }]
+        const r = await accountDb.getWorkspaceRole(accountId, workspaceId)
+        expect(r).toBe(AR.ReadOnlyGuest)
+      })
+
+      it('dbToCanonical on getWorkspaceRole returns null + warns on corrupted wire-form residue', async () => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        spyValue = [{ role: 'READONLY_GUEST' }]
+        const r = await accountDb.getWorkspaceRole(accountId, workspaceId)
+        expect(r).toBeNull()
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/workspace_members.role corrupted/))
+        warnSpy.mockRestore()
+      })
+
+      it('dbToCanonical on getWorkspaceMembers drops corrupted rows with warn', async () => {
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+        spyValue = [
+          { account_uuid: 'acc-good', role: 'OWNER' },
+          { account_uuid: 'acc-bad', role: 'READONLY_GUEST' } // residue from bug-window
+        ]
+        const members = await accountDb.getWorkspaceMembers(workspaceId)
+        expect(members.map((m) => m.person)).toEqual(['acc-good'])
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/workspace_members.role corrupted/))
+        warnSpy.mockRestore()
+      })
+
       it('should get workspace role', async () => {
         mockClient.unsafe.mockResolvedValue([{ role }])
 

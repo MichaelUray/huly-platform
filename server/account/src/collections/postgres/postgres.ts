@@ -27,6 +27,7 @@ import {
 import { getMigrations } from './migrations'
 import { buildListAccountsAdminSql, rowToAccountListRow } from './listAccountsAdminPg'
 import { escapeLike } from '../../util/escapeLike'
+import { canonicalToDb, dbToCanonical } from '../../role/canonical'
 import type {
   DbCollection,
   Query,
@@ -1059,15 +1060,22 @@ export class PostgresAccountDB implements AccountDB {
   }
 
   async assignWorkspace (accountUuid: AccountUuid, workspaceUuid: WorkspaceUuid, role: AccountRole): Promise<void> {
+    // A2 canonicalization — convert TS canonical AccountRole → DB enum
+    // form before any write. The DB workspace_role enum only accepts
+    // DB-form labels ('READONLYGUEST', 'DOCGUEST', not 'READONLY_GUEST').
+    const dbRole = canonicalToDb(role)
     await this.withRetry(
       async (rTx) =>
-        await rTx`INSERT INTO ${this.client(this.getWsMembersTableName())} (workspace_uuid, account_uuid, role) VALUES (${workspaceUuid}, ${accountUuid}, ${role})`
+        await rTx`INSERT INTO ${this.client(this.getWsMembersTableName())} (workspace_uuid, account_uuid, role) VALUES (${workspaceUuid}, ${accountUuid}, ${dbRole})`
     )
   }
 
   async batchAssignWorkspace (data: [AccountUuid, WorkspaceUuid, AccountRole][]): Promise<void> {
     const placeholders = data.map((_: any, i: number) => `($${i * 3 + 1}, $${i * 3 + 2}, $${i * 3 + 3})`).join(', ')
-    const values = data.flat()
+    // A2 canonicalization — each tuple's role is converted to DB form
+    // before flatten. Preserves [account, workspace, role] tuple order
+    // expected by the INSERT below.
+    const values = data.flatMap(([accountId, workspaceId, role]) => [accountId, workspaceId, canonicalToDb(role)])
 
     const sql = `
       INSERT INTO ${this.getWsMembersTableName()}
@@ -1086,9 +1094,10 @@ export class PostgresAccountDB implements AccountDB {
   }
 
   async updateWorkspaceRole (accountUuid: AccountUuid, workspaceUuid: WorkspaceUuid, role: AccountRole): Promise<void> {
+    const dbRole = canonicalToDb(role)
     await this.withRetry(
       async (rTx) =>
-        await rTx`UPDATE ${this.client(this.getWsMembersTableName())} SET role = ${role} WHERE workspace_uuid = ${workspaceUuid} AND account_uuid = ${accountUuid}`
+        await rTx`UPDATE ${this.client(this.getWsMembersTableName())} SET role = ${dbRole} WHERE workspace_uuid = ${workspaceUuid} AND account_uuid = ${accountUuid}`
     )
   }
 
@@ -1097,7 +1106,19 @@ export class PostgresAccountDB implements AccountDB {
       const res =
         await rTx`SELECT role FROM ${this.client(this.getWsMembersTableName())} WHERE workspace_uuid = ${workspaceUuid} AND account_uuid = ${accountUuid}`
 
-      return res[0]?.role ?? null
+      const raw = res[0]?.role
+      if (raw == null) return null
+      const canonical = dbToCanonical(String(raw))
+      if (canonical === null) {
+        // Corrupted row — pre-canonicalization writer left a non-enum
+        // value in the column. Log loud and return null so the caller
+        // sees "no role" rather than crashing.
+        console.warn(
+          `workspace_members.role corrupted; cannot map to AccountRole (account=${accountUuid}, workspace=${workspaceUuid}, dbForm=${String(raw)})`
+        )
+        return null
+      }
+      return canonical
     })
   }
 
@@ -1106,7 +1127,18 @@ export class PostgresAccountDB implements AccountDB {
       const res =
         await rTx`SELECT workspace_uuid, role FROM ${this.client(this.getWsMembersTableName())} WHERE account_uuid = ${accountUuid}`
 
-      return new Map(res.map((it) => [it.workspace_uuid as WorkspaceUuid, it.role]))
+      const out = new Map<WorkspaceUuid, AccountRole>()
+      for (const it of res) {
+        const canonical = dbToCanonical(String(it.role))
+        if (canonical === null) {
+          console.warn(
+            `workspace_members.role corrupted; skipping row (account=${accountUuid}, workspace=${String(it.workspace_uuid)}, dbForm=${String(it.role)})`
+          )
+          continue
+        }
+        out.set(it.workspace_uuid as WorkspaceUuid, canonical)
+      }
+      return out
     })
   }
 
@@ -1115,10 +1147,18 @@ export class PostgresAccountDB implements AccountDB {
       const res: any =
         await rTx`SELECT account_uuid, role FROM ${this.client(this.getWsMembersTableName())} WHERE workspace_uuid = ${workspaceUuid}`
 
-      return res.map((p: any) => ({
-        person: p.account_uuid,
-        role: p.role
-      }))
+      const out: WorkspaceMemberInfo[] = []
+      for (const p of res) {
+        const canonical = dbToCanonical(String(p.role))
+        if (canonical === null) {
+          console.warn(
+            `workspace_members.role corrupted; skipping row (account=${String(p.account_uuid)}, workspace=${workspaceUuid}, dbForm=${String(p.role)})`
+          )
+          continue
+        }
+        out.push({ person: p.account_uuid, role: canonical })
+      }
+      return out
     })
   }
 
