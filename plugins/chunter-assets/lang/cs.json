@@ -132,6 +132,10 @@
     "ViewingArchivedChannel": "Prohlížíte archivovaný kanál",
     "OpenChatInSidebar": "Otevřít chat v postranním panelu",
     "NoThreadsYet": "Zatím nejsou žádné vlákna.",
-    "SummarizeMessages": "Shrnout diskuzi"
+    "SummarizeMessages": "Shrnout diskuzi",
+    "MentionGrantConfirmTitle": "This mention grants access",
+    "MentionGrantConfirmBody": "{count, plural, one {The selected person will get read} other {Selected people will get read}} access to \"{targetName}\" in \"{spaceName}\" and the ability to comment. They cannot edit document fields. Uncheck anyone you do not want to grant access to.",
+    "MentionGrantConfirmSend": "Send with selected grants",
+    "MentionGrantConfirmCancel": "Cancel"
   }
 }

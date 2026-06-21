@@ -8,7 +8,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
   import { Button, CheckBox, Label } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
+  import chunter from '../../plugin'
 
   // One entry per NEW grantee (people not already members of the grant-target space).
   export let grantees: Array<{ id: string, name: string }>
@@ -34,13 +34,12 @@
 
 <div class="msgbox-container">
   <div class="overflow-label fs-title mb-4">
-    <Label label={getEmbeddedLabel('This mention grants access')} />
+    <Label label={chunter.string.MentionGrantConfirmTitle} />
   </div>
   <div class="mb-4">
     <Label
-      label={getEmbeddedLabel(
-        `Selected people will get read access to "${targetName}" in "${spaceName}" and the ability to comment. They cannot edit the document's fields. Uncheck anyone you do not want to grant access to.`
-      )}
+      label={chunter.string.MentionGrantConfirmBody}
+      params={{ count: rows.length, targetName, spaceName }}
     />
   </div>
   {#each rows as row (row.id)}
@@ -51,12 +50,12 @@
   {/each}
   <div class="flex-row-reverse mt-4">
     <Button
-      label={getEmbeddedLabel('Send with selected grants')}
+      label={chunter.string.MentionGrantConfirmSend}
       kind="primary"
       on:click={onSend}
     />
     <div class="mr-2">
-      <Button label={getEmbeddedLabel('Cancel')} on:click={onCancel} />
+      <Button label={chunter.string.MentionGrantConfirmCancel} on:click={onCancel} />
     </div>
   </div>
 </div>

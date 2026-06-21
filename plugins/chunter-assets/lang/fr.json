@@ -132,6 +132,10 @@
     "ViewingArchivedChannel": "Vous consultez un canal archivé",
     "OpenChatInSidebar": "Ouvrir le chat dans la barre latérale",
     "NoThreadsYet": "Il n'y a pas encore de fils de discussion.",
-    "SummarizeMessages": "Résumer la discussion"
+    "SummarizeMessages": "Résumer la discussion",
+    "MentionGrantConfirmTitle": "This mention grants access",
+    "MentionGrantConfirmBody": "{count, plural, one {The selected person will get read} other {Selected people will get read}} access to \"{targetName}\" in \"{spaceName}\" and the ability to comment. They cannot edit document fields. Uncheck anyone you do not want to grant access to.",
+    "MentionGrantConfirmSend": "Send with selected grants",
+    "MentionGrantConfirmCancel": "Cancel"
   }
 }
