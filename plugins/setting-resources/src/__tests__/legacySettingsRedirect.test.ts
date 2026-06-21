@@ -65,15 +65,20 @@ describe('Phase 2 T1 — legacy Settings shims', () => {
       expect(src).toMatch(/<AccessCenterPage[^/]*initialTab=["']resources["']/)
     })
 
-    it('GuestPermissionsSettings.svelte mounts AccessCenterPage with initialTab="people"', () => {
+    it('GuestPermissionsSettings.svelte mounts AccessCenterPage with initialTab="guest-settings"', () => {
+      // Phase 2.5 — the shim now lands on the WAC 5th tab that hosts
+      // the extracted per-application guest-permission editor, rather
+      // than People → By role (which is just a member browser).
       const src = read(path.join(SETTING_RESOURCES, 'GuestPermissionsSettings.svelte'))
       expect(src).toMatch(/import\s+AccessCenterPage\s+from\s+['"]\.\/AccessCenterPage\.svelte['"]/)
-      expect(src).toMatch(/<AccessCenterPage[^/]*initialTab=["']people["']/)
+      expect(src).toMatch(/<AccessCenterPage[^/]*initialTab=["']guest-settings["']/)
     })
 
-    it('GuestPermissionsSettings.svelte selects the People → By Role sub-tab', () => {
+    it('GuestPermissionsSettings.svelte no longer routes through People → By Role', () => {
+      // Phase 2.5 — the previous (Phase 2) wiring is obsolete; pin its
+      // absence so a future refactor doesn't accidentally restore it.
       const src = read(path.join(SETTING_RESOURCES, 'GuestPermissionsSettings.svelte'))
-      expect(src).toMatch(/initialSub=["']by-role["']/)
+      expect(src).not.toMatch(/initialSub=["']by-role["']/)
     })
   })
 

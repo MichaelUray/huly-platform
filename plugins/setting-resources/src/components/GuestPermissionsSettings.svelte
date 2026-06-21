@@ -13,20 +13,24 @@
 // limitations under the License.
 -->
 <!--
-  Phase 2 T1 compat-shim. The legacy `Guests` Settings entry (route
-  `/setting/guestPermissions`) has been folded into Access Center →
-  People with the by-role sub-tab selected, where guest accounts can be
-  reviewed and managed alongside other members. The original component
-  was the 722-line per-application guest-permission editor; that surface
-  is superseded by the per-Space membership editor in the Resources tab
-  plus the unified People view.
+  Phase 2 T1 + Phase 2.5 compat-shim. The legacy `Guests` Settings entry
+  (route `/setting/guestPermissions`) is the entry to the
+  per-application guest-permission editor. The original 722-line editor
+  body has been extracted into `GuestPermissionsEditor.svelte` and is
+  now mounted as the 5th tab of the Access Center (Owner-only, see
+  `tabsForRole()` in `workspace-access-resources/src/stores/roleStore.ts`).
+
+  This shim deep-links the legacy URL straight to that tab so existing
+  bookmarks land on the same editor — behaviour-identical to the
+  pre-Phase-2 surface, just relocated into the Access Center shell.
 
   See: docs/superpowers/specs/2026-06-21-huly-settings-ia-analysis.md
   See: docs/superpowers/plans/2026-06-21-huly-post-codex-block-resolution.md
-        (Phase 2 → P2-T1, Q-P2-T1 = (b)+hidden)
+        (Phase 2 → P2-T1, Q-P2-T1 = (b)+hidden; Phase 2.5 → flag (iii)
+        — port editor as WAC 5th Owner-only tab.)
 -->
 <script lang="ts">
   import AccessCenterPage from './AccessCenterPage.svelte'
 </script>
 
-<AccessCenterPage initialTab="people" initialSub="by-role" />
+<AccessCenterPage initialTab="guest-settings" />
