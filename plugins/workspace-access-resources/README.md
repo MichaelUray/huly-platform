@@ -43,8 +43,8 @@ sub-tab:
 | Legacy route | Lands on |
 |---|---|
 | `/setting/owners` | Access Center → People → All |
-| `/setting/guestPermissions` | Access Center → People → By role |
-| `/setting/allSpaces` | Access Center → Resources |
+| `/setting/guestPermissions` | Access Center → Guest Settings (per-application guest-permission editor; Phase 2.5 T1 introduced the dedicated tab) |
+| `/setting/allSpaces` | Legacy Spaces editor (per-role `AccountArrayEditor` on the `core.space.Space` SpaceType registry). Phase 2 hid the sidebar entry but E4 (B2) restored the original editor as the only surface that exposes Space-registry role assignments — the Access Center → Resources tab lists managed v1 classes only and does not edit those roles. |
 
 The only visible Settings sidebar entry for workspace-level access is
 now `Access Center` itself.
