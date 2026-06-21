@@ -220,15 +220,20 @@ export type WacWireRole =
   | 'DOC_GUEST'
 
 /**
- * Normalize a raw DB role-string to its WAC wire form. Tolerant to both
- * the wire form (`READONLY_GUEST`) and the core-enum form (`READONLYGUEST`,
- * `DocGuest`) so handleMembers preserves guest-variant distinction
- * regardless of which upstream produced the row.
+ * Convert AccountDB's role (canonical AccountRole after Wave-3 / Task A2)
+ * to the WAC wire form. AccountDB internally converts DB→canonical on
+ * every read (see `dbToCanonical` in `server/account/src/role/canonical.ts`),
+ * so this function only needs to handle canonical inputs.
+ *
+ * Tolerance for legacy `READONLY_GUEST` / `DOC_GUEST` / `READONLYGUEST` /
+ * `DOCGUEST` strings is retained — those map to the same wire form — so
+ * we degrade gracefully if a row was written before A2 or a pre-A2
+ * AccountDB build is wired in. Unknown values collapse to 'GUEST' so
+ * the HTTP shape stays valid.
  */
 function mapWacRole (raw: string | null | undefined): WacWireRole {
   if (raw == null) return 'USER'
-  const u = String(raw).toUpperCase()
-  switch (u) {
+  switch (raw) {
     case 'OWNER':
       return 'OWNER'
     case 'MAINTAINER':
@@ -237,11 +242,17 @@ function mapWacRole (raw: string | null | undefined): WacWireRole {
       return 'USER'
     case 'GUEST':
       return 'GUEST'
-    case 'READONLY_GUEST':
+    // canonical AccountRole.ReadOnlyGuest === 'READONLYGUEST'
     case 'READONLYGUEST':
+    // legacy / pre-A2 wire-form row residue
+    case 'READONLY_GUEST':
       return 'READONLY_GUEST'
-    case 'DOC_GUEST':
+    // canonical AccountRole.DocGuest === 'DocGuest' (mixed-case per core)
+    case 'DocGuest':
+    // DB enum form
     case 'DOCGUEST':
+    // legacy / pre-A2 wire-form row residue
+    case 'DOC_GUEST':
       return 'DOC_GUEST'
     default:
       return 'GUEST'
