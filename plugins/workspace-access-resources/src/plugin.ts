@@ -152,7 +152,16 @@ const wac = plugin(wacPluginId, {
     ConfirmDeclineGrantTitle: '' as IntlString,
     ConfirmDeclineGrantMessage: '' as IntlString,
     ConfirmRevokeGrantTitle: '' as IntlString,
-    ConfirmRevokeGrantMessage: '' as IntlString
+    ConfirmRevokeGrantMessage: '' as IntlString,
+
+    // Polish-2: SpacePickerModal (bulk Add/Remove from space). v1 ships
+    // a typed-UUID input; a typeahead live-search will replace the input
+    // in v1.5 once `wac.api.searchSpaces` lands. See SpacePickerModal.
+    SpacePickerAddTitle: '' as IntlString,
+    SpacePickerRemoveTitle: '' as IntlString,
+    SpacePickerHint: '' as IntlString,
+    SpacePickerInvalidUuid: '' as IntlString,
+    SpaceIdLabel: '' as IntlString
   }
 })
 

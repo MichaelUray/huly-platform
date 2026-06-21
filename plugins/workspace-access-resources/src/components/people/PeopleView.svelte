@@ -15,6 +15,7 @@
   import GrantedAccessTab from './GrantedAccessTab.svelte'
   import PersonDrawer from './PersonDrawer.svelte'
   import PeopleBulkBar from './PeopleBulkBar.svelte'
+  import SpacePickerModal from './SpacePickerModal.svelte'
   import { peopleApi, type BulkRoleResult } from '../../api/peopleApi'
   import { grantedAccessApi } from '../../api/grantedAccessApi'
   import type { MemberRow, WorkspaceRole } from '../../types'
@@ -93,25 +94,36 @@
   }
 
   async function bulkAdd (): Promise<void> {
-    const space = window.prompt('Space-ID to add selected members to')
-    if (space == null || space === '') return
-    try {
-      await peopleApi.bulkAddToSpace(workspace, [...selectedIds], space)
-      selectedIds = new Set()
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-    }
+    // Polish-2: replace window.prompt with a themed, popup-layer modal so
+    // bulk Add survives route changes, supports keyboard nav, and has a
+    // place to grow a typeahead Space search later.
+    const ids = [...selectedIds]
+    showPopup(SpacePickerModal, {
+      mode: 'add',
+      onPick: async (space: string) => {
+        try {
+          await peopleApi.bulkAddToSpace(workspace, ids, space)
+          selectedIds = new Set()
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e)
+        }
+      }
+    })
   }
 
   async function bulkRemove (): Promise<void> {
-    const space = window.prompt('Space-ID to remove selected members from')
-    if (space == null || space === '') return
-    try {
-      await peopleApi.bulkRemoveFromSpace(workspace, [...selectedIds], space)
-      selectedIds = new Set()
-    } catch (e) {
-      error = e instanceof Error ? e.message : String(e)
-    }
+    const ids = [...selectedIds]
+    showPopup(SpacePickerModal, {
+      mode: 'remove',
+      onPick: async (space: string) => {
+        try {
+          await peopleApi.bulkRemoveFromSpace(workspace, ids, space)
+          selectedIds = new Set()
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e)
+        }
+      }
+    })
   }
 
   async function bulkRole (e: CustomEvent<{ role: WorkspaceRole }>): Promise<void> {
