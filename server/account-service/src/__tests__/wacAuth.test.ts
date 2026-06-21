@@ -87,6 +87,9 @@ function makeDeps (opts: {
   account?: AccountRow | null
   workspaceRole?: string | null
   roleLookupThrows?: boolean
+  // A3 — Impersonation test hooks.
+  isInstanceAdmin?: (accountUuid: string) => boolean | Promise<boolean>
+  isInstanceAdminThrows?: boolean
 }): WacAuthDeps {
   const warn = jest.fn()
   const error = jest.fn()
@@ -104,6 +107,12 @@ function makeDeps (opts: {
     getWorkspaceRole: async (_acc: string, _ws: string) => {
       if (opts.roleLookupThrows === true) throw new Error('db down')
       return opts.workspaceRole ?? null
+    },
+    isInstanceAdmin: async (accountUuid: string) => {
+      if (opts.isInstanceAdminThrows === true) throw new Error('isInstanceAdmin db down')
+      if (opts.isInstanceAdmin != null) return await opts.isInstanceAdmin(accountUuid)
+      // Default: nobody is an admin unless the test opts in.
+      return false
     }
   }
 
@@ -410,5 +419,179 @@ describe('authenticateWac', () => {
       role: 'GUEST',
       required: 'read-self'
     })
+  })
+
+  // ----------------------------------------------------------------------
+  // A3 — WAC impersonation flow.
+  //
+  // Instance-admin impersonation tokens carry `extra.impersonation='true'`
+  // and `extra.actor_admin=<adminUuid>`. The admin has no workspace_members
+  // row in the target workspace, so the regular role lookup would 403
+  // `no_workspace_membership`. The early-branch returns role='OWNER' for
+  // valid impersonation tokens (admin still in ADMIN_EMAILS allow-list).
+
+  const impersonationExtra = (admin: string, expSec: number): Record<string, string> => ({
+    impersonation: 'true',
+    impersonation_ref: 'ref-1',
+    actor_admin: admin,
+    jti: 'jti-1',
+    admin: 'true'
+  })
+
+  it('A3: valid impersonation token → success, role=OWNER, impersonation=true', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 1800
+    const token = generateToken(
+      CALLER as any,
+      WORKSPACE as any,
+      impersonationExtra(CALLER, exp),
+      undefined,
+      { exp }
+    )
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({
+      workspaceRole: null, // admin is NOT a workspace member — branch must skip the lookup
+      isInstanceAdmin: () => true
+    })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'edit', deps)
+    expect(res).toEqual({
+      callerUuid: CALLER,
+      workspaceUuid: WORKSPACE,
+      role: 'OWNER',
+      impersonation: true,
+      actorAdmin: CALLER
+    })
+    expect(ctx.res.statusCode).toBeNull()
+  })
+
+  it('A3: revoked admin (isInstanceAdmin=false) → 403 revoked_admin_impersonation', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 1800
+    const token = generateToken(
+      CALLER as any,
+      WORKSPACE as any,
+      impersonationExtra(CALLER, exp),
+      undefined,
+      { exp }
+    )
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ isInstanceAdmin: () => false })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'edit', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.statusCode).toBe(403)
+    expect(ctx.res.body).toEqual({ error: 'revoked_admin_impersonation' })
+  })
+
+  it('A3: wrong workspace claim → 401 invalid_impersonation_token', async () => {
+    const OTHER_WS = '44444444-4444-4444-8444-444444444444'
+    const exp = Math.floor(Date.now() / 1000) + 1800
+    // Token issued for OTHER_WS but request targets WORKSPACE.
+    const token = generateToken(
+      CALLER as any,
+      OTHER_WS as any,
+      impersonationExtra(CALLER, exp),
+      undefined,
+      { exp }
+    )
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ isInstanceAdmin: () => true })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'edit', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.statusCode).toBe(401)
+    expect(ctx.res.body).toEqual({ error: 'invalid_impersonation_token' })
+  })
+
+  it('A3: missing actor_admin claim → 401 invalid_impersonation_token', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 1800
+    const token = generateToken(
+      CALLER as any,
+      WORKSPACE as any,
+      {
+        impersonation: 'true',
+        // actor_admin intentionally omitted
+        jti: 'jti-1',
+        admin: 'true'
+      } as any,
+      undefined,
+      { exp }
+    )
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ isInstanceAdmin: () => true })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'edit', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.statusCode).toBe(401)
+    expect(ctx.res.body).toEqual({ error: 'invalid_impersonation_token' })
+  })
+
+  it('A3: actor_admin mismatched against JWT subject → 401 invalid_impersonation_token', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 1800
+    const OTHER_ADMIN = '55555555-5555-4555-8555-555555555555'
+    const token = generateToken(
+      CALLER as any,
+      WORKSPACE as any,
+      impersonationExtra(OTHER_ADMIN, exp),
+      undefined,
+      { exp }
+    )
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ isInstanceAdmin: () => true })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'edit', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.statusCode).toBe(401)
+    expect(ctx.res.body).toEqual({ error: 'invalid_impersonation_token' })
+  })
+
+  it('A3: stale token_version → 401 invalid_token (caught by step 3 before impersonation branch)', async () => {
+    // Token carries token_version=0 (omitted); account row has tokenVersion=5.
+    // The pre-existing token-version gate at step 3 fires before the
+    // impersonation branch runs.
+    const exp = Math.floor(Date.now() / 1000) + 1800
+    const token = generateToken(
+      CALLER as any,
+      WORKSPACE as any,
+      impersonationExtra(CALLER, exp),
+      undefined,
+      { exp }
+    )
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({
+      account: { uuid: CALLER, tokenVersion: 5, disabledAt: null },
+      isInstanceAdmin: () => true
+    })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'edit', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.statusCode).toBe(401)
+    expect(ctx.res.body).toEqual({ error: 'invalid_token', detail: 'token_version' })
+  })
+
+  it('A3: isInstanceAdmin db error → 403 revoked_admin_impersonation (fail closed)', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 1800
+    const token = generateToken(
+      CALLER as any,
+      WORKSPACE as any,
+      impersonationExtra(CALLER, exp),
+      undefined,
+      { exp }
+    )
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ isInstanceAdminThrows: true })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'edit', deps)
+    expect(res).toBeNull()
+    expect(ctx.res.statusCode).toBe(403)
+    expect(ctx.res.body).toEqual({ error: 'revoked_admin_impersonation' })
+  })
+
+  it('A3: impersonation with role=read-self also passes (OWNER → all caps)', async () => {
+    const exp = Math.floor(Date.now() / 1000) + 1800
+    const token = generateToken(
+      CALLER as any,
+      WORKSPACE as any,
+      impersonationExtra(CALLER, exp),
+      undefined,
+      { exp }
+    )
+    const ctx = makeCtx({ authHeader: bearer(token) })
+    const deps = makeDeps({ isInstanceAdmin: () => true })
+    const res = await authenticateWac(ctx as any, WORKSPACE, 'read-self', deps)
+    expect(res?.role).toBe('OWNER')
+    expect(res?.impersonation).toBe(true)
   })
 })
