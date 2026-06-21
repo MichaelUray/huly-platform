@@ -74,6 +74,16 @@ export {
   tabsForRole
 } from './stores/roleStore'
 
+// Wave 7 / B4 — refetch + demoted-banner helpers consumed by
+// setting-resources/AccessCenterPage.svelte.
+export {
+  roleHierarchy,
+  isDemote,
+  makeThrottle,
+  ACCESS_REFETCH_INTERVAL_MS
+} from './util/accessRefresh'
+export type { ThrottleGate } from './util/accessRefresh'
+
 // Types
 export type {
   WorkspaceRole,

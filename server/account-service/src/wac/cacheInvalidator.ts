@@ -129,14 +129,30 @@ export function createWacCacheInvalidator (opts: WacCacheInvalidatorOptions): Wa
         // affected client refetches its capability set on the next
         // reactive tick.
         //
+        // Consumer contract (Wave 7 / B4):
+        //   `setting-resources/AccessCenterPage.svelte` subscribes to
+        //   `core.space.Workspace` Space-doc updates via
+        //   `presentation.createQuery`. Any update (including this
+        //   marker write) triggers a re-fetch of `/api/wac/<ws>/my-access`,
+        //   which re-hydrates `roleStore` so downstream UI re-renders
+        //   without a page reload. If the refetched role is LOWER than
+        //   the in-memory snapshot, the page surfaces a non-dismissable
+        //   "Your access has changed. Reload." banner.
+        //
+        //   Reconnect events (`addRefreshListener` in @hcengineering/
+        //   presentation) are a SECONDARY trigger for the same refetch
+        //   — they recover any TxUpdateDoc broadcasts that were missed
+        //   while the WebSocket was disconnected.
+        //
         // Acknowledged design caveat (intentional side-channel): the
         // `wacInvalidationTick` field is not part of the Workspace
         // model. We rely on the transactor accepting unknown attributes
         // in DocumentUpdate. If a future Workspace model declares this
         // field formally, switch to that. Until then, the transactor's
-        // leniency for unknown attributes is sufficient — the broadcast
-        // is the only behavior we depend on; no consumer code reads
-        // the value.
+        // leniency for unknown attributes is sufficient — the consumer
+        // refetches on any Workspace-doc update and never inspects the
+        // tick value itself, so the exact field name is contract-
+        // irrelevant; only the broadcast matters.
         const marker = {
           wacInvalidationTick: now()
         }

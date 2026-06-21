@@ -123,7 +123,15 @@ const wac = plugin(wacPluginId, {
     // (D5: MAINTAINER is read-only, not an admin in the WAC sense).
     // Pluralization handled by ICU `plural` in the IntlString value.
     LastOwnerCannotDemote: '' as IntlString,
-    LastOwnerHint: '' as IntlString
+    LastOwnerHint: '' as IntlString,
+
+    // Wave 7 / B4 — demoted-banner shown when the live refetch reveals
+    // the user's workspace role dropped (e.g. an Owner demoted them
+    // while the page was open). Non-dismissable; the only safe
+    // recovery is a hard reload because in-memory roleStore consumers
+    // may have already painted edit affordances.
+    AccessChangedBanner: '' as IntlString,
+    Reload: '' as IntlString
   }
 })
 
