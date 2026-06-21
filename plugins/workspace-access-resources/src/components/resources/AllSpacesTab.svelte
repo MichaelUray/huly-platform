@@ -1,11 +1,12 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { EditBox, Label } from '@hcengineering/ui'
+  import { Button, EditBox, Label } from '@hcengineering/ui'
   import type { IntlString } from '@hcengineering/platform'
   import { EntityTable, type EntityColumn } from '@hcengineering/access-management-ui'
   import wac from '../../plugin'
   import { resourcesApi } from '../../api/resourcesApi'
   import SpaceTypeIcon from './SpaceTypeIcon.svelte'
+  import InheritanceTreeModal from './InheritanceTreeModal.svelte'
   import type { SpaceRow } from '../../types'
 
   export let workspace: string
@@ -28,6 +29,9 @@
   // placeholder rows (chat/office/guest-link) are sticky info-rows and
   // are NOT filtered — they always appear at the end of the list.
   let searchQuery: string = ''
+  // A4 — read-only inheritance visualizer modal. Toggled by the
+  // "View hierarchy" button in the toolbar.
+  let showHierarchy: boolean = false
 
   const columns: EntityColumn<SpaceRow>[] = [
     { key: '_class', label: 'Type' as any, width: 140 },
@@ -153,6 +157,13 @@
         kind={'search-style'}
       />
     </div>
+    <Button
+      kind={'ghost'}
+      size={'small'}
+      label={wac.string.ViewHierarchy}
+      on:click={() => (showHierarchy = true)}
+      dataId={'wac-view-hierarchy'}
+    />
   </div>
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
   <EntityTable items={filteredSpaces} {columns} {loading} {sort} idKey="_id"
@@ -185,6 +196,18 @@
     </svelte:fragment>
   </EntityTable>
 </div>
+
+{#if showHierarchy}
+  <!-- Hierarchy visualizer shows the full loaded `spaces` list,
+       intentionally NOT the search-filtered subset — the overview
+       question "where does access come from?" needs the whole tree
+       regardless of any narrowing the operator did in the table. -->
+  <InheritanceTreeModal
+    {workspace}
+    {spaces}
+    on:close={() => (showHierarchy = false)}
+  />
+{/if}
 
 <style lang="scss">
   .all-spaces { padding: 1rem 1.25rem; }

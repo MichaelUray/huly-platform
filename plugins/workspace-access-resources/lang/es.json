@@ -125,6 +125,9 @@
     "AuditActionPresetUpdated": "Preset updated",
     "AuditActionPresetDeleted": "Preset deleted",
     "AuditActionPresetApplied": "Preset applied",
-    "ResourceSearchPlaceholder": "Buscar recursos…"
+    "ResourceSearchPlaceholder": "Buscar recursos…",
+    "ViewHierarchy": "View hierarchy",
+    "InheritanceTreeTitle": "Resource hierarchy",
+    "InheritanceTreeEmpty": "No resources to visualize"
   }
 }
