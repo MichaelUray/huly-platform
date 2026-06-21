@@ -769,12 +769,16 @@ export function serveAccount (
         const [db] = await accountsDb
         const token = extractToken(ctx.request.headers) ?? ''
         await assertAdmin(measureCtx, db, token)
-        const body: any = (ctx.request as any).body ?? {}
+        // Wave-8 D3 — koa-bodyparser augments ctx.request.body to `any` by
+        // module-augmentation; we keep `Record<string, unknown>` here so the
+        // .workspace / .reason reads are typed without `as any`.
+        const body = (ctx.request.body as Record<string, unknown> | undefined) ?? {}
         const workspaceParam = String(body.workspace ?? '')
         const reason = typeof body.reason === 'string' ? body.reason : null
         const workspaceUuid = await resolveWorkspaceUuid(workspaceParam)
         if (workspaceUuid == null) return json(404, { error: 'workspace_not_found' })
-        const caller = decodeToken(token) as any
+        // decodeToken returns `Token` already — the prior cast was redundant.
+        const caller = decodeToken(token)
         const adminUuid = caller.account ?? 'unknown-admin'
         const now = Math.floor(Date.now() / 1000)
         const exp = now + 30 * 60
@@ -823,7 +827,9 @@ export function serveAccount (
       // return 501 with a stable error code the UI can match on.
       try {
         const token = extractToken(ctx.request.headers) ?? ''
-        const decoded = decodeToken(token) as any
+        // decodeToken returns `Token`; `extra` is `Record<string, any>` so the
+        // jti / impersonation_ref / actor_admin reads are typed.
+        const decoded = decodeToken(token)
         const jti = decoded.extra?.jti
         const refId = decoded.extra?.impersonation_ref
         const adminUuid = decoded.extra?.actor_admin ?? decoded.account
@@ -881,7 +887,7 @@ export function serveAccount (
       // PUT /spaces/<id>/members
       const mPutMembers = sub.match(/^spaces\/([^/]+)\/members$/)
       if (mPutMembers != null && ctx.method === 'PUT') {
-        await wacWriteHandlers.handleSpaceMembers(ctx as any, workspaceUuid, callerUuid, mPutMembers[1], actorAdmin)
+        await wacWriteHandlers.handleSpaceMembers(ctx, workspaceUuid, callerUuid, mPutMembers[1], actorAdmin)
         return
       }
       // PUT /spaces/<id>/owners
