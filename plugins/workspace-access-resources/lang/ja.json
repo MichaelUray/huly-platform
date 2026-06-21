@@ -140,6 +140,11 @@
     "ResourceSearchPlaceholder": "リソース検索…",
     "ViewHierarchy": "View hierarchy",
     "InheritanceTreeTitle": "Resource hierarchy",
-    "InheritanceTreeEmpty": "No resources to visualize"
+    "InheritanceTreeEmpty": "No resources to visualize",
+    "GrantExpiryLabel": "有効期限",
+    "GrantExpiryNever": "無期限",
+    "GrantExpiresIn": "残り {duration}",
+    "GrantExpired": "期限切れ(まもなく削除)",
+    "GrantExpiryInPast": "有効期限は未来でなければなりません。"
   }
 }

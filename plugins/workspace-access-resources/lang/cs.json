@@ -140,6 +140,11 @@
     "ResourceSearchPlaceholder": "Hledat zdroje…",
     "ViewHierarchy": "View hierarchy",
     "InheritanceTreeTitle": "Resource hierarchy",
-    "InheritanceTreeEmpty": "No resources to visualize"
+    "InheritanceTreeEmpty": "No resources to visualize",
+    "GrantExpiryLabel": "Vyprší",
+    "GrantExpiryNever": "Bez expirace",
+    "GrantExpiresIn": "Vyprší za {duration}",
+    "GrantExpired": "Vypršelo (bude brzy odstraněno)",
+    "GrantExpiryInPast": "Expirace musí být v budoucnu."
   }
 }

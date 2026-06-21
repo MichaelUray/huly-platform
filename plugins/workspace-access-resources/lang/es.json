@@ -140,6 +140,11 @@
     "ResourceSearchPlaceholder": "Buscar recursos…",
     "ViewHierarchy": "View hierarchy",
     "InheritanceTreeTitle": "Resource hierarchy",
-    "InheritanceTreeEmpty": "No resources to visualize"
+    "InheritanceTreeEmpty": "No resources to visualize",
+    "GrantExpiryLabel": "Caduca",
+    "GrantExpiryNever": "Nunca caduca",
+    "GrantExpiresIn": "Caduca en {duration}",
+    "GrantExpired": "Caducado (será eliminado pronto)",
+    "GrantExpiryInPast": "La caducidad debe ser en el futuro."
   }
 }

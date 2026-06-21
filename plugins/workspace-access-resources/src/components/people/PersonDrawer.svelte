@@ -18,7 +18,27 @@
   import { effectivePermissionsApi, type EffectivePermissionsResponse } from '../../api/effectivePermissionsApi'
   import { grantedAccessApi } from '../../api/grantedAccessApi'
   import type { GrantRow, WorkspaceRole } from '../../types'
-  import { wacStrings, formatGrantExpiryStatus } from '../../i18n'
+
+  // Inline duration humaniser (d/h/m). Was previously in src/i18n.ts;
+  // pulled into the component since the rest of the strings now come
+  // through the standard wac.string IntlString machinery.
+  function humaniseDuration (ms: number): string {
+    const sec = Math.floor(ms / 1000)
+    const min = Math.floor(sec / 60)
+    const hr = Math.floor(min / 60)
+    const day = Math.floor(hr / 24)
+    if (day >= 1) return `${day}d`
+    if (hr >= 1) return `${hr}h`
+    if (min >= 1) return `${min}m`
+    return '<1m'
+  }
+
+  function expiryClass (expiresAt: string | null, now: number): 'never' | 'expiring' | 'expired' {
+    if (expiresAt === null) return 'never'
+    const t = Date.parse(expiresAt)
+    if (Number.isNaN(t)) return 'never'
+    return t <= now ? 'expired' : 'expiring'
+  }
 
   export let workspace: string
   export let person: { uuid: string, name: string, role: WorkspaceRole } | null = null
@@ -120,7 +140,12 @@
     expiryError = null
   }
 
-  $: expiryStatus = grant !== null ? formatGrantExpiryStatus(grant.expiresAt, Date.now()) : null
+  $: expiryKind = grant !== null ? expiryClass(grant.expiresAt, Date.now()) : 'never'
+  $: expiryDurationParam = (
+    grant !== null && grant.expiresAt !== null
+      ? { duration: humaniseDuration(Math.max(0, Date.parse(grant.expiresAt) - Date.now())) }
+      : { duration: '' }
+  )
 
   function isoToLocalInput (iso: string): string {
     const d = new Date(iso)
@@ -141,7 +166,7 @@
     expiryError = null
     const iso = localInputToIso(expiryInput)
     if (iso !== null && Date.parse(iso) <= Date.now()) {
-      expiryError = wacStrings.grantExpiryInPast
+      expiryError = 'past'
       return
     }
     expiryBusy = true
@@ -321,12 +346,18 @@
 
       {#if showExpiry && grant !== null}
         <section class="section">
-          <h3>{wacStrings.grantExpiryLabel}</h3>
-          {#if expiryStatus !== null}
-            <p class="status {expiryStatus.kind}">{expiryStatus.text}</p>
-          {/if}
+          <h3><Label label={wac.string.GrantExpiryLabel} /></h3>
+          <p class="status {expiryKind}">
+            {#if expiryKind === 'never'}
+              <Label label={wac.string.GrantExpiryNever} />
+            {:else if expiryKind === 'expired'}
+              <Label label={wac.string.GrantExpired} />
+            {:else}
+              <Label label={wac.string.GrantExpiresIn} params={expiryDurationParam} />
+            {/if}
+          </p>
           <div class="row">
-            <label for="expiry-input">{wacStrings.grantExpiryLabel}</label>
+            <label for="expiry-input"><Label label={wac.string.GrantExpiryLabel} /></label>
             <input
               id="expiry-input"
               type="datetime-local"
@@ -335,7 +366,13 @@
             />
           </div>
           {#if expiryError !== null}
-            <p class="err" role="alert">{expiryError}</p>
+            <p class="err" role="alert">
+              {#if expiryError === 'past'}
+                <Label label={wac.string.GrantExpiryInPast} />
+              {:else}
+                {expiryError}
+              {/if}
+            </p>
           {/if}
           <div class="row">
             <button class="primary" on:click={applyExpiry} disabled={expiryBusy}>
