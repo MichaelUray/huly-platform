@@ -105,6 +105,25 @@
     "AuditActionGrantRevoked": "Grant revoked",
     "AuditActionTokenRevoked": "Token revoked",
     "AuditFilterFrom": "Von",
-    "AuditFilterTo": "Bis"
+    "AuditFilterTo": "Bis",
+    "PresetsTab": "Vorlagen",
+    "PresetCreate": "Vorlage erstellen",
+    "PresetEdit": "Vorlage bearbeiten",
+    "PresetApply": "Vorlage anwenden",
+    "PresetEmptyState": "Noch keine Vorlagen. Erstellen Sie eine Rollen+Spaces-Vorlage, um sie mit einem Klick auf Mitglieder anzuwenden.",
+    "PresetName": "Name",
+    "PresetDescription": "Beschreibung",
+    "PresetRole": "Zugewiesene Rolle",
+    "PresetSpaces": "Zu Spaces hinzufügen",
+    "PresetDelete": "Löschen",
+    "PresetConfirmDeleteTitle": "Vorlage \"{name}\" löschen?",
+    "PresetConfirmDeleteMessage": "Die Vorlage wird entfernt. Bereits angewendete Mitglieder sind NICHT betroffen.",
+    "PresetApplyMembersLabel": "Mitglieder-UUIDs (eine pro Zeile)",
+    "PresetApplySummary": "Auf {applied} von {total} Mitgliedern angewendet.",
+    "PresetSpacesHint": "Komma-getrennte Space-IDs, denen die Zielmitglieder hinzugefügt werden.",
+    "AuditActionPresetCreated": "Vorlage erstellt",
+    "AuditActionPresetUpdated": "Vorlage aktualisiert",
+    "AuditActionPresetDeleted": "Vorlage gelöscht",
+    "AuditActionPresetApplied": "Vorlage angewendet"
   }
 }

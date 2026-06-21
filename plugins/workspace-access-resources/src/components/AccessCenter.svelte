@@ -19,6 +19,7 @@
   import MyAccessView from './my-access/MyAccessView.svelte'
   import AuditView from './audit/AuditView.svelte'
   import GuestSettingsView from './guestSettings/GuestSettingsView.svelte'
+  import PresetsView from './presets/PresetsView.svelte'
   import ImpersonationBanner from './impersonation/ImpersonationBanner.svelte'
   import AssumeRoleModal from './impersonation/AssumeRoleModal.svelte'
   import ExpiredModal from './impersonation/ExpiredModal.svelte'
@@ -80,7 +81,8 @@
     resources: wac.string.Resources,
     'my-access': wac.string.MyAccess,
     audit: wac.string.Audit,
-    'guest-settings': wac.string.GuestSettings
+    'guest-settings': wac.string.GuestSettings,
+    presets: wac.string.PresetsTab
   }
 
   $: tabs = tabsForRole($effectiveRole)
@@ -183,6 +185,8 @@
             <AuditView {workspace} canExport={canExportAudit} />
           {:else if active === 'guest-settings'}
             <GuestSettingsView editorComponent={guestSettingsComponent} {canEdit} />
+          {:else if active === 'presets'}
+            <PresetsView {workspace} {canEdit} />
           {/if}
         </div>
       </Scroller>

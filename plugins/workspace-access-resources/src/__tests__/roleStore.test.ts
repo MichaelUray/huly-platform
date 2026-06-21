@@ -78,21 +78,40 @@ describe('role gate helpers', () => {
       'resources',
       'my-access',
       'audit',
-      'guest-settings'
+      'guest-settings',
+      'presets'
     ])
   })
 
-  it('tabsForRole gives IMPERSONATING_ADMIN the same 5-tab Owner surface', () => {
+  it('tabsForRole gives IMPERSONATING_ADMIN the same 6-tab Owner surface', () => {
     // Phase 2.5 — impersonation grants Owner-equivalent privileges
-    // (every action dual-audited); the guest-settings tab MUST be
-    // visible so the impersonator can fix a misconfigured workspace.
+    // (every action dual-audited); both Owner-only tabs MUST be
+    // visible so the impersonator can fix a misconfigured workspace
+    // and apply remediation presets.
     expect(tabsForRole('IMPERSONATING_ADMIN')).toEqual([
       'people',
       'resources',
       'my-access',
       'audit',
-      'guest-settings'
+      'guest-settings',
+      'presets'
     ])
+  })
+
+  it('tabsForRole hides the presets tab for everyone except OWNER/IMPERSONATING_ADMIN', () => {
+    // Presets apply bulk role/space changes — Owner gate, same as
+    // guest-settings. Read-only roles + the blue drill-down banner
+    // must not see the surface.
+    for (const r of [
+      'MAINTAINER',
+      'MAINTAINER_PLUS_SPACE_OWNER',
+      'INSTANCE_ADMIN_READONLY',
+      'USER_SELF_SCOPED',
+      'SPACE_OWNER_SCOPED',
+      'GUEST'
+    ] as const) {
+      expect(tabsForRole(r)).not.toContain('presets')
+    }
   })
 
   it('tabsForRole gives Maintainer read of all surfaces but NO guest-settings', () => {

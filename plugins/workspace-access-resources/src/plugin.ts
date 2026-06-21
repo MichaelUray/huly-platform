@@ -205,7 +205,32 @@ const wac = plugin(wacPluginId, {
     AuditActionImpersonationIdorAttempt: '' as IntlString,
     AuditActionImpersonationReplayAttempt: '' as IntlString,
     AuditActionGrantRevoked: '' as IntlString,
-    AuditActionTokenRevoked: '' as IntlString
+    AuditActionTokenRevoked: '' as IntlString,
+
+    // Permission Templates (Presets) — 6th Owner-only tab.
+    // The 5 keys requested by spec (Tab/Create/Edit/Apply/EmptyState) plus
+    // a small set of action/field/result labels the PresetsView surface
+    // needs. German values are translated; other locales fall back to the
+    // English baseline per the locale-completeness contract.
+    PresetsTab: '' as IntlString,
+    PresetCreate: '' as IntlString,
+    PresetEdit: '' as IntlString,
+    PresetApply: '' as IntlString,
+    PresetEmptyState: '' as IntlString,
+    PresetName: '' as IntlString,
+    PresetDescription: '' as IntlString,
+    PresetRole: '' as IntlString,
+    PresetSpaces: '' as IntlString,
+    PresetDelete: '' as IntlString,
+    PresetConfirmDeleteTitle: '' as IntlString,
+    PresetConfirmDeleteMessage: '' as IntlString,
+    PresetApplyMembersLabel: '' as IntlString,
+    PresetApplySummary: '' as IntlString,
+    PresetSpacesHint: '' as IntlString,
+    AuditActionPresetCreated: '' as IntlString,
+    AuditActionPresetUpdated: '' as IntlString,
+    AuditActionPresetDeleted: '' as IntlString,
+    AuditActionPresetApplied: '' as IntlString
   }
 })
 

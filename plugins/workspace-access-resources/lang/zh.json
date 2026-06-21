@@ -105,6 +105,25 @@
     "AuditActionGrantRevoked": "Grant revoked",
     "AuditActionTokenRevoked": "Token revoked",
     "AuditFilterFrom": "从",
-    "AuditFilterTo": "到"
+    "AuditFilterTo": "到",
+    "PresetsTab": "Presets",
+    "PresetCreate": "Create preset",
+    "PresetEdit": "Edit preset",
+    "PresetApply": "Apply preset",
+    "PresetEmptyState": "No presets yet. Create a Role+Spaces template to apply it to members in one click.",
+    "PresetName": "Name",
+    "PresetDescription": "Description",
+    "PresetRole": "Role to assign",
+    "PresetSpaces": "Add to spaces",
+    "PresetDelete": "Delete",
+    "PresetConfirmDeleteTitle": "Delete preset \"{name}\"?",
+    "PresetConfirmDeleteMessage": "This will remove the template. Members already configured via this preset are NOT affected.",
+    "PresetApplyMembersLabel": "Member UUIDs (one per line)",
+    "PresetApplySummary": "Applied to {applied} of {total} members.",
+    "PresetSpacesHint": "Comma-separated space IDs to add the target member(s) to.",
+    "AuditActionPresetCreated": "Preset created",
+    "AuditActionPresetUpdated": "Preset updated",
+    "AuditActionPresetDeleted": "Preset deleted",
+    "AuditActionPresetApplied": "Preset applied"
   }
 }
