@@ -7,7 +7,9 @@
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
+  import { Button } from '@hcengineering/ui'
   import { EntityTable, type EntityColumn } from '@hcengineering/access-management-ui'
+  import wac from '../../plugin'
   import { peopleApi } from '../../api/peopleApi'
   import type { MemberRow } from '../../types'
 
@@ -21,6 +23,7 @@
   let items: MemberRow[] = []
   let cursor: string | null = null
   let loading: boolean = true
+  let loadingMore: boolean = false
   let error: string | null = null
   let sort: { field: string, direction: 'asc' | 'desc' } | undefined
 
@@ -42,6 +45,28 @@
       error = e instanceof Error ? e.message : String(e)
     } finally {
       loading = false
+    }
+  }
+
+  // Polish-3 — page through additional members using the opaque `cursor`
+  // returned by listMembers. Selection is preserved across loads: the
+  // parent PeopleView holds `selectedIds` and we never reset it here.
+  async function loadNext (): Promise<void> {
+    if (cursor == null || loadingMore) return
+    loadingMore = true
+    error = null
+    try {
+      const res = await peopleApi.listMembers(workspace, {
+        filter: preset,
+        sort: sort?.field,
+        cursor
+      })
+      items = [...items, ...res.items]
+      cursor = res.cursor
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e)
+    } finally {
+      loadingMore = false
     }
   }
 
@@ -93,10 +118,27 @@
       {/if}
     </svelte:fragment>
   </EntityTable>
+  {#if cursor != null && !loading}
+    <div class="load-more">
+      <Button
+        kind={'ghost'}
+        size={'small'}
+        label={wac.string.LoadMore}
+        loading={loadingMore}
+        disabled={loadingMore}
+        on:click={loadNext}
+      />
+    </div>
+  {/if}
 </div>
 
 <style lang="scss">
   .all-members-tab { padding: 1rem 1.25rem; }
+  .load-more {
+    display: flex;
+    justify-content: center;
+    padding: 0.75rem 0 0;
+  }
   .err {
     padding: 0.75rem;
     background: var(--theme-state-negative-background-color);
