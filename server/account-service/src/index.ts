@@ -1090,6 +1090,35 @@ export function serveAccount (
         await wacReadHandlers.handleMyAccess(ctx, workspaceUuid, callerUuid, auth.role)
         return
       }
+      if (sub === 'effective-permissions') {
+        // Tier-1 stub: returns a deterministic "private space, user is
+        // a member" allow path so the PersonDrawer drilldown renders.
+        // Swap for the plugin's `effectivePermissions(ctx, params,
+        // backend)` call once the backend is wired against accounts-db
+        // + transactor. Auth already gates to OWNER + IMPERSONATING_ADMIN
+        // via the `edit` capability above (the plugin's narrower
+        // DRILLDOWN_ALLOWED_ROLES enforces the real rule once wired).
+        const userUuid = (ctx.query.user as string | undefined) ?? ''
+        const resourceId = (ctx.query.resource as string | undefined) ?? ''
+        if (userUuid === '' || resourceId === '') {
+          return json(400, { error: 'bad_request', code: 'effective_permissions_bad_request' })
+        }
+        return json(200, {
+          user: { uuid: userUuid, name: '—', role: 'USER' },
+          resource: {
+            id: resourceId,
+            class: 'tracker:class:Project',
+            name: 'Demo Space',
+            private: true,
+            archived: false
+          },
+          decision: 'allow',
+          path: [
+            { step: 'space-member', detail: 'User is listed in space.members (stub fixture)' }
+          ],
+          _workspace: workspaceUuid
+        })
+      }
     } catch (err) {
       measureCtx.error(`wac:/${sub} read failed`, { err: String(err) })
       return json(500, { error: 'internal', detail: 'wac_read_failed' })
