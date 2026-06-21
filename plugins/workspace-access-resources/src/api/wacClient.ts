@@ -89,19 +89,52 @@ export function getDefaultWacClient (): WacClient {
 }
 
 /**
+ * Caller-provided getter for the regular (non-impersonation) workspace
+ * bearer token. Registered once by the Huly workbench at WAC mount time
+ * (typically: `() => getMetadata(presentation.metadata.Token)`) so
+ * `wacClient.ts` does NOT import `@hcengineering/presentation` directly
+ * — that import would drag Svelte components into jest's module graph
+ * and break unit tests.
+ *
+ * If unregistered, `getEffectiveBearerToken` falls back to
+ * `sessionStorage['huly:token'] || sessionStorage['wac:token']`.
+ */
+let regularTokenGetter: (() => string | null | undefined) | null = null
+
+export function setRegularTokenGetter (getter: () => string | null | undefined): void {
+  regularTokenGetter = getter
+}
+
+/**
  * Returns the effective bearer token for outbound requests — the
- * impersonation token if active, else whatever the registered WAC
- * client's `getToken` returns (the regular workspace token). Used by
- * the CSV export button which needs to authenticate every request
- * (the previous version sent NO Authorization header when there was
- * no impersonation session, breaking exports for regular Owner /
- * Maintainer callers).
+ * A3 impersonation token if active, else the workbench-supplied
+ * regular workspace token. Used both by the CSV export button
+ * (direct fetch) and by the default WacClient `getToken` hook in
+ * AccessCenterPage so every WAC API module (myAccess / people /
+ * resources / audit / grantedAccess) automatically picks up the
+ * impersonation token without per-module changes.
+ *
+ * IMPORTANT: this MUST NOT delegate back to `getDefaultWacClient().getToken`
+ * — the default client's `getToken` hook itself calls
+ * `getEffectiveBearerToken`, so doing so creates infinite recursion.
  */
 export function getEffectiveBearerToken (): string | null {
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && window.sessionStorage != null) {
     const imp = window.sessionStorage.getItem('wac:imp:token')
-    if (imp != null) return imp
+    // Treat empty string as "not set" so a UI bug that wrote ''
+    // doesn't silently break Authorization headers.
+    if (imp != null && imp.length > 0) return imp
   }
-  // Fallback to whatever the client is configured to issue.
-  return getDefaultWacClient().getToken() ?? null
+  if (regularTokenGetter != null) {
+    const v = regularTokenGetter()
+    if (typeof v === 'string' && v.length > 0) return v
+  }
+  // Final fallback: session-storage convention used by the legacy
+  // default-client `getToken`. Keeps tests + standalone harnesses
+  // working without forcing them to register a getter.
+  if (typeof window !== 'undefined' && window.sessionStorage != null) {
+    const s = window.sessionStorage.getItem('wac:token') ?? window.sessionStorage.getItem('huly:token')
+    if (s != null && s.length > 0) return s
+  }
+  return null
 }
