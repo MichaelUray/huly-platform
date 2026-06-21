@@ -1,8 +1,17 @@
 import { migrations } from '../migrations/loader'
 
 describe('migrations', () => {
-  it('has V31, V32, V33, V34 in order', () => {
-    expect(migrations.map((m) => m.id)).toEqual(['V31', 'V32', 'V33', 'V34'])
+  it('has V31, V32, V33, V34, V35 in order', () => {
+    expect(migrations.map((m) => m.id)).toEqual(['V31', 'V32', 'V33', 'V34', 'V35'])
+  })
+
+  it('V35 creates workspace_access_webhooks table + (workspace, active) index', () => {
+    const v35 = migrations[4].sql
+    expect(v35).toContain('CREATE TABLE IF NOT EXISTS workspace_access_webhooks')
+    expect(v35).toContain('event_types TEXT[]')
+    expect(v35).toContain("data_filter TEXT NOT NULL DEFAULT 'minimal'")
+    expect(v35).toContain('idx_webhooks_ws')
+    expect(v35).toContain('(workspace, active)')
   })
 
   it('V31 creates workspace_audit_log with hash-sharded primary key', () => {
