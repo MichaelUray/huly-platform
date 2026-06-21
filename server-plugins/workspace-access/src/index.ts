@@ -94,6 +94,19 @@ export type {
   WriteMeasureCtxLike
 } from './http/writeRouter'
 
+// Permission Templates (a.k.a. Role+Spaces Presets). Workspace-local list
+// of reusable role/space templates an Owner can apply to selected members.
+// Tier-1 shape: { role, addToSpaces } — see http/presetsRouter.ts.
+export { createWacPresetsHandlers, validateShape } from './http/presetsRouter'
+export type {
+  WacPresetsHandlers,
+  PresetShape,
+  PresetWireRole,
+  PresetRow,
+  ApplyResult,
+  ApplyResultStatus
+} from './http/presetsRouter'
+
 // M2 — shared audit-row INSERT used by every WAC audit call-site.
 // Hosts that issue their own audit rows (e.g. impersonation lifecycle in
 // account-service) should call `executeWorkspaceAuditInsert` instead of
