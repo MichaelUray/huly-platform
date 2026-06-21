@@ -1,8 +1,8 @@
 import { migrations } from '../migrations/loader'
 
 describe('migrations', () => {
-  it('has V31, V32, V33, V34, V35 in order', () => {
-    expect(migrations.map((m) => m.id)).toEqual(['V31', 'V32', 'V33', 'V34', 'V35'])
+  it('has V31..V36 in order', () => {
+    expect(migrations.map((m) => m.id)).toEqual(['V31', 'V32', 'V33', 'V34', 'V35', 'V36'])
   })
 
   it('V35 creates workspace_access_webhooks table + (workspace, active) index', () => {
@@ -50,6 +50,23 @@ describe('migrations', () => {
     expect(v34).toContain('UNIQUE (workspace, name)')
     expect(v34).toContain('shape       JSONB NOT NULL')
     expect(v34).toContain('idx_workspace_access_presets_ws')
+  })
+
+  it('V36 adds collaborator.expires_at column + partial index', () => {
+    const v36 = migrations[5].sql
+    expect(v36).toContain('ALTER TABLE collaborator')
+    expect(v36).toContain('ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ')
+    expect(v36).toContain('CREATE INDEX IF NOT EXISTS idx_collaborator_expires')
+    // Partial index — only non-NULL rows are tracked, keeps the prune
+    // job's scan cheap on workspaces with millions of permanent grants.
+    expect(v36).toContain('WHERE expires_at IS NOT NULL')
+  })
+
+  it('V36 is wrapped in a presence check for the collaborator table', () => {
+    const v36 = migrations[5].sql
+    // No-op on installs that do not yet have a collaborator table —
+    // matches the V33 pattern for the workspaces guard.
+    expect(v36).toContain("table_name = 'collaborator'")
   })
 
   it('all migrations are forward-only with IF NOT EXISTS guards', () => {

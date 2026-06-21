@@ -61,7 +61,7 @@ export type {
   AdminAuditWriter
 } from './impersonation'
 
-export { listGrants, countGrants, revokeGrant } from './endpoints/grantEndpoints'
+export { listGrants, countGrants, revokeGrant, setGrantExpiry } from './endpoints/grantEndpoints'
 export type { GrantRow, GrantBackend, GrantCtx } from './endpoints/grantEndpoints'
 
 export { effectivePermissions } from './endpoints/effectivePermissions'
@@ -78,6 +78,22 @@ export type {
   EffectivePermissionsRole,
   EffectivePermissionsAuditEntry
 } from './endpoints/effectivePermissions'
+
+// Time-bounded grants — periodic prune job that removes rows whose
+// expires_at has passed. Hosts wire this into their lifecycle so the
+// schedule survives restarts; see account-service/src/wac for the
+// canonical wiring.
+export {
+  runExpiredGrantPruneOnce,
+  startExpiredGrantPruner,
+  DEFAULT_PRUNE_INTERVAL_MS
+} from './backfill/expiredGrantPruner'
+export type {
+  ExpiredGrantPrunerDeps,
+  ExpiredGrantPrunerHandle,
+  ExpiredGrantRow,
+  PruneResult
+} from './backfill/expiredGrantPruner'
 
 export { v33BackfillWorkspace, MAX_RETRIES } from './backfill/v33Orchestrator'
 export type {
