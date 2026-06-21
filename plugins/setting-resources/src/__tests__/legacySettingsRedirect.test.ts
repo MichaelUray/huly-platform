@@ -59,10 +59,16 @@ describe('Phase 2 T1 — legacy Settings shims', () => {
       expect(src).toMatch(/initialSub=["']all["']/)
     })
 
-    it('Spaces.svelte mounts AccessCenterPage with initialTab="resources"', () => {
+    it('Spaces.svelte keeps the legacy AccountArrayEditor + per-role table (B2 revert)', () => {
+      // E4 amendment (B2): Codex blocked the Phase 2 shim because the
+      // Access Center → Resources tab does NOT expose role assignments
+      // on `core.space.Space`. The original editor lives on; the
+      // category is hidden in the sidebar via `hidden: true` so the
+      // deep-link stays as the only entry point.
       const src = read(path.join(SETTING_RESOURCES, 'Spaces.svelte'))
-      expect(src).toMatch(/import\s+AccessCenterPage\s+from\s+['"]\.\/AccessCenterPage\.svelte['"]/)
-      expect(src).toMatch(/<AccessCenterPage[^/]*initialTab=["']resources["']/)
+      expect(src).toMatch(/AccountArrayEditor/)
+      expect(src).toMatch(/updateMixin\s*\(/)
+      expect(src).not.toMatch(/import\s+AccessCenterPage\s+from\s+['"]\.\/AccessCenterPage\.svelte['"]/)
     })
 
     it('GuestPermissionsSettings.svelte mounts AccessCenterPage with initialTab="guest-settings"', () => {
