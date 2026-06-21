@@ -29,6 +29,16 @@
     {}
   )
 
+  // Polish-4 — per-sub-tab empty-state copy so filtered views show
+  // "No private spaces." rather than the generic "No spaces yet."
+  $: emptyLabel = (
+    sub === 'private' ? wac.string.EmptyPrivateSpaces :
+    sub === 'public' ? wac.string.EmptyPublicSpaces :
+    sub === 'archived' ? wac.string.EmptyArchivedSpaces :
+    sub === 'auto-join' ? wac.string.EmptyAutoJoinSpaces :
+    wac.string.EmptyAllSpaces
+  )
+
   function onRowClick (e: CustomEvent<{ spaceId: string }>): void {
     drawerSpaceId = e.detail.spaceId
     drawerOpen = true
@@ -46,7 +56,7 @@
     />
   </div>
 
-  <AllSpacesTab {workspace} {preset} on:rowClick={onRowClick} />
+  <AllSpacesTab {workspace} {preset} {emptyLabel} on:rowClick={onRowClick} />
 
   <SpaceDrawer
     {workspace}

@@ -165,7 +165,23 @@ const wac = plugin(wacPluginId, {
 
     // Polish-3: Load-more button under paginated tables (peopleApi +
     // resourcesApi pagination via opaque `cursor`).
-    LoadMore: '' as IntlString
+    LoadMore: '' as IntlString,
+
+    // Polish-4: per-sub-tab empty-state strings, rendered via the
+    // EntityTable `empty` slot. PendingInvites, GrantedAccess and the
+    // Resources sub-tabs each get their own copy so the message is
+    // contextually meaningful (vs. the generic "No results match" the
+    // table shell defaults to).
+    EmptyAllMembers: '' as IntlString,
+    EmptyByRole: '' as IntlString,
+    EmptyInactive: '' as IntlString,
+    EmptyGranted: '' as IntlString,
+    EmptyPending: '' as IntlString,
+    EmptyAllSpaces: '' as IntlString,
+    EmptyPrivateSpaces: '' as IntlString,
+    EmptyPublicSpaces: '' as IntlString,
+    EmptyArchivedSpaces: '' as IntlString,
+    EmptyAutoJoinSpaces: '' as IntlString
   }
 })
 

@@ -7,7 +7,8 @@
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { Button } from '@hcengineering/ui'
+  import { Button, Label } from '@hcengineering/ui'
+  import type { IntlString } from '@hcengineering/platform'
   import { EntityTable, type EntityColumn } from '@hcengineering/access-management-ui'
   import wac from '../../plugin'
   import { peopleApi } from '../../api/peopleApi'
@@ -17,6 +18,9 @@
   export let preset: Record<string, unknown> = {}
   export let selectable: boolean = true
   export let selectedIds: Set<string> = new Set()
+  // Polish-4 — sub-tab-specific empty-state label (defaults to the
+  // generic All-Members copy). ByRole + Inactive override this.
+  export let emptyLabel: IntlString = wac.string.EmptyAllMembers
 
   const dispatch = createEventDispatcher<{ rowClick: { uuid: string }, selectionChange: Set<string> }>()
 
@@ -104,6 +108,9 @@
     on:rowClick={onRowClick}
     on:selectionChange={onSelection}
   >
+    <svelte:fragment slot="empty">
+      <Label label={emptyLabel} />
+    </svelte:fragment>
     <svelte:fragment slot="cell" let:item let:col>
       {#if String(col.key) === 'role'}
         <span class="role role-{(item.role || '').toLowerCase().replace(/_/g, '-')}">

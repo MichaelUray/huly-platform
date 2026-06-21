@@ -1,5 +1,6 @@
 <script lang="ts">
   import AllMembersTab from './AllMembersTab.svelte'
+  import wac from '../../plugin'
   import type { WorkspaceRole } from '../../types'
 
   export let workspace: string
@@ -8,4 +9,10 @@
   $: preset = { roleIn: roles }
 </script>
 
-<AllMembersTab {workspace} {preset} on:rowClick on:selectionChange />
+<AllMembersTab
+  {workspace}
+  {preset}
+  emptyLabel={wac.string.EmptyByRole}
+  on:rowClick
+  on:selectionChange
+/>

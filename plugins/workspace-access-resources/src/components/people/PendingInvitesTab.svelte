@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { Label } from '@hcengineering/ui'
   import { EntityTable, type EntityColumn } from '@hcengineering/access-management-ui'
+  import wac from '../../plugin'
   import { peopleApi } from '../../api/peopleApi'
   import type { PendingInvite } from '../../types'
 
@@ -31,7 +33,11 @@
 
 <div class="pending">
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
-  <EntityTable items={items} {columns} {loading} idKey="id" />
+  <EntityTable items={items} {columns} {loading} idKey="id">
+    <svelte:fragment slot="empty">
+      <Label label={wac.string.EmptyPending} />
+    </svelte:fragment>
+  </EntityTable>
 </div>
 
 <style lang="scss">
