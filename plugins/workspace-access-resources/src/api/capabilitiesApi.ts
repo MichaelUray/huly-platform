@@ -27,6 +27,13 @@ export interface WacCapabilities {
     grantExpiry: boolean
     csvDispatch: boolean
     effectivePermissions: boolean
+    /**
+     * FIX 4 — gates the "Leave space" + "Decline grant" buttons in
+     * MyAccessView. Server routes return 501 my_access_mutations_not_wired
+     * until the per-caller mutation backend is wired; UI hides the
+     * buttons when this is false.
+     */
+    myAccessMutations: boolean
   }
 }
 
@@ -37,7 +44,7 @@ const DEFAULT_PREVIEW_HIDDEN: WacCapabilities = {
     auditFilter: true, inheritanceTree: true, resourceSearch: true, csvDryRun: true
   },
   preview: {
-    webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false
+    webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false
   }
 }
 

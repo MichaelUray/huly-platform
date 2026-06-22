@@ -953,7 +953,7 @@ describe('readRouter — handleCapabilities (E7 amendment)', () => {
     const { ctx, captured } = makeCtx()
     const handlers = buildHandlers()
     await handlers.handleCapabilities(ctx, 'ws-1', {
-      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false
     })
     expect(captured.status).toBe(200)
     expect(captured.body).toMatchObject({
@@ -962,7 +962,7 @@ describe('readRouter — handleCapabilities (E7 amendment)', () => {
         accessCenter: true, presets: true, resourceBulkBar: true,
         auditFilter: true, inheritanceTree: true, resourceSearch: true, csvDryRun: true
       },
-      preview: { webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false }
+      preview: { webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false }
     })
   })
 
@@ -970,10 +970,30 @@ describe('readRouter — handleCapabilities (E7 amendment)', () => {
     const { ctx, captured } = makeCtx()
     const handlers = buildHandlers()
     await handlers.handleCapabilities(ctx, 'ws-1', {
-      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false
+      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false, myAccessMutations: false
     })
     expect(captured.body.preview).toEqual({
-      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false
+      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false, myAccessMutations: false
     })
+  })
+
+  it('FIX 4 — surfaces myAccessMutations flag separately from csvDispatch', async () => {
+    const { ctx, captured } = makeCtx()
+    const handlers = buildHandlers()
+    await handlers.handleCapabilities(ctx, 'ws-1', {
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: true
+    })
+    expect(captured.body.preview).toEqual({
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: true
+    })
+  })
+
+  it('FIX 4 — myAccessMutations defaults to false (preview-hidden) when operator does not opt in', async () => {
+    const { ctx, captured } = makeCtx()
+    const handlers = buildHandlers()
+    await handlers.handleCapabilities(ctx, 'ws-1', {
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false
+    })
+    expect(captured.body.preview.myAccessMutations).toBe(false)
   })
 })

@@ -133,6 +133,14 @@ export interface PreviewFeatureFlags {
   grantExpiry: boolean
   csvDispatch: boolean
   effectivePermissions: boolean
+  /**
+   * FIX 4 — gate the "Leave space" + "Decline grant" buttons in the
+   * MyAccessView until the per-caller mutation backend (workspace
+   * collaborator DELETE + grant DELETE) is wired. Host routes return
+   * 501 my_access_mutations_not_wired; the client hides the buttons
+   * when this is false so the dialog never reaches them.
+   */
+  myAccessMutations: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -818,7 +826,8 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
           webhooks: previewFlags.webhooks,
           grantExpiry: previewFlags.grantExpiry,
           csvDispatch: previewFlags.csvDispatch,
-          effectivePermissions: previewFlags.effectivePermissions
+          effectivePermissions: previewFlags.effectivePermissions,
+          myAccessMutations: previewFlags.myAccessMutations
         }
       })
     }
