@@ -1,5 +1,5 @@
 --
--- V34 — Time-bounded Grants (DSGVO Art. 5 Abs. 1 lit. e, Datensparsamkeit).
+-- V36 — Time-bounded Grants (DSGVO Art. 5 Abs. 1 lit. e, Datensparsamkeit).
 --
 -- Adds an optional expiry timestamp to the `collaborator` table.
 --   NULL          → grant is permanent (current behaviour, default)

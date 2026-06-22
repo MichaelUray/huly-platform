@@ -111,6 +111,28 @@ export interface WacReadHandlers {
     workspaceUuid: string,
     rawFilter?: Record<string, unknown>
   ) => Promise<void>
+  /**
+   * Per-workspace capability flags so the client can hide UIs whose
+   * backend isn't really wired yet (E7 amendment). Single source of
+   * truth: each entry maps 1:1 to a UI-section visibility gate. Real
+   * features are always true; preview features default to false but
+   * can be flipped via `WAC_PREVIEW_FEATURES` env-var on the host.
+   *
+   * Granular by feature (NOT one boolean) so we can flip CSV real
+   * without also exposing Webhooks.
+   */
+  handleCapabilities: (
+    ctx: KoaCtxLike,
+    workspaceUuid: string,
+    previewFlags: PreviewFeatureFlags
+  ) => Promise<void>
+}
+
+export interface PreviewFeatureFlags {
+  webhooks: boolean
+  grantExpiry: boolean
+  csvDispatch: boolean
+  effectivePermissions: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +178,12 @@ export interface AuditFilter {
    * `workspaceAuditMapper`.
    */
   action?: string
+  /**
+   * Actor substring (case-insensitive ILIKE on `actor::text`). The
+   * client's AuditView sends this from the Actor-contains EditBox. We
+   * cap length so a runaway paste can't blow up the index scan.
+   */
+  actor?: string
 }
 
 /** ISO-8601 timestamp regex (date or date+time). Rejects anything that
@@ -163,6 +191,8 @@ export interface AuditFilter {
 const ISO_RE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/
 /** Action enum slug regex — lowercase + underscores, no SQL specials. */
 const ACTION_RE = /^[a-z][a-z0-9_]{0,63}$/
+/** Actor substring guard — printable, no SQL specials, capped length. */
+const ACTOR_RE = /^[A-Za-z0-9_.@-]{1,128}$/
 
 /**
  * Validate the optional `from`, `to`, `action` fields out of a
@@ -182,6 +212,8 @@ export function parseAuditFilter (raw: Record<string, unknown> | undefined): Aud
   if (typeof to === 'string' && ISO_RE.test(to)) f.to = to
   const action = raw.action
   if (typeof action === 'string' && ACTION_RE.test(action)) f.action = action
+  const actor = raw.actor
+  if (typeof actor === 'string' && ACTOR_RE.test(actor)) f.actor = actor
   return f
 }
 
@@ -207,6 +239,14 @@ export function buildAuditWhere (
   if (filter.action != null) {
     params.push(filter.action)
     parts.push(`action = $${params.length}`)
+  }
+  if (filter.actor != null) {
+    // ILIKE on actor::text — the regex guard above already restricts
+    // the alphabet so an unescaped `%` cannot leak in. We still add
+    // anchors-as-wildcards explicitly so the param is treated as a
+    // substring, not a literal match.
+    params.push('%' + filter.actor + '%')
+    parts.push(`actor::text ILIKE $${params.length}`)
   }
   return { sql: parts.join(' AND '), params }
 }
@@ -756,6 +796,31 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
         )
       }
       ctx.res.end()
+    },
+
+    async handleCapabilities (ctx, workspaceUuid, previewFlags) {
+      // Real (always-true) features ship as part of WAC v1; preview
+      // features default to false and only flip when the operator sets
+      // WAC_PREVIEW_FEATURES on the host. Granular per Codex E6 advice:
+      // CSV real-dispatch can land without also exposing Webhooks.
+      json(ctx, 200, {
+        workspace: workspaceUuid,
+        real: {
+          accessCenter: true,
+          presets: true,
+          resourceBulkBar: true,
+          auditFilter: true,
+          inheritanceTree: true,
+          resourceSearch: true,
+          csvDryRun: true
+        },
+        preview: {
+          webhooks: previewFlags.webhooks,
+          grantExpiry: previewFlags.grantExpiry,
+          csvDispatch: previewFlags.csvDispatch,
+          effectivePermissions: previewFlags.effectivePermissions
+        }
+      })
     }
   }
 }
