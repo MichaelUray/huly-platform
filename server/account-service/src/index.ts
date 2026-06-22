@@ -1203,27 +1203,14 @@ export function serveAccount (
 
   // ── WAC outbound webhooks (V35) ─────────────────────────────────────────
   //
-  // CRUD over workspace_access_webhooks subscriptions. Persistence is
-  // currently in-memory while the WAC plugin's PG-backed backend lands
-  // in a follow-up wiring PR; the route shapes + validation are the
-  // contract the UI codes against and stay stable across that swap.
-  //
-  // Gating uses assertAdmin (matches existing stub routes) — equivalent
-  // to OWNER + IMPERSONATING_ADMIN being authorized. The deeper
-  // role-aware gate (getEffectiveRole) lives inside the plugin and
-  // will be re-introduced when the route receives a real RoleCtx in
-  // the wiring PR.
-
-
   // Webhook routes — honest 501 until PG-backed backend + audit
-  // dispatcher integration land. E7 fix for Codex E6 Block: the prior
-  // in-memory backend + fake _wacRouteCtx pattern lied to the plugin's
-  // auth gates (webhookEndpoints expects a real RoleCtx) and silently
-  // dropped on restart. The shape of the future contract is preserved
-  // in the plugin's `webhookEndpoints.ts` exports — wiring PR swaps
-  // these 501s for the real PG-backed flow without touching the route
-  // surface. Auth via the proper WAC 'edit' gate so the failure mode
-  // matches production once the body lands.
+  // dispatcher integration land. E7: previously had an in-memory
+  // backend + assertAdmin gate that lied about persistence and
+  // bypassed the plugin's auth contract. Now all 5 routes go through
+  // authenticateWac(..., 'edit', authDeps) and return 501
+  // webhooks_not_wired. UI is preview-gated via capabilities.webhooks.
+  // Wiring PR swaps these 501s for PG-backed CRUD without touching the
+  // route surface.
   const _webhookNotWired = (ctx: any): void => {
     ctx.res.writeHead(501, KEEP_ALIVE_HEADERS)
     ctx.res.end(JSON.stringify({
