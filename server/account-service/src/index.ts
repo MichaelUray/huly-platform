@@ -46,6 +46,7 @@ import {
   type WacReadDeps,
   createWacWriteHandlers,
   type WacWriteDeps,
+  createWacPresetsHandlers,
   executeWorkspaceAuditInsert
 } from '@hcengineering/server-workspace-access'
 import { startWacExpiredGrantPruner } from './wacExpiredGrantWiring'
@@ -703,6 +704,7 @@ export function serveAccount (
     jsonHeaders: KEEP_ALIVE_HEADERS
   }
   const wacWriteHandlers = createWacWriteHandlers(wacWriteDeps)
+  const wacPresetsHandlers = createWacPresetsHandlers(wacWriteDeps)
 
   async function writeWacAudit (
     workspace: string,
@@ -952,6 +954,28 @@ export function serveAccount (
         await wacWriteHandlers.handleGrantRevoke(ctx as any, workspaceUuid, callerUuid, recipient, resource, actorAdmin)
         return
       }
+      // Presets (Permission Templates) — list/create/update/delete/apply.
+      // Wired here to share the same auth gate + writeDeps as the other
+      // WAC writes. GET is dispatched from the read block below.
+      if (sub === 'presets' && ctx.method === 'POST') {
+        await wacPresetsHandlers.handleCreate(ctx as any, workspaceUuid, callerUuid, actorAdmin)
+        return
+      }
+      if (sub.startsWith('presets/') && ctx.method === 'PUT') {
+        const id = sub.slice('presets/'.length)
+        await wacPresetsHandlers.handleUpdate(ctx as any, workspaceUuid, callerUuid, id, actorAdmin)
+        return
+      }
+      if (sub.startsWith('presets/') && sub.endsWith('/apply') && ctx.method === 'POST') {
+        const id = sub.slice('presets/'.length, -'/apply'.length)
+        await wacPresetsHandlers.handleApply(ctx as any, workspaceUuid, callerUuid, id, actorAdmin)
+        return
+      }
+      if (sub.startsWith('presets/') && ctx.method === 'DELETE') {
+        const id = sub.slice('presets/'.length)
+        await wacPresetsHandlers.handleDelete(ctx as any, workspaceUuid, callerUuid, id, actorAdmin)
+        return
+      }
     } catch (err) {
       measureCtx.warn('WAC write failed', { sub, err: String(err) })
       return json(500, { error: 'write_failed', detail: String(err) })
@@ -1030,7 +1054,8 @@ export function serveAccount (
         : (sub === 'members' || sub === 'spaces' || sub.startsWith('spaces/')
             || sub === 'audit' || sub.startsWith('audit/')
             || sub === 'owners/count' || sub === 'invites'
-            || sub === 'grants' || sub === 'grants/count')
+            || sub === 'grants' || sub === 'grants/count'
+            || sub === 'presets')
             ? 'read'
             : 'edit'
     )
@@ -1117,6 +1142,10 @@ export function serveAccount (
           _workspace: workspaceUuid,
           _query: { user: userUuid, resource: resourceId }
         })
+      }
+      if (sub === 'presets') {
+        await wacPresetsHandlers.handleList(ctx as any, workspaceUuid, callerUuid)
+        return
       }
     } catch (err) {
       measureCtx.error(`wac:/${sub} read failed`, { err: String(err) })
