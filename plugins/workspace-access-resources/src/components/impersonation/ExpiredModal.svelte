@@ -20,7 +20,7 @@
 {/if}
 
 <style lang="scss">
-  .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 985; }
+  .backdrop { position: fixed; inset: 0; background: var(--theme-popup-color); z-index: 985; }
   .modal {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     z-index: 990;

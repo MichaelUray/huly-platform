@@ -167,7 +167,7 @@
     position: fixed;
     inset: 0;
     z-index: 970;
-    background: rgba(0, 0, 0, 0.45);
+    background: var(--theme-popup-color);
     display: flex;
     align-items: center;
     justify-content: center;

@@ -316,7 +316,7 @@
   }
   .failure-uuid {
     font-family: var(--mono-font, monospace);
-    background: rgba(0,0,0,0.08);
+    background: var(--theme-bg-accent-color);
     padding: 0 0.25rem;
     border-radius: 0.15rem;
   }

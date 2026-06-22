@@ -57,6 +57,11 @@ function scan (): Hit[] {
   // that isn't an additional word character (so `#abc;` matches but
   // `#abcdef-foo` doesn't — that's a selector).
   const hexRe = /#[0-9a-fA-F]{3,8}(?![0-9a-fA-F_-])/
+  // E7 — extend the guard to rgba()/rgb()/hsl()/hsla() literals.
+  // Codex E6 noted these slipped past the hex-only guard. Theme tokens
+  // (var(--theme-…)) are preferred. The regex is anchored on the
+  // function-name itself so `transform: rotate(…)` etc. don't match.
+  const colorFnRe = /\b(rgba?|hsla?)\s*\(/
 
   for (const file of walk(COMPONENTS_DIR)) {
     const rel = path.relative(PROJECT_ROOT, file)
@@ -67,7 +72,7 @@ function scan (): Hit[] {
       block.content.split('\n').forEach((line: string, i: number) => {
         // skip SCSS comment lines
         const stripped = line.replace(/\/\/.*$/, '').replace(/\/\*[\s\S]*?\*\//g, '')
-        if (hexRe.test(stripped)) {
+        if (hexRe.test(stripped) || colorFnRe.test(stripped)) {
           hits.push({
             file: rel,
             line: block.lineOffset + i,

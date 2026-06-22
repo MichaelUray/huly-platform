@@ -259,7 +259,47 @@ const wac = plugin(wacPluginId, {
     ConfirmBulkAddOwnerMessage: '' as IntlString,
     OwnerPickerTitle: '' as IntlString,
     OwnerPickerHint: '' as IntlString,
-    OwnerPickerNoMembers: '' as IntlString
+    OwnerPickerNoMembers: '' as IntlString,
+
+    // E7 — CSV bulk-invite modal (preview-gated). Replaces inline
+    // German string-table that hardcoded labels into the component.
+    BulkInviteCsvTitle: '' as IntlString,
+    BulkInviteCsvUpload: '' as IntlString,
+    BulkInviteCsvDryRun: '' as IntlString,
+    BulkInviteCsvConfirm: '' as IntlString,
+    BulkInviteCsvFormatHint: '' as IntlString,
+    BulkInviteCsvPendingPreview: '' as IntlString,
+    BulkInviteCsvPendingConfirm: '' as IntlString,
+    BulkInviteCsvSuccessDispatched: '' as IntlString,
+    BulkInviteCsvRunDryFirst: '' as IntlString,
+    BulkInviteCsvFixInvalidRows: '' as IntlString,
+    BulkInviteCsvFileTooLarge: '' as IntlString,
+    BulkInviteCsvColTotal: '' as IntlString,
+    BulkInviteCsvColOk: '' as IntlString,
+    BulkInviteCsvColInvalid: '' as IntlString,
+    BulkInviteCsvColHashedEmail: '' as IntlString,
+    BulkInviteCsvColRole: '' as IntlString,
+    BulkInviteCsvColSpaces: '' as IntlString,
+    BulkInviteCsvColStatus: '' as IntlString,
+    BulkInviteCsvAddToSpacesUnvalidated: '' as IntlString,
+
+    // E7 — WebhooksSection (preview-gated). Replaces inline labels +
+    // window.confirm with Huly's MessageBox.
+    WebhooksSectionTitle: '' as IntlString,
+    WebhooksSectionDescription: '' as IntlString,
+    WebhooksEmpty: '' as IntlString,
+    WebhooksAdd: '' as IntlString,
+    WebhooksUrl: '' as IntlString,
+    WebhooksSecret: '' as IntlString,
+    WebhooksActive: '' as IntlString,
+    WebhooksDataFilter: '' as IntlString,
+    WebhooksDataFilterMinimal: '' as IntlString,
+    WebhooksDataFilterFull: '' as IntlString,
+    WebhooksEventsLabel: '' as IntlString,
+    WebhooksTest: '' as IntlString,
+    WebhooksDelete: '' as IntlString,
+    WebhooksConfirmDeleteTitle: '' as IntlString,
+    WebhooksConfirmDeleteMessage: '' as IntlString
   }
 })
 

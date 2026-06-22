@@ -61,7 +61,7 @@
 {/if}
 
 <style lang="scss">
-  .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 970; }
+  .backdrop { position: fixed; inset: 0; background: var(--theme-popup-color); z-index: 970; }
   .modal {
     position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
     z-index: 980;

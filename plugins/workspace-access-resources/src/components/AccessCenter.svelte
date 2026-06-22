@@ -9,6 +9,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { get } from 'svelte/store'
+  import { refreshCapabilities } from '../stores/capabilitiesStore'
   import { Breadcrumb, Header, Scroller, TabList } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
   import wac from '../plugin'
@@ -103,6 +104,11 @@
 
   onMount(() => {
     if (typeof window === 'undefined') return
+    // E7 — refresh capabilities matrix so preview-feature visibility
+    // gates (Webhooks Section, PersonDrawer Expiry+EffPerms, CSV Send
+    // button) have a current value. Fail-safe defaults to all-hidden,
+    // so a slow/failed fetch keeps the UI conservative.
+    void refreshCapabilities(workspace)
     const url = new URL(window.location.href)
     const from = url.searchParams.get('from')
     if (from === 'admin' && get(impersonationStore).state === 'normal') {
@@ -219,7 +225,7 @@
   .readonly-banner {
     margin: var(--spacing-1) var(--spacing-3);
     padding: var(--spacing-1) var(--spacing-2);
-    background: var(--theme-warning-color, rgba(234, 179, 8, 0.12));
+    background: var(--theme-state-warning-background-color);
     color: var(--theme-caption-color);
     border: 1px solid var(--theme-divider-color);
     border-radius: 0.25rem;

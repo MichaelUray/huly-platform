@@ -3,16 +3,21 @@
 //
 // WAC Settings — Outbound Webhooks panel.
 //
-// Tier-1 implementation: read+create+toggle+delete+test for the
-// configured webhooks. Designed to be embedded under a Settings tab
-// or surfaced from the Resources toolbar as a modal in a follow-up.
+// E7 — preview-gated UI. Backend returns 501 webhooks_not_wired until
+// the PG-backed CRUD + audit dispatcher are wired. The section is
+// hidden by default; WAC_PREVIEW_FEATURES=webhooks on the
+// account-service host exposes it for dev/test.
 //
-// PII / DSGVO warning is shown when the user flips data_filter to
-// 'full', so they're forced to confirm pushing email+name to the
-// configured destination.
+// E7 — `window.confirm` calls were replaced by Huly's MessageBox so
+// destructive + DSGVO-relevant confirms use the consistent platform
+// dialog (was: native browser confirm, which broke the polish goal).
+// Inline labels are sourced via wac.string.* IntlString keys.
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { Label, showPopup } from '@hcengineering/ui'
+  import { MessageBox } from '@hcengineering/presentation'
+  import wac from '../../plugin'
   import {
     listWebhooks,
     createWebhook,
@@ -69,6 +74,19 @@
 
   onMount(refresh)
 
+  function confirmDsgvoFull (): Promise<boolean> {
+    return new Promise((resolve) => {
+      showPopup(MessageBox, {
+        label: wac.string.WebhooksDataFilter,
+        message: wac.string.WebhooksDataFilterFull,
+        dangerous: true,
+        action: async () => { resolve(true) }
+      }, undefined, (result?: any) => {
+        if (result == null || result === false) resolve(false)
+      })
+    })
+  }
+
   async function onCreate (): Promise<void> {
     createErr = null
     creating = true
@@ -80,13 +98,7 @@
         return
       }
       if (nDataFilter === 'full') {
-        const ok = typeof window !== 'undefined'
-          ? window.confirm(
-              'Pushing email + display name to an external system has DSGVO implications.\n\n' +
-              'Make sure the receiver has a documented purpose and a contract with the workspace owner.\n\n' +
-              'Continue?'
-            )
-          : true
+        const ok = await confirmDsgvoFull()
         if (!ok) {
           creating = false
           return
@@ -120,14 +132,20 @@
     }
   }
 
-  async function onDelete (row: Webhook): Promise<void> {
-    if (typeof window !== 'undefined' && !window.confirm(`Delete webhook ${row.url}?`)) return
-    try {
-      await deleteWebhook(workspace, row.id)
-      await refresh()
-    } catch (err: any) {
-      loadError = err?.message ?? String(err)
-    }
+  function onDelete (row: Webhook): void {
+    showPopup(MessageBox, {
+      label: wac.string.WebhooksConfirmDeleteTitle,
+      message: wac.string.WebhooksConfirmDeleteMessage,
+      dangerous: true,
+      action: async () => {
+        try {
+          await deleteWebhook(workspace, row.id)
+          await refresh()
+        } catch (err: any) {
+          loadError = err?.message ?? String(err)
+        }
+      }
+    })
   }
 
   let testingId: string | null = null
@@ -151,27 +169,23 @@
 
 <section class="webhooks">
   <header>
-    <h2>Outbound Webhooks</h2>
-    <p class="hint">
-      Push role-changes, grants, and member-removals to an external system.
-      Only HTTPS destinations are accepted; private and internal IP ranges
-      are blocked at the server.
-    </p>
+    <h2><Label label={wac.string.WebhooksSectionTitle} /></h2>
+    <p class="hint"><Label label={wac.string.WebhooksSectionDescription} /></p>
   </header>
 
   {#if loading}
-    <p>Loading…</p>
+    <p><Label label={wac.string.Loading} /></p>
   {:else}
     {#if loadError}<p class="err">{loadError}</p>{/if}
 
     <table class="grid" data-test="webhooks-grid">
       <thead>
         <tr>
-          <th>URL</th>
-          <th>Events</th>
-          <th>Payload</th>
-          <th>Secret</th>
-          <th>Active</th>
+          <th><Label label={wac.string.WebhooksUrl} /></th>
+          <th><Label label={wac.string.WebhooksEventsLabel} /></th>
+          <th><Label label={wac.string.WebhooksDataFilter} /></th>
+          <th><Label label={wac.string.WebhooksSecret} /></th>
+          <th><Label label={wac.string.WebhooksActive} /></th>
           <th></th>
         </tr>
       </thead>
@@ -181,40 +195,44 @@
             <td class="url">{r.url}</td>
             <td>{r.event_types.join(', ')}</td>
             <td>{r.data_filter}</td>
-            <td>{r.hasSecret ? 'yes' : '—'}</td>
+            <td>{r.hasSecret ? '✓' : '—'}</td>
             <td>
               <button on:click={() => onToggle(r)}>
                 {r.active ? 'on' : 'off'}
               </button>
             </td>
             <td class="actions">
-              <button on:click={() => onTest(r)} disabled={testingId === r.id}>Test</button>
-              <button class="danger" on:click={() => onDelete(r)}>Delete</button>
+              <button on:click={() => onTest(r)} disabled={testingId === r.id}>
+                <Label label={wac.string.WebhooksTest} />
+              </button>
+              <button class="danger" on:click={() => onDelete(r)}>
+                <Label label={wac.string.WebhooksDelete} />
+              </button>
             </td>
           </tr>
         {/each}
         {#if rows.length === 0}
-          <tr><td colspan="6" class="empty">No outbound webhooks configured.</td></tr>
+          <tr><td colspan="6" class="empty"><Label label={wac.string.WebhooksEmpty} /></td></tr>
         {/if}
       </tbody>
     </table>
 
     {#if lastTestResult != null}
-      <p class="test-result" data-test="webhook-test-result">Test result: {lastTestResult}</p>
+      <p class="test-result" data-test="webhook-test-result">{lastTestResult}</p>
     {/if}
 
     <form on:submit|preventDefault={onCreate} class="create" data-test="webhook-create">
-      <h3>Add webhook</h3>
+      <h3><Label label={wac.string.WebhooksAdd} /></h3>
       <label>
-        URL (https only)
+        <Label label={wac.string.WebhooksUrl} />
         <input type="url" bind:value={nUrl} required placeholder="https://example.com/hook" />
       </label>
       <label>
-        Secret (optional, ≥ 8 chars)
-        <input type="text" bind:value={nSecret} minlength={8} placeholder="leave blank for unsigned payloads" />
+        <Label label={wac.string.WebhooksSecret} />
+        <input type="text" bind:value={nSecret} minlength={8} />
       </label>
       <fieldset class="events">
-        <legend>Events</legend>
+        <legend><Label label={wac.string.WebhooksEventsLabel} /></legend>
         {#each ALL_EVENTS as e}
           <label class="checkbox">
             <input type="checkbox" bind:checked={nEvents[e]} />
@@ -223,14 +241,16 @@
         {/each}
       </fieldset>
       <label>
-        Payload
+        <Label label={wac.string.WebhooksDataFilter} />
         <select bind:value={nDataFilter}>
-          <option value="minimal">minimal (UUIDs only — recommended)</option>
-          <option value="full">full (+ email + name — DSGVO-relevant)</option>
+          <option value="minimal"><Label label={wac.string.WebhooksDataFilterMinimal} /></option>
+          <option value="full"><Label label={wac.string.WebhooksDataFilterFull} /></option>
         </select>
       </label>
       {#if createErr}<p class="err">{createErr}</p>{/if}
-      <button type="submit" disabled={creating}>{creating ? 'Saving…' : 'Add webhook'}</button>
+      <button type="submit" disabled={creating}>
+        {#if creating}<Label label={wac.string.Loading} />{:else}<Label label={wac.string.WebhooksAdd} />{/if}
+      </button>
     </form>
   {/if}
 </section>
@@ -258,11 +278,10 @@
     gap: 0.6rem;
     padding-top: 1rem;
     border-top: 1px solid var(--theme-divider-color);
-    max-width: 38rem;
   }
-  .create label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; }
-  .create input, .create select { padding: 0.4rem; }
-  .events { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; border: 1px solid var(--theme-divider-color); padding: 0.5rem; }
-  .checkbox { flex-direction: row !important; align-items: center; gap: 0.35rem; }
+  .create label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
+  .events { border: 1px solid var(--theme-divider-color); border-radius: 0.25rem; padding: 0.5rem; }
+  .events legend { font-size: 0.8rem; color: var(--theme-darker-color); padding: 0 0.3rem; }
+  .checkbox { flex-direction: row; align-items: center; gap: 0.4rem; }
   button.danger { color: var(--theme-state-negative-color); }
 </style>

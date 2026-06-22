@@ -236,7 +236,7 @@
   .err { background: var(--theme-state-negative-background-color); color: var(--theme-state-negative-color); padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
   .dsgvo-modal {
     position: fixed; inset: 0; z-index: 970;
-    background: rgba(0,0,0,0.45);
+    background: var(--theme-popup-color);
     display: flex; align-items: center; justify-content: center;
   }
   .modal-body {
