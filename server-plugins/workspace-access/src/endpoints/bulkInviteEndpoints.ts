@@ -170,25 +170,38 @@ function normHeader (h: string): string {
 }
 
 /**
- * Pure parse-and-validate. Does NOT call sendInvite; the route layer
- * iterates `result.toSend` for that step (when dryRun=false).
+ * Header + row breakdown produced by the shared parser. Internal helper
+ * shape — callers use the row list to apply per-row validation and the
+ * line offsets to surface accurate (1-based, header-aware) line numbers.
  */
-export async function processBulkInviteCsv (
-  ctx: BulkInviteCtx,
-  opts: BulkInviteOptions
-): Promise<BulkInviteResult> {
-  await gate(ctx, opts.workspace)
-  if (opts.csv == null || opts.csv === '') {
+interface ParsedCsv {
+  emailIdx: number
+  roleIdx: number
+  spacesIdx: number
+  /** Non-empty data lines with the line number of the original CSV (1-based, header=line 1). */
+  dataLines: Array<{ line: number, fields: string[] }>
+}
+
+/**
+ * Shared CSV parse: handles empty-CSV / byte-cap / row-cap / BOM / CRLF
+ * mixed line endings and header-aware column index resolution. Used by
+ * both `processBulkInviteCsv` (dispatch path) and `previewBulkInviteCsv`
+ * (host dry-run path that doesn't need a full BulkInviteCtx).
+ *
+ * Throws BulkInviteError with the same codes both call-sites expect.
+ */
+function parseCsv (csv: string): ParsedCsv {
+  if (csv == null || csv === '') {
     throw new BulkInviteError('empty_csv', 'CSV payload is empty')
   }
   // Byte-size cap (UTF-8). The route enforces multipart limit too,
   // but keep the helper self-contained for unit-tests.
-  const byteLength = Buffer.byteLength(opts.csv, 'utf8')
+  const byteLength = Buffer.byteLength(csv, 'utf8')
   if (byteLength > MAX_CSV_BYTES) {
     throw new BulkInviteError('csv_too_large', `CSV exceeds ${MAX_CSV_BYTES} bytes`, 413)
   }
 
-  const text = stripBom(opts.csv)
+  const text = stripBom(csv)
   // Accept CRLF + LF + CR. Drop any trailing empty line so the row
   // count matches the human-visible row count.
   const rawLines = text.split(/\r\n|\r|\n/)
@@ -208,12 +221,46 @@ export async function processBulkInviteCsv (
     throw new BulkInviteError('missing_header', 'CSV header must contain at least "email" and "role" columns')
   }
 
-  const rows: BulkInviteRow[] = []
-  const seenEmails = new Set<string>()
+  const dataLines: Array<{ line: number, fields: string[] }> = []
   for (let i = 1; i < rawLines.length; i++) {
     const line = rawLines[i]
     if (line.trim() === '') continue
-    const fields = splitCsvLine(line)
+    dataLines.push({ line: i + 1, fields: splitCsvLine(line) })
+  }
+  return { emailIdx, roleIdx, spacesIdx, dataLines }
+}
+
+/** Build the summary + auditMetadata blocks shared by both code paths. */
+function summarize (rows: BulkInviteRow[]): { summary: BulkInviteSummary, auditMetadata: BulkInviteResult['auditMetadata'] } {
+  const byStatus: Record<string, number> = {}
+  let valid = 0
+  let invalid = 0
+  for (const r of rows) {
+    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1
+    if (r.status === 'ok') valid++
+    else invalid++
+  }
+  const summary: BulkInviteSummary = { total: rows.length, valid, invalid, byStatus }
+  return {
+    summary,
+    auditMetadata: { count: summary.total, valid: summary.valid, invalid: summary.invalid, byStatus }
+  }
+}
+
+/**
+ * Pure parse-and-validate. Does NOT call sendInvite; the route layer
+ * iterates `result.toSend` for that step (when dryRun=false).
+ */
+export async function processBulkInviteCsv (
+  ctx: BulkInviteCtx,
+  opts: BulkInviteOptions
+): Promise<BulkInviteResult> {
+  await gate(ctx, opts.workspace)
+  const { emailIdx, roleIdx, spacesIdx, dataLines } = parseCsv(opts.csv)
+
+  const rows: BulkInviteRow[] = []
+  const seenEmails = new Set<string>()
+  for (const { line, fields } of dataLines) {
     const emailRaw = (fields[emailIdx] ?? '').trim()
     const roleRaw = (fields[roleIdx] ?? '').trim()
     const spacesRaw = spacesIdx >= 0 ? (fields[spacesIdx] ?? '').trim() : ''
@@ -249,7 +296,7 @@ export async function processBulkInviteCsv (
     }
 
     rows.push({
-      line: i + 1, // 1-based, header is line 1
+      line,
       email: emailRaw,
       emailHash,
       role: roleRaw,
@@ -259,39 +306,102 @@ export async function processBulkInviteCsv (
     })
   }
 
-  const byStatus: Record<string, number> = {}
-  let valid = 0
-  let invalid = 0
-  for (const r of rows) {
-    byStatus[r.status] = (byStatus[r.status] ?? 0) + 1
-    if (r.status === 'ok') valid++
-    else invalid++
-  }
-
-  const summary: BulkInviteSummary = {
-    total: rows.length,
-    valid,
-    invalid,
-    byStatus
-  }
+  const { summary, auditMetadata } = summarize(rows)
 
   const result: BulkInviteResult = {
     preview: { rows, summary },
-    auditMetadata: {
-      count: summary.total,
-      valid: summary.valid,
-      invalid: summary.invalid,
-      byStatus
-    }
+    auditMetadata
   }
 
   if (!opts.dryRun) {
-    if (invalid > 0) {
+    if (summary.invalid > 0) {
       throw new BulkInviteError('invalid_rows_present', 'Refusing to dispatch — fix the invalid rows first', 422)
     }
     result.toSend = rows.filter((r) => r.status === 'ok')
   }
   return result
+}
+
+/**
+ * BulkInviteRow shape with the additional `addToSpaces_unvalidated` hint
+ * that the dry-run preview surface needs (the host doesn't have a
+ * spaceExists callback yet, so any non-empty addToSpaces is flagged as
+ * "not validated against the workspace" rather than silently asserted).
+ */
+export interface PreviewBulkInviteRow extends BulkInviteRow {
+  addToSpaces_unvalidated: boolean
+}
+
+export interface PreviewBulkInviteResult {
+  rows: PreviewBulkInviteRow[]
+  summary: BulkInviteSummary
+  auditMetadata: BulkInviteResult['auditMetadata']
+}
+
+/**
+ * Header-aware dry-run preview parser used by the account-service host
+ * for the CSV bulk-invite preview endpoint. Shares parseCsv() with
+ * processBulkInviteCsv() so header detection, byte/row caps, duplicate
+ * detection and line numbering stay bit-identical.
+ *
+ * Differences from processBulkInviteCsv:
+ *   * No `ctx` parameter — the host enforces auth via authenticateWac
+ *     before this is called.
+ *   * No `spaceExists` callback — any non-empty addToSpaces is flagged
+ *     `addToSpaces_unvalidated: true` until dispatch wiring lands.
+ *   * Always behaves as dry-run; never produces a `toSend` list.
+ *
+ * Throws BulkInviteError on empty_csv / csv_too_large / too_many_rows /
+ * missing_header — host maps to HTTP statuses.
+ */
+export function previewBulkInviteCsv (
+  csv: string,
+  validRoles: ReadonlyArray<string>
+): PreviewBulkInviteResult {
+  const { emailIdx, roleIdx, spacesIdx, dataLines } = parseCsv(csv)
+
+  const rows: PreviewBulkInviteRow[] = []
+  const seenEmails = new Set<string>()
+  for (const { line, fields } of dataLines) {
+    const emailRaw = (fields[emailIdx] ?? '').trim()
+    const roleRaw = (fields[roleIdx] ?? '').trim()
+    const spacesRaw = spacesIdx >= 0 ? (fields[spacesIdx] ?? '').trim() : ''
+
+    const emailHash = hashEmail(emailRaw)
+    const addToSpaces = spacesRaw === ''
+      ? []
+      : spacesRaw.split(';').map((s) => s.trim()).filter((s) => s !== '')
+
+    let status: RowStatus = 'ok'
+    let detail: string | undefined
+
+    if (emailRaw === '' || !EMAIL_RX.test(emailRaw)) {
+      status = 'invalid_email'
+      detail = 'email does not match the expected pattern'
+    } else if (seenEmails.has(emailRaw.toLowerCase())) {
+      status = 'invalid_csv'
+      detail = 'duplicate email in CSV'
+    } else if (!validRoles.includes(roleRaw)) {
+      status = 'invalid_role'
+      detail = `role "${roleRaw}" not in allowed set`
+    } else {
+      seenEmails.add(emailRaw.toLowerCase())
+    }
+
+    rows.push({
+      line,
+      email: emailRaw,
+      emailHash,
+      role: roleRaw,
+      addToSpaces,
+      addToSpaces_unvalidated: addToSpaces.length > 0,
+      status,
+      detail
+    })
+  }
+
+  const { summary, auditMetadata } = summarize(rows)
+  return { rows, summary, auditMetadata }
 }
 
 /**

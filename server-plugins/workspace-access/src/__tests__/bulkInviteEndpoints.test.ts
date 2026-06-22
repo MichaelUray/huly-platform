@@ -1,10 +1,13 @@
 import {
   processBulkInviteCsv,
+  previewBulkInviteCsv,
   splitCsvLine,
   stripBom,
   hashEmail,
   previewRowForResponse,
   BulkInviteError,
+  MAX_CSV_BYTES,
+  MAX_CSV_ROWS,
   type BulkInviteCtx
 } from '../endpoints/bulkInviteEndpoints'
 
@@ -295,5 +298,98 @@ describe('BulkInviteError', () => {
     expect(err.code).toBe('csv_too_large')
     expect(err.status).toBe(413)
     expect(err.message).toContain('csv_too_large')
+  })
+})
+
+describe('previewBulkInviteCsv — host-side dry-run parser', () => {
+  it('throws empty_csv on empty payload', () => {
+    expect(() => previewBulkInviteCsv('', ROLES)).toThrow(/empty_csv/)
+  })
+
+  it('returns zero rows for a header-only CSV (header is NOT parsed as data)', () => {
+    const r = previewBulkInviteCsv('email,role,addToSpaces', ROLES)
+    expect(r.rows).toEqual([])
+    expect(r.summary.total).toBe(0)
+    expect(r.summary.valid).toBe(0)
+    expect(r.summary.invalid).toBe(0)
+  })
+
+  it('happy path: header + 2 valid rows → 2 rows valid, header skipped', async () => {
+    const csv = [
+      'email,role,addToSpaces',
+      'alice@example.com,USER,proj-1',
+      'bob@example.com,MAINTAINER,'
+    ].join('\n')
+    const r = previewBulkInviteCsv(csv, ROLES)
+    expect(r.rows).toHaveLength(2)
+    expect(r.summary).toEqual({ total: 2, valid: 2, invalid: 0, byStatus: { ok: 2 } })
+    expect(r.rows[0].email).toBe('alice@example.com')
+    expect(r.rows[0].status).toBe('ok')
+    expect(r.rows[0].line).toBe(2) // header=line 1, first data row=line 2
+    expect(r.rows[0].addToSpaces).toEqual(['proj-1'])
+    expect(r.rows[0].addToSpaces_unvalidated).toBe(true)
+    expect(r.rows[1].addToSpaces_unvalidated).toBe(false) // empty addToSpaces
+  })
+
+  it('flags duplicate email (case-insensitive)', () => {
+    const csv = [
+      'email,role,addToSpaces',
+      'alice@example.com,USER,',
+      'Alice@Example.com,MAINTAINER,'
+    ].join('\n')
+    const r = previewBulkInviteCsv(csv, ROLES)
+    expect(r.rows).toHaveLength(2)
+    expect(r.rows[0].status).toBe('ok')
+    expect(r.rows[1].status).toBe('invalid_csv')
+    expect(r.rows[1].detail).toMatch(/duplicate/)
+  })
+
+  it('flags invalid_email + invalid_role per row', () => {
+    const csv = [
+      'email,role,addToSpaces',
+      'not-an-email,USER,',
+      'alice@example.com,BOSS,'
+    ].join('\n')
+    const r = previewBulkInviteCsv(csv, ROLES)
+    expect(r.rows[0].status).toBe('invalid_email')
+    expect(r.rows[1].status).toBe('invalid_role')
+    expect(r.summary.invalid).toBe(2)
+  })
+
+  it('blocks oversized CSV (> MAX_CSV_BYTES)', () => {
+    const big = 'email,role,addToSpaces\n' + 'a'.repeat(MAX_CSV_BYTES + 16)
+    expect(() => previewBulkInviteCsv(big, ROLES)).toThrow(/csv_too_large/)
+  })
+
+  it('blocks too-many-rows (> MAX_CSV_ROWS data rows)', () => {
+    const lines: string[] = ['email,role,addToSpaces']
+    for (let i = 0; i < MAX_CSV_ROWS + 1; i++) {
+      lines.push(`u${i}@example.com,USER,`)
+    }
+    expect(() => previewBulkInviteCsv(lines.join('\n'), ROLES)).toThrow(/too_many_rows/)
+  })
+
+  it('rejects CSV missing required headers', () => {
+    expect(() => previewBulkInviteCsv('name,foo\nalice,bar', ROLES)).toThrow(/missing_header/)
+  })
+
+  it('audit_metadata carries only aggregate counts (no emails)', () => {
+    const csv = [
+      'email,role,addToSpaces',
+      'alice@example.com,USER,',
+      'oops,USER,'
+    ].join('\n')
+    const r = previewBulkInviteCsv(csv, ROLES)
+    expect(r.auditMetadata).toEqual({ count: 2, valid: 1, invalid: 1, byStatus: { ok: 1, invalid_email: 1 } })
+    const serialized = JSON.stringify(r.auditMetadata)
+    expect(serialized).not.toContain('alice@example.com')
+    expect(serialized).not.toContain('oops')
+  })
+
+  it('emailHash present on every row for audit-friendly matching', () => {
+    const csv = 'email,role,addToSpaces\nalice@example.com,USER,'
+    const r = previewBulkInviteCsv(csv, ROLES)
+    expect(r.rows[0].emailHash).toBe(hashEmail('alice@example.com'))
+    expect(r.rows[0].emailHash).toMatch(/^[a-f0-9]{64}$/)
   })
 })
