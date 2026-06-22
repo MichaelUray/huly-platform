@@ -684,7 +684,8 @@ export function serveAccount (
     // buttons in MyAccessView. Host routes return 501 until the
     // per-caller mutation backend (collaborator DELETE + grant DELETE)
     // lands; client hides the buttons by default.
-    myAccessMutations: _wacPreviewEnv.includes('myAccessMutations')
+    myAccessMutations: _wacPreviewEnv.includes('myAccessMutations'),
+    membersBulkSpaceMutations: _wacPreviewEnv.includes('membersBulkSpaceMutations')
   }
 
   // Phase 2A — read-side handlers live in server-plugins/workspace-access.
@@ -1254,6 +1255,43 @@ export function serveAccount (
   })
 
   // ── End WAC my-access mutations ─────────────────────────────────────────
+
+  // ── WAC members bulk-space mutations (preview-gated) ───────────────────
+  //
+  // POST /members/bulk/add-to-space    — bulk add selected members to a Space
+  // POST /members/bulk/remove-from-space — bulk remove from a Space
+  //
+  // Same structural-honesty fix as FIX 4 (my-access). Pre-E7.1 the
+  // client People-bulk-bar "Add to Space" + "Remove from Space"
+  // buttons called these routes; the host never mounted them so
+  // production would 404 silently. The plugin's setSpaceMembers
+  // (editEndpoints.ts) is the eventual wiring target — needs a real
+  // workspace TxOperations pool per-space. Until then: authenticated
+  // 501, UI hides the buttons unless
+  // `capabilities.preview.membersBulkSpaceMutations` is on.
+  const _membersBulkSpaceNotWired = (ctx: any, kind: 'add_to_space' | 'remove_from_space'): void => {
+    ctx.res.writeHead(501, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({
+      error: 'not_implemented',
+      code: 'members_bulk_space_mutations_not_wired',
+      detail: `Members bulk-space mutation (${kind}) not wired yet; route + shape are stable.`,
+      kind
+    }))
+  }
+
+  router.post('/api/wac/:workspace/members/bulk/add-to-space', async (ctx) => {
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'edit', authDeps)
+    if (auth === null) return
+    _membersBulkSpaceNotWired(ctx, 'add_to_space')
+  })
+
+  router.post('/api/wac/:workspace/members/bulk/remove-from-space', async (ctx) => {
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'edit', authDeps)
+    if (auth === null) return
+    _membersBulkSpaceNotWired(ctx, 'remove_from_space')
+  })
+
+  // ── End WAC members bulk-space mutations ───────────────────────────────
 
   // ── WAC outbound webhooks (V35) ─────────────────────────────────────────
   //

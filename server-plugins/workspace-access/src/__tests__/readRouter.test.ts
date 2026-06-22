@@ -953,7 +953,7 @@ describe('readRouter — handleCapabilities (E7 amendment)', () => {
     const { ctx, captured } = makeCtx()
     const handlers = buildHandlers()
     await handlers.handleCapabilities(ctx, 'ws-1', {
-      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false, membersBulkSpaceMutations: false
     })
     expect(captured.status).toBe(200)
     expect(captured.body).toMatchObject({
@@ -962,7 +962,7 @@ describe('readRouter — handleCapabilities (E7 amendment)', () => {
         accessCenter: true, presets: true, resourceBulkBar: true,
         auditFilter: true, inheritanceTree: true, resourceSearch: true, csvDryRun: true
       },
-      preview: { webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false }
+      preview: { webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false, membersBulkSpaceMutations: false }
     })
   })
 
@@ -970,10 +970,10 @@ describe('readRouter — handleCapabilities (E7 amendment)', () => {
     const { ctx, captured } = makeCtx()
     const handlers = buildHandlers()
     await handlers.handleCapabilities(ctx, 'ws-1', {
-      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false, myAccessMutations: false
+      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false, myAccessMutations: false, membersBulkSpaceMutations: false
     })
     expect(captured.body.preview).toEqual({
-      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false, myAccessMutations: false
+      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false, myAccessMutations: false, membersBulkSpaceMutations: false
     })
   })
 
@@ -981,10 +981,10 @@ describe('readRouter — handleCapabilities (E7 amendment)', () => {
     const { ctx, captured } = makeCtx()
     const handlers = buildHandlers()
     await handlers.handleCapabilities(ctx, 'ws-1', {
-      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: true
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: true, membersBulkSpaceMutations: false
     })
     expect(captured.body.preview).toEqual({
-      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: true
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: true, membersBulkSpaceMutations: false
     })
   })
 
@@ -992,7 +992,7 @@ describe('readRouter — handleCapabilities (E7 amendment)', () => {
     const { ctx, captured } = makeCtx()
     const handlers = buildHandlers()
     await handlers.handleCapabilities(ctx, 'ws-1', {
-      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false, membersBulkSpaceMutations: false
     })
     expect(captured.body.preview.myAccessMutations).toBe(false)
   })
