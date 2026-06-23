@@ -29,7 +29,16 @@ levels; `/wac/audit/*` exposes the mutation log spanning both layers.
 
 ## Migrations
 
-`migrations` is a `ReadonlyArray<Migration>` exposing V31-V33 in order:
+`migrations` is a `ReadonlyArray<Migration>` exposing V31-V36 in order:
+
+| ID | Purpose |
+|---|---|
+| V31 | `workspace_audit_log` base schema |
+| V32 | unique index `idx_wal_backfill_unique` for v33 idempotent backfill |
+| V33 | backfill walker support columns |
+| V34 | `workspace_access_presets` table — Permission Templates (E6) |
+| V35 | `workspace_access_webhooks` table + delivery log — Webhook feature (E6, preview-gated) |
+| V36 | `collaborator.expires_at` column + pruner index — Time-bounded Grants (E6, preview-gated) |
 
 ```ts
 import { migrations } from '@hcengineering/server-workspace-access'
@@ -41,7 +50,7 @@ for (const m of migrations) {
 }
 ```
 
-All three are forward-only with `IF NOT EXISTS` guards; a re-run is a no-op.
+All six are forward-only with `IF NOT EXISTS` guards; a re-run is a no-op.
 
 ## Endpoints
 
@@ -312,3 +321,118 @@ revocation needs a shared backend (Redis or DB) and is tracked as a v2
 follow-up; the `endImpersonation` HTTP route returns `501 not_implemented`
 with `detail: revocation_pending_persistent_store` so the UI can present
 a clear "session will end on expiry" message.
+
+## Architecture: honest-501 contract (E7)
+
+Since E7 every WAC route obeys one invariant:
+
+> **Unfinished is invisible or honest-501, never silent 200.**
+
+A route that exists in the contract but whose backend is not fully
+wired MUST return `HTTP 501 Not Implemented` with a stable
+`{ error: "*_not_wired" }` discriminator code in the response body.
+Silent 200s on stub backends are forbidden — they erode the audit
+trail (mutations appear to succeed but never persist) and they
+de-correlate the client's UI state from server reality.
+
+Discriminator codes currently in flight:
+
+| Route family | 501 code |
+|---|---|
+| `GET /api/wac/<ws>/people/<uuid>/effective-permissions` | `effective_permissions_not_wired` |
+| `POST /api/wac/<ws>/grants/<id>/expires-at` | `grant_expiry_not_wired` |
+| `POST /api/wac/<ws>/webhooks/*` | `webhooks_not_wired` |
+| `POST /api/wac/<ws>/csv-invite/send` | `csv_dispatch_not_wired` |
+| `POST /api/wac/<ws>/my-access/(leave|decline)` | `my_access_mutations_not_wired` |
+| `POST /api/wac/<ws>/members/bulk-(add|remove)-to-space` | `members_bulk_space_mutations_not_wired` |
+| `POST /api/wac/<ws>/impersonation/end` | `revocation_pending_persistent_store` (pre-existing) |
+
+Routes returning a `*_not_wired` 501 are paired with a preview-feature
+flag in `GET /api/wac/<ws>/capabilities` (see "Preview-feature flags"
+below) so the client can choose between (a) hiding the UI entirely,
+or (b) surfacing the feature with a "coming soon" affordance. The
+default behaviour is hide-by-default; the route still 501s if hit
+directly (e.g. via a stale client tab), so the contract is enforced
+server-side independently of UI gating.
+
+## Preview-feature flags (E7)
+
+The host exposes `GET /api/wac/<ws>/capabilities`:
+
+```json
+{
+  "real":    { "permissionTemplates": true, "resourceBulkBar": true,
+               "csvDryRun": true, ... },
+  "preview": { "webhooks": false, "grantExpiry": false,
+               "csvDispatch": false, "effectivePermissions": false,
+               "myAccessMutations": false,
+               "membersBulkSpaceMutations": false }
+}
+```
+
+`real.*` flags reflect features that are fully wired end-to-end and
+ship enabled. `preview.*` flags reflect features whose backend is
+behind the honest-501 contract; they flip to `true` when the host's
+`WAC_PREVIEW_FEATURES` env-var lists them:
+
+| Env | Default | Effect |
+|---|---|---|
+| `WAC_PREVIEW_FEATURES` | `""` (empty) | Comma-separated list of preview-feature keys to enable. Valid keys: `webhooks`, `grantExpiry`, `csvDispatch`, `effectivePermissions`, `myAccessMutations`, `membersBulkSpaceMutations`. Unknown keys are silently dropped. |
+
+When a preview feature is listed, the matching `preview.*` flag flips
+to `true` in the capabilities response AND the matching route stops
+returning 501. Until the flag is set, the route 501s with its stable
+discriminator code — the route definition itself is always registered.
+
+## v1.5/v2 preview features (E6)
+
+Backend status per preview feature:
+
+| Feature | Backend | Migration |
+|---|---|---|
+| **Permission Templates** | Fully real — CRUD endpoints, validation, audit. Always-on, not preview-gated. | V34 `workspace_access_presets` |
+| **Resource Bulk-Bar** (Archive / Make-Private / Transfer-Owners) | Fully real — backed by per-row capability checks + audit. Always-on, not preview-gated. | — |
+| **Effective Permissions Drilldown** | Plugin endpoint exists; host wiring deferred — returns `501 effective_permissions_not_wired` | — |
+| **Time-bounded Grants** | Plugin endpoint + pruner exists; host wiring deferred — returns `501 grant_expiry_not_wired` | V36 `collaborator.expires_at` |
+| **Webhook on Audit-Events** | SSRF guard + HMAC dispatcher + delivery-log exists; host wiring deferred — returns `501 webhooks_not_wired` | V35 `workspace_access_webhooks` |
+| **CSV Bulk-Invite** | Parser + 27 tests fully real (used by dry-run path); send-path returns `501 csv_dispatch_not_wired` | — |
+| **My-Access leave/decline** | Returns `501 my_access_mutations_not_wired` | — |
+| **Members-Bulk Add/Remove-to-Space** | Returns `501 members_bulk_space_mutations_not_wired` | — |
+
+### DSGVO posture — CSV bulk-invite
+
+The CSV dry-run path parses the uploaded file in-memory (the plugin's
+shared `previewBulkInviteCsv` helper, header-aware) and audits only a
+`sha256(normalized_email)` per row — plaintext emails are never
+persisted to `workspace_audit_log`. The eventual `csv_dispatch_not_wired`
+send-path will follow the same posture: emails leave the host only via
+the existing invite-mail transport, never via the audit row.
+
+## E8 final-prep amendments
+
+- **Route-contract matrix test** —
+  `plugins/workspace-access-resources/src/api/__tests__/wacRouteContract.test.ts`
+  asserts 86 client-API URL/server-route pairings, including the new
+  my-access POST routes and members-bulk-to-space routes added during
+  E7+E8. Drift between client and server route registration now fails
+  at unit-test time.
+- **PeopleBulkBar gate-test** —
+  `membersBulkSpaceMutationsGate.test.ts` mirrors the equivalent
+  MyAccess gate test, confirming the UI section is removed from the
+  DOM when `previewEnabled('membersBulkSpaceMutations')` is `false`.
+- **CSV dry-run uses shared parser** — host's dry-run path now
+  delegates to the plugin's `previewBulkInviteCsv` (header-aware)
+  instead of an inline row loop, eliminating one duplication of
+  parsing logic and ensuring the dry-run preview matches what the
+  eventual send-path will see.
+
+## Test bilanz
+
+708 tests total across the WAC stack:
+- 356 — `plugins/workspace-access-resources` (frontend)
+- 184 — `server-plugins/workspace-access` (this package)
+- 168 — `server/account-service` (host wiring + 501-contract guards)
+
+Deployment image-tags currently on `dev.huly.uray.io`:
+- `hardcoreeng/account:integration-wac-2026-06-21-codex-r16`
+- `hardcoreeng/front:integration-wac-2026-06-21-codex-r13`
