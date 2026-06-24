@@ -8,17 +8,26 @@
 // SPDX-License-Identifier: EPL-2.0
 //
 // H3 — Codex Code-Re-Review Blocker [WAC/H3] coverage for AccountDB's
-// `updateWorkspaceRoleIfNotLastOwner` atomic helper. Two layers:
-//   1. Single-call shape — verifies each backend issues the expected
-//      conditional UPDATE / transactional read+update and translates the
-//      0-rows-matched result into `false`.
-//   2. Concurrency simulation — pins the contract that two simultaneous
-//      OWNER demotes for the SAME workspace cannot both succeed.
+// `updateWorkspaceRoleIfNotLastOwner` atomic helper. Three layers:
+//   1. Single-call SQL shape — verifies each backend issues the expected
+//      lock + conditional UPDATE / transactional read+update and translates
+//      the 0-rows-matched result into `false`.
+//   2. Lock acquisition order (Postgres) — pins that `SELECT ... FOR UPDATE`
+//      on the workspace's OWNER rows runs BEFORE the conditional UPDATE in
+//      the same transaction. This is the DB-side race-safety mechanism
+//      against PostgreSQL READ COMMITTED's pre-commit-snapshot EXISTS race
+//      (Codex Code-Re-Review-2 Blocker).
+//   3. JS-wrapper contract simulation — pins the contract that the JS layer
+//      treats the helper's truth value as authoritative and never races
+//      ahead with a separate snapshot read.
 //
-// The unit-level tests mock the underlying client. The race test runs
-// against an in-memory fake whose UPDATE-with-WHERE-EXISTS semantics
-// mirror Postgres: this is enough to verify the WAC handler relies only
-// on the helper's truth value and never on a separate snapshot read.
+// NOTE (Codex Code-Re-Review-2): an actual DB-level race test would require
+// a live PostgreSQL with two concurrent connections. The deterministic
+// simulation below only verifies the JS wrapper's expected behavior; the
+// DB-side race-safety is enforced by the `SELECT ... FOR UPDATE` issued
+// before the conditional UPDATE — see postgres.ts: updateWorkspaceRoleIfNotLastOwner.
+// A live-DB integration race test belongs in postgres-real.test.ts (skipped
+// without a CockroachDB / PostgreSQL env).
 //
 
 import { AccountRole, type AccountUuid, type WorkspaceUuid } from '@hcengineering/core'
@@ -36,12 +45,25 @@ const workspaceId = 'ws-1' as WorkspaceUuid
 // ---------------------------------------------------------------------------
 
 describe('PostgresAccountDB.updateWorkspaceRoleIfNotLastOwner', () => {
-  function makeDb (unsafeReturns: any[]): { db: PostgresAccountDB, unsafeCalls: Array<{ sql: string, args: any[] }> } {
+  /**
+   * Build a mock PostgresAccountDB. `updateReturns` is what the conditional
+   * UPDATE (second `unsafe()` call) returns. The FOR-UPDATE lock query
+   * (first `unsafe()` call) is treated as a no-op that returns [].
+   */
+  function makeDb (updateReturns: any[]): {
+    db: PostgresAccountDB
+    unsafeCalls: Array<{ sql: string, args: any[] }>
+  } {
     const unsafeCalls: Array<{ sql: string, args: any[] }> = []
     const tx: any = {
       unsafe: jest.fn().mockImplementation(async (sql: string, args: any[]) => {
         unsafeCalls.push({ sql, args })
-        return unsafeReturns
+        // Heuristic: the lock query is a SELECT ... FOR UPDATE; the
+        // conditional write is an UPDATE ... RETURNING.
+        if (/FOR\s+UPDATE/i.test(sql) && !/^[\s]*UPDATE/i.test(sql.trimStart())) {
+          return []
+        }
+        return updateReturns
       })
     }
     const mockClient: any = Object.assign(jest.fn(), {
@@ -56,18 +78,21 @@ describe('PostgresAccountDB.updateWorkspaceRoleIfNotLastOwner', () => {
     const { db, unsafeCalls } = makeDb([{ account_uuid: accountId }])
     const ok = await db.updateWorkspaceRoleIfNotLastOwner(accountId, workspaceId, AccountRole.User)
     expect(ok).toBe(true)
-    expect(unsafeCalls).toHaveLength(1)
-    expect(unsafeCalls[0].sql).toMatch(/UPDATE\s+global_account\.workspace_members/i)
+    // Two statements: SELECT ... FOR UPDATE, then UPDATE ... RETURNING.
+    expect(unsafeCalls).toHaveLength(2)
+    // 2nd call = conditional UPDATE with EXISTS guard.
+    const updateCall = unsafeCalls[1]
+    expect(updateCall.sql).toMatch(/UPDATE\s+global_account\.workspace_members/i)
     // The EXISTS guard MUST be present in the SQL — otherwise this is just
     // a plain update and the last-owner protection has been silently
     // dropped. This assertion is the test-level guarantee for Codex's H3
     // concern.
-    expect(unsafeCalls[0].sql).toMatch(/EXISTS\s*\(/i)
-    expect(unsafeCalls[0].sql).toMatch(/other\.role\s*=\s*'OWNER'/i)
-    expect(unsafeCalls[0].sql).toMatch(/other\.account_uuid\s*<>/i)
-    expect(unsafeCalls[0].sql).toMatch(/RETURNING\s+account_uuid/i)
+    expect(updateCall.sql).toMatch(/EXISTS\s*\(/i)
+    expect(updateCall.sql).toMatch(/other\.role\s*=\s*'OWNER'/i)
+    expect(updateCall.sql).toMatch(/other\.account_uuid\s*<>/i)
+    expect(updateCall.sql).toMatch(/RETURNING\s+account_uuid/i)
     // Param order: [workspaceUuid, accountUuid, dbRole].
-    expect(unsafeCalls[0].args).toEqual([workspaceId, accountId, 'USER'])
+    expect(updateCall.args).toEqual([workspaceId, accountId, 'USER'])
   })
 
   it('returns false when 0 rows matched (last-owner refusal)', async () => {
@@ -80,11 +105,12 @@ describe('PostgresAccountDB.updateWorkspaceRoleIfNotLastOwner', () => {
     // When the NEW role is OWNER, the SQL's `$3 = 'OWNER'` short-circuit
     // means the EXISTS subquery is not actually evaluated by Postgres for
     // the gate. We assert the SQL is still well-formed and the dbRole
-    // serialized as 'OWNER'.
+    // serialized as 'OWNER'. The dbRole is the 3rd arg of the UPDATE call.
     const { db, unsafeCalls } = makeDb([{ account_uuid: accountId }])
     const ok = await db.updateWorkspaceRoleIfNotLastOwner(accountId, workspaceId, AccountRole.Owner)
     expect(ok).toBe(true)
-    expect(unsafeCalls[0].args[2]).toBe('OWNER')
+    const updateCall = unsafeCalls[1]
+    expect(updateCall.args[2]).toBe('OWNER')
   })
 
   it('runs inside withRetry / transaction (begin called)', async () => {
@@ -92,6 +118,56 @@ describe('PostgresAccountDB.updateWorkspaceRoleIfNotLastOwner', () => {
     await db.updateWorkspaceRoleIfNotLastOwner(accountId, workspaceId, AccountRole.User)
     // begin spied on the client we constructed; reach in via `any` cast.
     expect((db as any).client.begin).toHaveBeenCalled()
+  })
+
+  // -------------------------------------------------------------------------
+  // Race-safety: SELECT ... FOR UPDATE on the workspace's OWNER rows must
+  // run BEFORE the conditional UPDATE. This is the DB-side guarantee against
+  // PostgreSQL READ COMMITTED's pre-commit-snapshot EXISTS race (Codex
+  // Code-Re-Review-2 Blocker). Without this lock, two concurrent OWNER
+  // demotes can both pass the EXISTS check and leave zero owners.
+  // -------------------------------------------------------------------------
+  describe('race-safety: SELECT ... FOR UPDATE on workspace OWNER rows', () => {
+    it('emits SELECT ... FOR UPDATE on workspace_members WHERE role = OWNER', async () => {
+      const { db, unsafeCalls } = makeDb([{ account_uuid: accountId }])
+      await db.updateWorkspaceRoleIfNotLastOwner(accountId, workspaceId, AccountRole.User)
+      expect(unsafeCalls.length).toBeGreaterThanOrEqual(2)
+      const lockCall = unsafeCalls[0]
+      expect(lockCall.sql).toMatch(/SELECT\s+1\s+FROM\s+global_account\.workspace_members/i)
+      expect(lockCall.sql).toMatch(/role\s*=\s*'OWNER'/i)
+      expect(lockCall.sql).toMatch(/FOR\s+UPDATE/i)
+      // Lock is parameterized by workspace_uuid only.
+      expect(lockCall.args).toEqual([workspaceId])
+    })
+
+    it('issues the FOR UPDATE lock BEFORE the conditional UPDATE in the same tx', async () => {
+      const { db, unsafeCalls } = makeDb([{ account_uuid: accountId }])
+      await db.updateWorkspaceRoleIfNotLastOwner(accountId, workspaceId, AccountRole.User)
+      // Call ordering inside the tx callback: lock first, then UPDATE.
+      expect(unsafeCalls).toHaveLength(2)
+      expect(unsafeCalls[0].sql).toMatch(/FOR\s+UPDATE/i)
+      expect(unsafeCalls[0].sql).not.toMatch(/^[\s]*UPDATE\s+/i)
+      expect(unsafeCalls[1].sql).toMatch(/UPDATE\s+global_account\.workspace_members/i)
+      // The UPDATE must not be a FOR UPDATE select reused — it's the
+      // conditional write with RETURNING.
+      expect(unsafeCalls[1].sql).toMatch(/RETURNING\s+account_uuid/i)
+    })
+
+    it('lock + UPDATE run inside the same begin() transaction', async () => {
+      const { db, unsafeCalls } = makeDb([{ account_uuid: accountId }])
+      await db.updateWorkspaceRoleIfNotLastOwner(accountId, workspaceId, AccountRole.User)
+      // begin() called exactly once; both unsafe() calls land on the same tx.
+      expect((db as any).client.begin).toHaveBeenCalledTimes(1)
+      expect(unsafeCalls).toHaveLength(2)
+    })
+
+    it('still locks for OWNER targets (idempotent — lock cost is negligible)', async () => {
+      // Even for promote-to-OWNER the lock runs. Cheap, and keeps the
+      // helper's behaviour uniform — no branch for "skip lock if OWNER".
+      const { db, unsafeCalls } = makeDb([{ account_uuid: accountId }])
+      await db.updateWorkspaceRoleIfNotLastOwner(accountId, workspaceId, AccountRole.Owner)
+      expect(unsafeCalls[0].sql).toMatch(/FOR\s+UPDATE/i)
+    })
   })
 })
 
@@ -190,14 +266,22 @@ describe('MongoAccountDB.updateWorkspaceRoleIfNotLastOwner', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Concurrency simulation. The contract: two concurrent demotes of DIFFERENT
-// OWNER rows in the SAME workspace cannot both succeed. We model the
-// Postgres conditional UPDATE semantics with an in-memory fake that
-// serializes the conditional check + write per workspace under a Promise-
-// chain barrier. With proper atomicity, exactly one Promise resolves true.
+// JS-wrapper contract simulation (NOT a DB race test).
+//
+// Per Codex Code-Re-Review-2: this block does NOT prove the Postgres
+// implementation is race-safe. It only models the CONTRACT that callers
+// must rely on the helper's truth value (instead of doing their own
+// snapshot read + second write). The in-memory fake serializes via a
+// Promise chain, which is what an atomic helper SHOULD provide; the DB-
+// side guarantee that delivers this atomicity is the `SELECT ... FOR
+// UPDATE` issued before the conditional UPDATE in postgres.ts, exercised
+// by the SQL-shape + lock-order tests above.
+//
+// A real DB race test would require two concurrent connections against a
+// live PostgreSQL / CockroachDB instance and belongs in postgres-real.test.ts.
 // ---------------------------------------------------------------------------
 
-describe('updateWorkspaceRoleIfNotLastOwner — race contract (deterministic)', () => {
+describe('updateWorkspaceRoleIfNotLastOwner — JS-wrapper contract (deterministic)', () => {
   /**
    * Build a tiny in-memory fake of the AccountDB helper that models the
    * Postgres `UPDATE ... AND EXISTS (other OWNER)` semantics with a

@@ -1104,20 +1104,36 @@ export class PostgresAccountDB implements AccountDB {
   /**
    * H3 — Atomic role change with last-owner protection.
    *
-   * Single conditional UPDATE: succeed only if either
+   * Succeed only if either
    *   (a) the new role is OWNER (cannot reduce owner count), or
    *   (b) at least one OTHER owner exists in the workspace.
    *
-   * The `NOT EXISTS` / `EXISTS` guard runs in the same statement as the
-   * UPDATE. Wrapped in `withRetry()` which uses `this.client.begin()` →
-   * each call executes inside a Postgres transaction. CockroachDB / Postgres
-   * row-level locks on the target row plus MVCC + serializable-isolation
-   * retry on conflict (`40001` is in `isRetryableError`) make two concurrent
-   * demotes of different OWNER rows in the same workspace safe: at most one
-   * of the two `EXISTS` checks will see the OTHER row as still-OWNER after
-   * the first transaction commits; the second transaction either retries
-   * (under serializable) or its EXISTS subquery sees the post-commit state
-   * where the first OWNER is gone, so it returns 0 rows.
+   * Race-safety (Codex Code-Re-Review-2 Blocker):
+   *   PostgreSQL's default READ COMMITTED isolation lets a single conditional
+   *   UPDATE evaluate its EXISTS subquery against the pre-commit MVCC
+   *   snapshot WITHOUT taking row locks on the EXISTS-matched rows. Two
+   *   concurrent demotes of DIFFERENT OWNER rows in the same workspace can
+   *   therefore both pass the EXISTS check (each seeing the other as still
+   *   OWNER) and both commit, leaving zero owners.
+   *
+   *   Fix: before the conditional UPDATE, take row-level exclusive locks on
+   *   ALL OWNER rows in the workspace via `SELECT ... FOR UPDATE` inside the
+   *   existing transaction (opened by `withRetry()` → `this.client.begin()`).
+   *   Any concurrent transaction that attempts to lock the same OWNER rows
+   *   blocks until our transaction commits/rolls back, then re-evaluates its
+   *   conditional UPDATE against the post-commit state and correctly refuses
+   *   if no other OWNER remains.
+   *
+   *   Why not `SET LOCAL transaction_isolation = 'SERIALIZABLE'`?
+   *     - More invasive: changes semantics of every other read in the tx.
+   *     - Higher abort rate under contention.
+   *     - Row-level locks have smaller scope (just this workspace's owners)
+   *       and zero impact on concurrent non-OWNER role changes.
+   *
+   *   Works on PostgreSQL (any isolation level — explicit row locks override
+   *   isolation) and CockroachDB (belt-and-suspenders with its default
+   *   serializable isolation). `40001` is already in `isRetryableError` so
+   *   any rare CRDB retryable conflict on the lock still retries cleanly.
    *
    * RETURNING `account_uuid` lets us distinguish "0 rows matched"
    * (last-owner refusal OR row missing) from "row updated".
@@ -1129,11 +1145,20 @@ export class PostgresAccountDB implements AccountDB {
   ): Promise<boolean> {
     const dbRole = canonicalToDb(role)
     const table = this.getWsMembersTableName()
-    // Use raw `unsafe()` inside `withRetry()`: postgres.js's template-literal
-    // shape does not allow interpolating a SELECT subquery referencing the
-    // outer UPDATE's table alias plus parameterized placeholders cleanly,
-    // so we build the SQL once and let withRetry wrap it in a transaction.
-    const sql = `
+    // Lock ALL OWNER rows in this workspace for the duration of the tx.
+    // Any concurrent OWNER demote in this workspace will block on this lock
+    // until our tx commits/rolls back, at which point the blocked tx's
+    // conditional UPDATE re-evaluates against the post-commit state. See
+    // the docblock above for the full race analysis.
+    const lockSql = `
+      SELECT 1 FROM ${table}
+      WHERE workspace_uuid = $1
+        AND role = 'OWNER'
+      FOR UPDATE
+    `
+    // Conditional UPDATE: succeed if either (a) the new role is OWNER, or
+    // (b) at least one OTHER OWNER exists in the workspace.
+    const updateSql = `
       UPDATE ${table}
       SET role = $3
       WHERE workspace_uuid = $1
@@ -1150,7 +1175,12 @@ export class PostgresAccountDB implements AccountDB {
         )
       RETURNING account_uuid
     `
-    const rows = await this.withRetry(async (rTx) => await rTx.unsafe(sql, [workspaceUuid, accountUuid, dbRole]))
+    const rows = await this.withRetry(async (rTx) => {
+      // Order matters: lock BEFORE the conditional UPDATE, so concurrent
+      // demoters all serialize through the same lock acquisition.
+      await rTx.unsafe(lockSql, [workspaceUuid])
+      return await rTx.unsafe(updateSql, [workspaceUuid, accountUuid, dbRole])
+    })
     return Array.isArray(rows) && rows.length > 0
   }
 
