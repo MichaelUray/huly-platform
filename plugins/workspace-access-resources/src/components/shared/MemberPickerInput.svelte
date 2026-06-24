@@ -11,6 +11,11 @@
   import { createEventDispatcher } from 'svelte'
   import { Button, EditBox, IconClose, IconAdd } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
+  // `getEmbeddedLabel` is retained ONLY for the caller-supplied
+  // `placeholder` prop (passed in as raw strings by parents that have
+  // not yet keyed their own copy). Switch to IntlString once all
+  // call-sites provide a key.
+  import wac from '../../plugin'
 
   export interface MemberOption {
     uuid: string
@@ -85,7 +90,7 @@
         kind={'ghost'}
         size={'small'}
         icon={IconAdd}
-        label={getEmbeddedLabel(showSuggestions ? 'Hide list' : 'Browse all')}
+        label={showSuggestions ? wac.string.HideList : wac.string.BrowseAll}
         on:click={() => (showSuggestions = !showSuggestions)}
       />
     </div>
@@ -143,7 +148,7 @@
     line-height: 1;
     font-size: 1rem;
     padding: 0 0.2rem;
-    &:hover { color: #b91c1c; }
+    &:hover { color: var(--theme-state-negative-color); }
   }
   .search-row {
     display: flex;

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { TabList } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../../plugin'
   import SpaceDrawer from '../resources/SpaceDrawer.svelte'
   import { myAccessApi, type MyAccessSummary } from '../../api/myAccessApi'
   import type { SpaceRow, GrantRow } from '../../types'
@@ -11,11 +11,11 @@
   type Sub = 'role' | 'member-of' | 'owned' | 'received' | 'given'
   let sub: Sub = 'role'
   const subItems = [
-    { id: 'role', labelIntl: getEmbeddedLabel('My role') },
-    { id: 'member-of', labelIntl: getEmbeddedLabel("Spaces I'm in") },
-    { id: 'owned', labelIntl: getEmbeddedLabel('Spaces I own') },
-    { id: 'received', labelIntl: getEmbeddedLabel('Granted to me') },
-    { id: 'given', labelIntl: getEmbeddedLabel('Granted by me') }
+    { id: 'role', labelIntl: wac.string.MyAccessTabRole },
+    { id: 'member-of', labelIntl: wac.string.MyAccessTabMemberOf },
+    { id: 'owned', labelIntl: wac.string.MyAccessTabOwned },
+    { id: 'received', labelIntl: wac.string.MyAccessTabReceived },
+    { id: 'given', labelIntl: wac.string.MyAccessTabGiven }
   ]
   let summary: MyAccessSummary | null = null
   let loading: boolean = true
@@ -152,7 +152,7 @@
   .content { padding: var(--spacing-2) 0; }
   .big { font-size: 1.4rem; font-weight: 600; color: var(--theme-caption-color); }
   .hint { color: var(--theme-darker-color); font-size: 0.9rem; padding: 0.5rem 0; }
-  .err { background: rgba(239,68,68,0.1); color: #b91c1c; padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .err { background: var(--theme-state-negative-background-color); color: var(--theme-state-negative-color); padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
   .space-list, .grant-list {
     list-style: none; padding: 0; margin: 0;
     li {

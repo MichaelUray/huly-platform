@@ -1,6 +1,6 @@
 <script lang="ts">
   import { TabList } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../../plugin'
   import AllSpacesTab from './AllSpacesTab.svelte'
   import SpaceDrawer from './SpaceDrawer.svelte'
 
@@ -14,11 +14,11 @@
   let drawerOpen: boolean = false
 
   const subItems = [
-    { id: 'all', labelIntl: getEmbeddedLabel('All') },
-    { id: 'private', labelIntl: getEmbeddedLabel('Private only') },
-    { id: 'public', labelIntl: getEmbeddedLabel('Public only') },
-    { id: 'archived', labelIntl: getEmbeddedLabel('Archived') },
-    { id: 'auto-join', labelIntl: getEmbeddedLabel('Auto-join') }
+    { id: 'all', labelIntl: wac.string.ResourcesTabAll },
+    { id: 'private', labelIntl: wac.string.ResourcesTabPrivate },
+    { id: 'public', labelIntl: wac.string.ResourcesTabPublic },
+    { id: 'archived', labelIntl: wac.string.ResourcesTabArchived },
+    { id: 'auto-join', labelIntl: wac.string.ResourcesTabAutoJoin }
   ]
 
   $: preset = (

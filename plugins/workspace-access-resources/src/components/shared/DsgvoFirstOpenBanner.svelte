@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Button, IconClose } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../../plugin'
 
   export let workspace: string
   export let retentionDays: number = 365
@@ -34,7 +34,7 @@
         icon={IconClose}
         kind={'ghost'}
         size={'small'}
-        showTooltip={{ label: getEmbeddedLabel('Dismiss') }}
+        showTooltip={{ label: wac.string.Dismiss }}
         on:click={ack}
       />
     </div>

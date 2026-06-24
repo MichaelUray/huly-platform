@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { Button, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
   import wac from '../../plugin'
   import { AuditLogView, AuditLogExportButton } from '@hcengineering/access-management-ui'
   import { auditApi } from '../../api/auditApi'
@@ -58,7 +57,7 @@
     <div class="filter-input">
       <EditBox
         bind:value={actionFilter}
-        placeholder={getEmbeddedLabel('Action contains…')}
+        placeholder={wac.string.AuditFilterAction}
         kind={'search-style'}
         on:input={() => refresh(true)}
       />
@@ -66,7 +65,7 @@
     <div class="filter-input">
       <EditBox
         bind:value={actorFilter}
-        placeholder={getEmbeddedLabel('Actor contains…')}
+        placeholder={wac.string.AuditFilterActor}
         kind={'search-style'}
         on:input={() => refresh(true)}
       />
@@ -75,7 +74,7 @@
       kind={'ghost'}
       size={'small'}
       icon={IconClose}
-      label={getEmbeddedLabel('Clear')}
+      label={wac.string.AuditClear}
       on:click={() => { actionFilter = ''; actorFilter = ''; void refresh(true) }}
     />
     <span class="spacer"></span>
@@ -138,7 +137,7 @@
     border-radius: 0.25rem;
   }
   .spacer { flex: 1; }
-  .err { background: rgba(239,68,68,0.1); color: #b91c1c; padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .err { background: var(--theme-state-negative-background-color); color: var(--theme-state-negative-color); padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
   .dsgvo-modal {
     position: fixed; inset: 0; z-index: 970;
     background: rgba(0,0,0,0.45);

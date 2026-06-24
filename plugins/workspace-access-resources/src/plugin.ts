@@ -8,7 +8,7 @@
 // SPDX-License-Identifier: EPL-2.0
 //
 
-// H4 — i18n plumbing.
+// H4 + C5 — i18n plumbing.
 //
 // Before this commit the entire WAC surface shipped hardcoded English via
 // `getEmbeddedLabel('…')`. That worked but locked the plugin into a single
@@ -21,11 +21,10 @@
 // `lang/<locale>.json` and are loaded lazily by `addStringsLoader` in
 // `index.ts`.
 //
-// Scope of this pass: we register ~30 of the most user-visible strings
-// covering tab names, role labels, button labels, and the loading/empty/
-// error states. The remaining ~22 `getEmbeddedLabel` call-sites are
-// flagged as a v2 follow-up — pattern is proven, mechanical work to
-// finish (see README "i18n status" section).
+// Wave 1 / C5: full sweep — all 31 hardcoded `getEmbeddedLabel(...)`
+// call-sites in `src/components/**/*.svelte` plus the 3 strings in
+// `setting-resources/AccessCenterPage.svelte` are now keyed. The
+// `no-hardcoded-strings` guard test in `src/__tests__/` keeps it that way.
 
 import type { IntlString, Plugin } from '@hcengineering/platform'
 import { plugin } from '@hcengineering/platform'
@@ -70,7 +69,54 @@ const wac = plugin(wacPluginId, {
     // Misc (3)
     AccessCenter: '' as IntlString,
     OpenInApp: '' as IntlString,
-    ComingInV2: '' as IntlString
+    ComingInV2: '' as IntlString,
+
+    // C5 sweep — People sub-tabs (5)
+    PeopleTabAll: '' as IntlString,
+    PeopleTabByRole: '' as IntlString,
+    PeopleTabInactive: '' as IntlString,
+    PeopleTabGrantedAccess: '' as IntlString,
+    PeopleTabPending: '' as IntlString,
+
+    // C5 sweep — Resources sub-tabs (5)
+    ResourcesTabAll: '' as IntlString,
+    ResourcesTabPrivate: '' as IntlString,
+    ResourcesTabPublic: '' as IntlString,
+    ResourcesTabArchived: '' as IntlString,
+    ResourcesTabAutoJoin: '' as IntlString,
+
+    // C5 sweep — My Access sub-tabs (5)
+    MyAccessTabRole: '' as IntlString,
+    MyAccessTabMemberOf: '' as IntlString,
+    MyAccessTabOwned: '' as IntlString,
+    MyAccessTabReceived: '' as IntlString,
+    MyAccessTabGiven: '' as IntlString,
+
+    // C5 sweep — Audit toolbar (3)
+    AuditFilterAction: '' as IntlString,
+    AuditFilterActor: '' as IntlString,
+    AuditClear: '' as IntlString,
+
+    // C5 sweep — Bulk bar / drawers (5)
+    BulkAddToSpace: '' as IntlString,
+    BulkRemoveFromSpace: '' as IntlString,
+    BulkApply: '' as IntlString,
+    Role: '' as IntlString,
+    Dismiss: '' as IntlString,
+
+    // C5 sweep — Resource drawer toggles (3)
+    Private: '' as IntlString,
+    AutoJoin: '' as IntlString,
+    Archived: '' as IntlString,
+
+    // C5 sweep — Member picker (2)
+    HideList: '' as IntlString,
+    BrowseAll: '' as IntlString,
+
+    // C5 sweep — Access Center page (Settings shell) (3)
+    LoadingAccessCenter: '' as IntlString,
+    LoadWorkspaceRoleError: '' as IntlString,
+    Retry: '' as IntlString
   }
 })
 

@@ -8,7 +8,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
   import { Button, ToggleWithLabel } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
   import wac from '../../plugin'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import SpaceTypeIcon from './SpaceTypeIcon.svelte'
@@ -192,7 +191,7 @@
         <h3>Flags</h3>
         <div class="toggle-row">
           <ToggleWithLabel
-            label={getEmbeddedLabel('Private')}
+            label={wac.string.Private}
             bind:on={privateFlag}
             disabled={!canEditFlags}
             on:change={togglePrivacy}
@@ -200,7 +199,7 @@
         </div>
         <div class="toggle-row">
           <ToggleWithLabel
-            label={getEmbeddedLabel('Auto-join')}
+            label={wac.string.AutoJoin}
             bind:on={autoJoinFlag}
             disabled={!canEditFlags}
             on:change={toggleAutoJoin}
@@ -208,7 +207,7 @@
         </div>
         <div class="toggle-row">
           <ToggleWithLabel
-            label={getEmbeddedLabel('Archived')}
+            label={wac.string.Archived}
             bind:on={archivedFlag}
             disabled={!canEditFlags}
             on:change={toggleArchived}
@@ -259,5 +258,5 @@
   .toggles label { display: block; margin: 0.4rem 0; font-size: 0.9rem; }
   .hint { font-size: 0.78rem; color: var(--theme-darker-color); }
   .muted { color: var(--theme-darker-color); }
-  .err { background: rgba(239,68,68,0.1); color: #b91c1c; padding: 0.5rem; border-radius: 0.25rem; }
+  .err { background: var(--theme-state-negative-background-color); color: var(--theme-state-negative-color); padding: 0.5rem; border-radius: 0.25rem; }
 </style>

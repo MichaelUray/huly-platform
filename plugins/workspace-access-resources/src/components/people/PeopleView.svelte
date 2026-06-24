@@ -6,7 +6,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { TabList } from '@hcengineering/ui'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../../plugin'
   import AllMembersTab from './AllMembersTab.svelte'
   import ByRoleTab from './ByRoleTab.svelte'
   import InactiveTab from './InactiveTab.svelte'
@@ -32,11 +32,13 @@
   let error: string | null = null
 
   $: subItems = [
-    { id: 'all', labelIntl: getEmbeddedLabel('All') },
-    { id: 'by-role', labelIntl: getEmbeddedLabel('By role') },
-    { id: 'inactive', labelIntl: getEmbeddedLabel('Inactive (90d+)') },
-    ...(grantsCount > 0 ? [{ id: 'granted', labelIntl: getEmbeddedLabel(`Granted access (${grantsCount})`) }] : []),
-    { id: 'pending', labelIntl: getEmbeddedLabel('Pending invites') }
+    { id: 'all', labelIntl: wac.string.PeopleTabAll },
+    { id: 'by-role', labelIntl: wac.string.PeopleTabByRole },
+    { id: 'inactive', labelIntl: wac.string.PeopleTabInactive },
+    ...(grantsCount > 0
+      ? [{ id: 'granted', labelIntl: wac.string.PeopleTabGrantedAccess, params: { count: grantsCount } }]
+      : []),
+    { id: 'pending', labelIntl: wac.string.PeopleTabPending }
   ]
 
   async function loadGrantsCount (): Promise<void> {
@@ -158,8 +160,8 @@
   .err {
     margin: var(--spacing-1_5) 0;
     padding: var(--spacing-1);
-    background: color-mix(in srgb, #ef4444 12%, transparent);
-    color: #b91c1c;
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
     border-radius: 0.25rem;
   }
 </style>
