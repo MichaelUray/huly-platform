@@ -4,14 +4,16 @@
 //
 
 import type { Ref, Space } from '@hcengineering/core'
-import type { Issue, IssueRelation } from '@hcengineering/tracker'
-import type { CascadeShift, PrimaryEdit } from '../types'
+import type { Issue, IssueRelation, Milestone } from '@hcengineering/tracker'
+import type { CascadeShift, DragState, PrimaryEdit } from '../types'
 import {
   buildDateUndoEntry,
   relationSatisfied,
   commitCascadeBatch,
   commitPrimariesBypass,
   countAltBypassViolations,
+  commitIssueDragLeaf,
+  commitMilestoneDragLeaf,
   type CascadeCommitClient
 } from '../cascade-commit'
 
@@ -35,13 +37,15 @@ function pe (i: Issue, dStart = 86400000, dDue = 86400000): PrimaryEdit {
   }
 }
 
-function shift (i: Issue): CascadeShift {
+function shift (i: Issue, triggeredById: string = 'trigger'): CascadeShift {
   return {
     issue: i,
     oldStart: i.startDate as number,
     oldDue: i.dueDate as number,
     newStart: (i.startDate as number) + 86400000,
-    newDue: (i.dueDate as number) + 86400000
+    newDue: (i.dueDate as number) + 86400000,
+    reason: 'push-successor',
+    triggeredBy: triggeredById as unknown as Ref<Issue>
   }
 }
 
@@ -224,5 +228,146 @@ describe('countAltBypassViolations', () => {
     const edit2: PrimaryEdit = { issue: b, newStart: TODAY + 10 * 86400000, newDue: TODAY + 11 * 86400000 }
     const v = countAltBypassViolations([edit1, edit2], [rel], allByRef, undefined)
     expect(v).toBe(0)
+  })
+})
+
+describe('commitIssueDragLeaf', () => {
+  function mockOps (): { ops: any, updates: any[][] } {
+    const updates: any[][] = []
+    return {
+      updates,
+      ops: { update: async (...args: any[]) => { updates.push(args) } }
+    }
+  }
+
+  it('dragging-body updates target', async () => {
+    const { ops, updates } = mockOps()
+    const target = issue('A', 100, 200)
+    const state: DragState = {
+      kind: 'dragging-body',
+      target: { kind: 'issue', doc: target },
+      originStart: 100,
+      originEnd: 200,
+      previewStart: 150,
+      previewEnd: 250
+    } as unknown as DragState
+    await commitIssueDragLeaf(
+      { findAllInSpace: async () => [] },
+      state,
+      { kind: 'issue', doc: target },
+      ops
+    )
+    expect(updates).toHaveLength(1)
+    expect(updates[0][1]).toEqual({ startDate: 150, dueDate: 250 })
+  })
+
+  it('dragging-body cascades to descendants', async () => {
+    const { ops, updates } = mockOps()
+    const parent = { ...issue('P', 100, 200), parents: [] } as Issue
+    const child = { ...issue('C', 100, 200), parents: [{ parentId: parent._id }] } as Issue
+    const state: DragState = {
+      kind: 'dragging-body',
+      target: { kind: 'issue', doc: parent },
+      originStart: 100,
+      originEnd: 200,
+      previewStart: 200, // delta = +100
+      previewEnd: 300
+    } as unknown as DragState
+    await commitIssueDragLeaf(
+      { findAllInSpace: async () => [parent, child] },
+      state,
+      { kind: 'issue', doc: parent },
+      ops
+    )
+    expect(updates).toHaveLength(2) // parent + child
+  })
+
+  it('resizing-left updates only startDate', async () => {
+    const { ops, updates } = mockOps()
+    const target = issue('A', 100, 200)
+    const state: DragState = {
+      kind: 'resizing-left',
+      target: { kind: 'issue', doc: target },
+      previewStart: 80,
+      previewEnd: 200
+    } as unknown as DragState
+    await commitIssueDragLeaf(
+      { findAllInSpace: async () => [] },
+      state,
+      { kind: 'issue', doc: target },
+      ops
+    )
+    expect(updates[0][1]).toEqual({ startDate: 80 })
+  })
+
+  it('resizing-right updates only dueDate', async () => {
+    const { ops, updates } = mockOps()
+    const target = issue('A', 100, 200)
+    const state: DragState = {
+      kind: 'resizing-right',
+      target: { kind: 'issue', doc: target },
+      previewStart: 100,
+      previewEnd: 300
+    } as unknown as DragState
+    await commitIssueDragLeaf(
+      { findAllInSpace: async () => [] },
+      state,
+      { kind: 'issue', doc: target },
+      ops
+    )
+    expect(updates[0][1]).toEqual({ dueDate: 300 })
+  })
+})
+
+describe('commitMilestoneDragLeaf', () => {
+  function mockOps (): { ops: any, updates: any[][] } {
+    const updates: any[][] = []
+    return {
+      updates,
+      ops: { update: async (...args: any[]) => { updates.push(args) } }
+    }
+  }
+
+  function milestone (id: string): Milestone {
+    return { _id: id as unknown as Ref<Milestone>, space: SPACE } as unknown as Milestone
+  }
+
+  it('dragging-body updates target with targetDate (not dueDate)', async () => {
+    const { ops, updates } = mockOps()
+    const m = milestone('M')
+    const state: DragState = {
+      kind: 'dragging-body',
+      target: { kind: 'milestone', doc: m },
+      originStart: 100,
+      originEnd: 200,
+      previewStart: 150,
+      previewEnd: 250
+    } as unknown as DragState
+    await commitMilestoneDragLeaf(
+      { findAllInSpace: async () => [] },
+      state,
+      { kind: 'milestone', doc: m },
+      ops
+    )
+    expect(updates).toHaveLength(1)
+    expect(updates[0][1]).toEqual({ startDate: 150, targetDate: 250 })
+  })
+
+  it('resizing-right updates targetDate', async () => {
+    const { ops, updates } = mockOps()
+    const m = milestone('M')
+    const state: DragState = {
+      kind: 'resizing-right',
+      target: { kind: 'milestone', doc: m },
+      previewStart: 100,
+      previewEnd: 300
+    } as unknown as DragState
+    await commitMilestoneDragLeaf(
+      { findAllInSpace: async () => [] },
+      state,
+      { kind: 'milestone', doc: m },
+      ops
+    )
+    expect(updates[0][1]).toEqual({ targetDate: 300 })
   })
 })

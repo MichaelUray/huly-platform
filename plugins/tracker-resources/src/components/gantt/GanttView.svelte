@@ -2,7 +2,7 @@
 // Copyright © 2026 Hardcore Engineering Inc.
 -->
 <script lang="ts">
-  import { type ApplyOperations, type Class, type Doc, type DocumentQuery, generateId, getCurrentAccount, type Ref, type Space, SortingOrder } from '@hcengineering/core'
+  import { type Class, type Doc, type DocumentQuery, generateId, getCurrentAccount, type Ref, type Space, SortingOrder } from '@hcengineering/core'
   import { createQuery, getClient } from '@hcengineering/presentation'
   import { type Component, type Issue, type IssueRelation, type IssueStatus, type Milestone, type Project, type WorkingDaysConfig, IssuePriority } from '@hcengineering/tracker'
   import { type TagElement } from '@hcengineering/tags'
@@ -75,7 +75,9 @@
   import {
     commitCascadeBatch as libCommitCascadeBatch,
     commitPrimariesBypass as libCommitPrimariesBypass,
-    countAltBypassViolations
+    countAltBypassViolations,
+    commitIssueDragLeaf,
+    commitMilestoneDragLeaf
   } from './lib/cascade-commit'
   import { createFlashStore, flashIssues } from './lib/flash-store'
   import { reduce } from './lib/drag-controller'
@@ -1907,90 +1909,14 @@
     })
   }
 
-  /**
-   * Commit a drag for an Issue target. Mirrors the PR3 commit path; the
-   * cascade walks descendant issues (parent → children shift by delta).
-   */
-  async function commitIssueDrag (state: DragState, target: { kind: 'issue', doc: Issue }, ops: ApplyOperations): Promise<void> {
-    if (state.kind === 'dragging-body') {
-      await ops.update(target.doc, { startDate: state.previewStart, dueDate: state.previewEnd })
-      const delta = state.previewStart - state.originStart
-      if (delta !== 0) {
-        // Fetch the full space's issues here rather than reusing the
-        // view-filtered `issues` array — otherwise children hidden by an
-        // active Tracker filter wouldn't shift with the parent and the
-        // tree would drift out of sync.
-        const client = getClient()
-        const allInSpace = await client.findAll(tracker.class.Issue, { space: target.doc.space })
-        for (const child of descendantsWithDates(target.doc, allInSpace)) {
-          await ops.update(child, {
-            startDate: (child.startDate as number) + delta,
-            dueDate: (child.dueDate as number) + delta
-          })
-        }
-      }
-    } else if (state.kind === 'dragging-unscheduled') {
-      // Unscheduled-drag only schedules the parent issue. originStart is the
-      // synthetic "today" anchor — using its delta to shift existing scheduled
-      // descendants would move them by a wildly unrelated amount.
-      // Descendants stay put; the user can drag the
-      // (now-scheduled) parent again to do a coordinated shift.
-      await ops.update(target.doc, { startDate: state.previewStart, dueDate: state.previewEnd })
-    } else if (state.kind === 'resizing-left') {
-      await ops.update(target.doc, { startDate: state.previewStart })
-    } else if (state.kind === 'resizing-right') {
-      await ops.update(target.doc, { dueDate: state.previewEnd })
+  // W10-D2 seam 3 — commitIssueDrag / commitMilestoneDrag moved to
+  // lib/cascade-commit.ts as commitIssueDragLeaf / commitMilestoneDragLeaf.
+  // The lib variants accept a `findAllInSpace` callback instead of calling
+  // `getClient()` mid-function, keeping them unit-testable.
+  const leafCommitDeps = {
+    findAllInSpace: async (space: Issue['space']): Promise<Issue[]> => {
+      return await getClient().findAll(tracker.class.Issue, { space })
     }
-  }
-
-  /**
-   * Commit a drag for a Milestone target (PR3.3 2026-05-11).
-   * Field mapping: Issue.dueDate ↔ Milestone.targetDate; startDate is shared.
-   * Cascade (brainstorm decision B): when the milestone moves, all issues
-   * assigned to it shift by the same delta along with their descendants.
-   * No cascade for resize — only the milestone bounds change.
-   */
-  async function commitMilestoneDrag (state: DragState, target: { kind: 'milestone', doc: Milestone }, ops: ApplyOperations): Promise<void> {
-    if (state.kind === 'dragging-body') {
-      await ops.update(target.doc, { startDate: state.previewStart, targetDate: state.previewEnd })
-      const delta = state.previewStart - state.originStart
-      if (delta !== 0) {
-        const client = getClient()
-        const allInSpace = await client.findAll(tracker.class.Issue, { space: target.doc.space })
-        const assigned = allInSpace.filter((i) =>
-          (i as unknown as { milestone?: string | null }).milestone === target.doc._id
-        )
-        // Shift assigned issues + their descendants. Same dedup logic as
-        // descendantsWithDates: only issues with both dates set get shifted.
-        const shiftRoots = new Set<string>()
-        const toShift: Issue[] = []
-        for (const a of assigned) {
-          if (a.startDate == null || a.dueDate == null) continue
-          if (!shiftRoots.has(String(a._id))) {
-            shiftRoots.add(String(a._id))
-            toShift.push(a)
-          }
-          for (const child of descendantsWithDates(a, allInSpace)) {
-            if (!shiftRoots.has(String(child._id))) {
-              shiftRoots.add(String(child._id))
-              toShift.push(child)
-            }
-          }
-        }
-        for (const i of toShift) {
-          await ops.update(i, {
-            startDate: (i.startDate as number) + delta,
-            dueDate: (i.dueDate as number) + delta
-          })
-        }
-      }
-    } else if (state.kind === 'resizing-left') {
-      await ops.update(target.doc, { startDate: state.previewStart })
-    } else if (state.kind === 'resizing-right') {
-      await ops.update(target.doc, { targetDate: state.previewEnd })
-    }
-    // Milestones can't enter dragging-unscheduled (no drag-grip in the
-    // sidebar for them), so that branch is unreachable.
   }
 
   async function commitWithCascade (
@@ -2267,7 +2193,7 @@
     // unreachable for milestones.
     if (state.target.kind === 'milestone') {
       const ops = client.apply('gantt-drag')
-      await commitMilestoneDrag(state, state.target, ops)
+      await commitMilestoneDragLeaf(leafCommitDeps, state, state.target, ops)
       const r = await ops.commit()
       if (!r.result) {
         const t = await translate(tracker.string.GanttDragFailed, {}, undefined)
@@ -2285,7 +2211,7 @@
       const doc = state.target.doc as Issue
       const before = { startDate: doc.startDate ?? null, dueDate: doc.dueDate ?? null }
       const after = { startDate: state.previewStart as number, dueDate: state.previewEnd as number }
-      await commitIssueDrag(state, state.target, ops)
+      await commitIssueDragLeaf(leafCommitDeps, state, state.target, ops)
       const r = await ops.commit()
       if (!r.result) {
         const t = await translate(tracker.string.GanttDragFailed, {}, undefined)

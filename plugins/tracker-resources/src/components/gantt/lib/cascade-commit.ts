@@ -4,11 +4,12 @@
 //
 
 import type { ApplyOperations, Ref, Space, TxOperations } from '@hcengineering/core'
-import type { Issue, IssueRelation, WorkingDaysConfig } from '@hcengineering/tracker'
-import type { CascadeShift, PrimaryEdit } from './types'
+import type { Issue, IssueRelation, Milestone, Project, WorkingDaysConfig } from '@hcengineering/tracker'
+import type { CascadeShift, DragState, PrimaryEdit } from './types'
 import type { UndoEntry } from './undo-manager'
 import { newCascadeToken } from './cascade-token'
 import { fsAnchor, ssAnchor, ffAnchor, sfAnchor } from './working-days'
+import { descendantsWithDates } from './scheduler'
 
 /**
  * W10-D2 seam 2 — pure cascade-commit helpers extracted from GanttView.
@@ -188,3 +189,112 @@ export function countAltBypassViolations (
 // CascadeCommitClient's structural shape without unsafe casts. Not
 // otherwise used by this module.
 export type { TxOperations }
+
+/**
+ * W10-D2 seam 3 — leaf commit helpers for Issue / Milestone drags.
+ *
+ * The original implementations called `getClient()` directly mid-function
+ * for the parent-cascade lookup. The lib versions take an explicit
+ * `findAllInSpace` callback so they stay testable.
+ */
+export interface LeafCommitDeps {
+  // Production caller passes `(space) => getClient().findAll(...)`.
+  // `Issue.space` is typed as `Ref<Project>` in @hcengineering/tracker;
+  // FindResult<T> = `WithLookup<T>[] & { total, lookupMap? }` is
+  // assignable to `Issue[]` (only iteration is used).
+  findAllInSpace: (space: Ref<Project>) => Promise<Issue[]>
+}
+
+/**
+ * Commit a drag for an Issue target. Mirrors the PR3 commit path; the
+ * cascade walks descendant issues (parent -> children shift by delta).
+ */
+export async function commitIssueDragLeaf (
+  deps: LeafCommitDeps,
+  state: DragState,
+  target: { kind: 'issue', doc: Issue },
+  ops: ApplyOperations
+): Promise<void> {
+  if (state.kind === 'dragging-body') {
+    await ops.update(target.doc, { startDate: state.previewStart, dueDate: state.previewEnd })
+    const delta = state.previewStart - state.originStart
+    if (delta !== 0) {
+      // Fetch the full space's issues here rather than reusing the
+      // view-filtered `issues` array - otherwise children hidden by an
+      // active Tracker filter wouldn't shift with the parent and the
+      // tree would drift out of sync.
+      const allInSpace = await deps.findAllInSpace(target.doc.space)
+      for (const child of descendantsWithDates(target.doc, allInSpace)) {
+        await ops.update(child, {
+          startDate: (child.startDate as number) + delta,
+          dueDate: (child.dueDate as number) + delta
+        })
+      }
+    }
+  } else if (state.kind === 'dragging-unscheduled') {
+    // Unscheduled-drag only schedules the parent issue. originStart is the
+    // synthetic "today" anchor - using its delta to shift existing scheduled
+    // descendants would move them by a wildly unrelated amount.
+    // Descendants stay put; the user can drag the
+    // (now-scheduled) parent again to do a coordinated shift.
+    await ops.update(target.doc, { startDate: state.previewStart, dueDate: state.previewEnd })
+  } else if (state.kind === 'resizing-left') {
+    await ops.update(target.doc, { startDate: state.previewStart })
+  } else if (state.kind === 'resizing-right') {
+    await ops.update(target.doc, { dueDate: state.previewEnd })
+  }
+}
+
+/**
+ * Commit a drag for a Milestone target.
+ * Field mapping: Issue.dueDate <-> Milestone.targetDate; startDate is shared.
+ * Cascade: when the milestone moves, all issues assigned to it shift by the
+ * same delta along with their descendants. No cascade for resize.
+ */
+export async function commitMilestoneDragLeaf (
+  deps: LeafCommitDeps,
+  state: DragState,
+  target: { kind: 'milestone', doc: Milestone },
+  ops: ApplyOperations
+): Promise<void> {
+  if (state.kind === 'dragging-body') {
+    await ops.update(target.doc, { startDate: state.previewStart, targetDate: state.previewEnd })
+    const delta = state.previewStart - state.originStart
+    if (delta !== 0) {
+      const allInSpace = await deps.findAllInSpace(target.doc.space)
+      const assigned = allInSpace.filter((i) =>
+        (i as unknown as { milestone?: string | null }).milestone === target.doc._id
+      )
+      // Shift assigned issues + their descendants. Same dedup logic as
+      // descendantsWithDates: only issues with both dates set get shifted.
+      const shiftRoots = new Set<string>()
+      const toShift: Issue[] = []
+      for (const a of assigned) {
+        if (a.startDate == null || a.dueDate == null) continue
+        if (!shiftRoots.has(String(a._id))) {
+          shiftRoots.add(String(a._id))
+          toShift.push(a)
+        }
+        for (const child of descendantsWithDates(a, allInSpace)) {
+          if (!shiftRoots.has(String(child._id))) {
+            shiftRoots.add(String(child._id))
+            toShift.push(child)
+          }
+        }
+      }
+      for (const i of toShift) {
+        await ops.update(i, {
+          startDate: (i.startDate as number) + delta,
+          dueDate: (i.dueDate as number) + delta
+        })
+      }
+    }
+  } else if (state.kind === 'resizing-left') {
+    await ops.update(target.doc, { startDate: state.previewStart })
+  } else if (state.kind === 'resizing-right') {
+    await ops.update(target.doc, { targetDate: state.previewEnd })
+  }
+  // Milestones can't enter dragging-unscheduled (no drag-grip in the
+  // sidebar for them), so that branch is unreachable.
+}
+
