@@ -231,7 +231,16 @@ const wac = plugin(wacPluginId, {
     // A3 — client-side full-text search input above the AllSpacesTab
     // table. Matches case-insensitively on `name` (substring) and on
     // `_id` (prefix). Pure UI filter — no server round-trip.
-    ResourceSearchPlaceholder: '' as IntlString
+    ResourceSearchPlaceholder: '' as IntlString,
+
+    // A4 — minimal read-only inheritance visualizer (Tier-1).
+    // Renders Workspace → SpaceType → Space as a 3-level tree using
+    // the already-loaded `spaces` list, grouped by `_class`. No
+    // drilldown into child docs, no async grant traversal — that's
+    // deferred to Tier-2.
+    ViewHierarchy: '' as IntlString,
+    InheritanceTreeTitle: '' as IntlString,
+    InheritanceTreeEmpty: '' as IntlString
   }
 })
 

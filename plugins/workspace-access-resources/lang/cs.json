@@ -125,6 +125,9 @@
     "AuditActionPresetUpdated": "Preset updated",
     "AuditActionPresetDeleted": "Preset deleted",
     "AuditActionPresetApplied": "Preset applied",
-    "ResourceSearchPlaceholder": "Hledat zdroje…"
+    "ResourceSearchPlaceholder": "Hledat zdroje…",
+    "ViewHierarchy": "View hierarchy",
+    "InheritanceTreeTitle": "Resource hierarchy",
+    "InheritanceTreeEmpty": "No resources to visualize"
   }
 }
