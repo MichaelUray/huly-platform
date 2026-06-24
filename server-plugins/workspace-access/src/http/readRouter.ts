@@ -117,13 +117,41 @@ function writeJson (ctx: KoaCtxLike, status: number, body: unknown, headers: Rec
   ctx.res.end(JSON.stringify(body))
 }
 
-function bucketize (lastActMs: number | null): 'today' | '7d' | '30d' | '90d+' {
-  if (lastActMs == null || !Number.isFinite(lastActMs)) return '90d+'
-  const delta = Date.now() - lastActMs
+/** Activity-bucket label exposed by handleMembers. */
+export type ActivityBucket = 'today' | '7d' | '30d' | '90d+'
+
+/**
+ * Compute the activity bucket for a `lastActivityAt` timestamp relative
+ * to `now`. Both arguments are wall-clock milliseconds since epoch — the
+ * function is TZ-independent (it operates on a pure `now - lastAct`
+ * delta) and is the single source of truth for the four bucket
+ * boundaries:
+ *
+ *   delta <  1 day  → 'today'
+ *   delta <  7 days → '7d'
+ *   delta < 30 days → '30d'
+ *   otherwise       → '90d+'
+ *
+ * Exported so it can be unit-tested independently of the handler (which
+ * additionally pulls rows from pg and is hard to drive deterministically).
+ * `now` is injectable so jest fake-timers + `Date.now()` both work; the
+ * handler always passes `Date.now()` so behavior is unchanged.
+ */
+export function bucketForActivity (
+  now: number,
+  lastActivityAt: number | null
+): ActivityBucket {
+  if (lastActivityAt == null || !Number.isFinite(lastActivityAt)) return '90d+'
+  const delta = now - lastActivityAt
   if (delta < 86400_000) return 'today'
   if (delta < 7 * 86400_000) return '7d'
   if (delta < 30 * 86400_000) return '30d'
   return '90d+'
+}
+
+/** Legacy in-handler shim — bind `now` to wall-clock and delegate. */
+function bucketize (lastActMs: number | null): ActivityBucket {
+  return bucketForActivity(Date.now(), lastActMs)
 }
 
 function classDotted (v: unknown): string {
