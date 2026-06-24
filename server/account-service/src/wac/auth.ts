@@ -133,6 +133,24 @@ function writeJson (ctx: Context, status: number, body: unknown): void {
  * (`READONLY_GUEST`, `DOC_GUEST`) and core-enum form (`READONLYGUEST`,
  * `DocGuest`) so the helper is tolerant to both upstream sources without
  * collapsing the guest variants into a single bucket.
+ *
+ * M6 — fail-closed default.
+ *
+ * Unknown role strings collapse to `'GUEST'` — the most restrictive
+ * bucket (`!isGuestVariant` is the gate for `read-self`, so a GUEST is
+ * locked out of everything except their own self-view).
+ *
+ * This is intentional: if upstream adds a new `AccountRole` enum value
+ * that WAC's wire-form list doesn't yet know about, the safe behaviour
+ * is to deny access until WAC is taught to handle it. The alternative
+ * (defaulting to USER or MAINTAINER) would silently grant whatever
+ * surface the new role corresponds to.
+ *
+ * **When adding a new role here:** also add it to the `WacWireRole`
+ * union in `server-plugins/workspace-access/src/http/readRouter.ts`,
+ * the `ALLOWED_ROLES` set in `writeRouter.ts`, and the dropdown options
+ * in `plugins/workspace-access-resources/src/components/people/PersonDrawer.svelte`.
+ * See README "i18n status" for the matching IntlString registration.
  */
 function mapRole (raw: string | null | undefined): WacRole {
   if (raw == null) return 'GUEST'
