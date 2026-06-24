@@ -597,6 +597,20 @@ describe('readRouter — parseAuditFilter + buildAuditWhere (A1 pure helpers)', 
     expect(parseAuditFilter({ action: ['role_changed'] as unknown as string })).toEqual({})
   })
 
+  it('parseAuditFilter accepts actor substring + rejects bad shape', () => {
+    expect(parseAuditFilter({ actor: 'michael.uray' })).toEqual({ actor: 'michael.uray' })
+    expect(parseAuditFilter({ actor: 'a@b.com' })).toEqual({ actor: 'a@b.com' })
+    // Reject specials that would let an injection slip past ILIKE
+    expect(parseAuditFilter({ actor: "x'; DROP--" })).toEqual({})
+    expect(parseAuditFilter({ actor: '%wild%' })).toEqual({})
+  })
+
+  it('buildAuditWhere emits ILIKE clause for actor with %-wrapped param', () => {
+    const { sql, params } = buildAuditWhere('ws-1', { actor: 'mike' })
+    expect(sql).toBe('workspace=$1 AND actor::text ILIKE $2')
+    expect(params).toEqual(['ws-1', '%mike%'])
+  })
+
   it('buildAuditWhere produces base clause when filter is empty', () => {
     const { sql, params } = buildAuditWhere('ws-1', {})
     expect(sql).toBe('workspace=$1')
@@ -928,7 +942,38 @@ describe('readRouter — factory surface', () => {
       'handleInvites',
       'handleGrants',
       'handleGrantsCount',
-      'handleAuditCsvExport'
+      'handleAuditCsvExport',
+      'handleCapabilities'
     ])
+  })
+})
+
+describe('readRouter — handleCapabilities (E7 amendment)', () => {
+  it('returns granular per-feature flags + real-features always true', async () => {
+    const { ctx, captured } = makeCtx()
+    const handlers = buildHandlers()
+    await handlers.handleCapabilities(ctx, 'ws-1', {
+      webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false
+    })
+    expect(captured.status).toBe(200)
+    expect(captured.body).toMatchObject({
+      workspace: 'ws-1',
+      real: {
+        accessCenter: true, presets: true, resourceBulkBar: true,
+        auditFilter: true, inheritanceTree: true, resourceSearch: true, csvDryRun: true
+      },
+      preview: { webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false }
+    })
+  })
+
+  it('flips ONLY the requested preview flag (granular not all-or-nothing)', async () => {
+    const { ctx, captured } = makeCtx()
+    const handlers = buildHandlers()
+    await handlers.handleCapabilities(ctx, 'ws-1', {
+      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false
+    })
+    expect(captured.body.preview).toEqual({
+      webhooks: false, grantExpiry: false, csvDispatch: true, effectivePermissions: false
+    })
   })
 })

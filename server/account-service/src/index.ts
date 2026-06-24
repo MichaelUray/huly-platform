@@ -668,6 +668,20 @@ export function serveAccount (
     accountDb: async () => (await accountsDb)[0]
   }
 
+  // E7 — preview feature flags. CSV-list of granular keys in
+  // WAC_PREVIEW_FEATURES (e.g. "webhooks,grantExpiry") flips ONLY the
+  // matching client-visible surface. Default: all false (= preview UIs
+  // hidden, backend 501s clean). The capabilities endpoint surfaces
+  // these to the client for the visibility-gate.
+  const _wacPreviewEnv = (process.env.WAC_PREVIEW_FEATURES ?? '')
+    .split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+  const _wacPreviewFlags = {
+    webhooks: _wacPreviewEnv.includes('webhooks'),
+    grantExpiry: _wacPreviewEnv.includes('grantExpiry'),
+    csvDispatch: _wacPreviewEnv.includes('csvDispatch'),
+    effectivePermissions: _wacPreviewEnv.includes('effectivePermissions')
+  }
+
   // Phase 2A — read-side handlers live in server-plugins/workspace-access.
   // This file is now a thin HTTP host: route dispatch + auth gate only.
   // The lazy accessors are intentional — they let the plugin's tests run
@@ -1044,19 +1058,12 @@ export function serveAccount (
     // Unknown routes default to 'edit' (safest — OWNER-only).
     //
     // M5 — defense in depth: `audit/export.csv` already hits a dedicated
-    // 'admin'-gated middleware earlier in the chain. If a future
-    // sub-path under `audit/...` is added without registering a more
-    // specific middleware, fall through here as 'read' (MAINTAINER+)
-    // instead of leaking through to 'edit' or worse — anything dropped
-    // under audit/ is read-by-default.
+    // 'admin'-gated middleware earlier; audit/* falls through here as
+    // 'read' instead of leaking through to 'edit'.
+    const _READ_SUBS = new Set(['members', 'spaces', 'audit', 'owners/count', 'invites', 'grants', 'grants/count', 'presets', 'capabilities'])
     const wacCapability: 'read' | 'read-self' | 'edit' | 'admin' = (
       sub === 'my-access' ? 'read-self'
-        : (sub === 'members' || sub === 'spaces' || sub.startsWith('spaces/')
-            || sub === 'audit' || sub.startsWith('audit/')
-            || sub === 'owners/count' || sub === 'invites'
-            || sub === 'grants' || sub === 'grants/count'
-            || sub === 'presets')
-            ? 'read'
+        : (_READ_SUBS.has(sub) || sub.startsWith('spaces/') || sub.startsWith('audit/')) ? 'read'
             : 'edit'
     )
     const auth = await authenticateWac(ctx, workspaceParam, wacCapability, authDeps)
@@ -1117,24 +1124,18 @@ export function serveAccount (
         return
       }
       if (sub === 'effective-permissions') {
-        // Tier-1 stub: returns a deterministic "private space, user is
-        // a member" allow path so the PersonDrawer drilldown renders.
-        // Swap for the plugin's `effectivePermissions(ctx, params,
-        // backend)` call once the backend is wired against accounts-db
-        // + transactor. Auth already gates to OWNER + IMPERSONATING_ADMIN
-        // via the `edit` capability above (the plugin's narrower
-        // DRILLDOWN_ALLOWED_ROLES enforces the real rule once wired).
+        // Honest 501 until the plugin's `effectivePermissions(ctx,
+        // params, backend)` is wired against accounts-db + transactor.
+        // Auth above already gates to 'edit' (OWNER + IMPERSONATING_ADMIN
+        // via the WAC capability); the plugin's narrower
+        // DRILLDOWN_ALLOWED_ROLES will tighten further when wired. The
+        // no-fallback guard test (__tests__/wacNoFallback.test.ts)
+        // forbids fixture-shaped responses here.
         const userUuid = (ctx.query.user as string | undefined) ?? ''
         const resourceId = (ctx.query.resource as string | undefined) ?? ''
         if (userUuid === '' || resourceId === '') {
           return json(400, { error: 'bad_request', code: 'effective_permissions_bad_request' })
         }
-        // Tier-1: route exists and shape is contract-stable, but the
-        // backing plugin call against accounts-db + transactor is not
-        // wired yet. Return 501 with a clear marker so the client renders
-        // an informative "unavailable" state instead of believing a
-        // fixture decision (the no-fallback guard test forbids stub
-        // fixtures here — see __tests__/wacNoFallback.test.ts).
         return json(501, {
           error: 'not_implemented',
           code: 'effective_permissions_not_wired',
@@ -1147,6 +1148,13 @@ export function serveAccount (
         await wacPresetsHandlers.handleList(ctx as any, workspaceUuid, callerUuid)
         return
       }
+      if (sub === 'capabilities') {
+        // E7 — granular per-feature preview flags. WAC_PREVIEW_FEATURES
+        // is parsed once from the env (CSV-list of feature keys) so
+        // operators can flip e.g. CSV real without exposing Webhooks.
+        await wacReadHandlers.handleCapabilities(ctx, workspaceUuid, _wacPreviewFlags)
+        return
+      }
     } catch (err) {
       measureCtx.error(`wac:/${sub} read failed`, { err: String(err) })
       return json(500, { error: 'internal', detail: 'wac_read_failed' })
@@ -1156,27 +1164,17 @@ export function serveAccount (
 
   // Time-bounded grants — set/clear expiry. DSGVO Art. 5 Abs. 1 lit. e.
   //
-  // Body: { expires_at: <ISO-8601 in future> | null }
-  // Gating: Owner / IMPERSONATING_ADMIN — enforced by setGrantExpiry
-  // once the workspace transactor backend is wired. For the stub-era
-  // (collaborator schema not reachable from this process) we accept
-  // and ack so the frontend flow is exercisable end-to-end, but the
-  // actual write is a no-op. The shape mirrors the future contract.
-  //
-  // Validation is performed inline here even in stub mode so a bad
-  // request fails the same way it will in prod (no "looks fine in
-  // staging, breaks in prod" regression).
+  // Honest 501 until the workspace transactor backend is wired (E7 fix
+  // for Codex E6 Block: previously returned 200 { changed: true } in
+  // stub mode, which lied to the UI). The shape of the future contract
+  // is preserved in the plugin's `setGrantExpiry` (see
+  // server-workspace-access/src/endpoints/grantEndpoints.ts). Auth is
+  // enforced via the proper WAC gate (NOT assertAdmin) so the route's
+  // failure mode + audit trail match production once the body lands.
   const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/
   router.post('/api/wac/:workspace/grants/:grantId/expiry', async (ctx) => {
-    const token = extractToken(ctx.request.headers) ?? ''
-    const [db] = await accountsDb
-    try {
-      await assertAdmin(measureCtx.newChild('wac-set-expiry', {}), db, token)
-    } catch {
-      ctx.res.writeHead(403, KEEP_ALIVE_HEADERS)
-      ctx.res.end('{"error":"Forbidden"}')
-      return
-    }
+    const auth = await authenticateWac(ctx, ctx.params.workspace, 'edit', authDeps)
+    if (auth === null) return
     const body = (ctx.request as any).body as { expires_at?: unknown } | undefined
     const expiresAt = body?.expires_at
     if (expiresAt !== null && expiresAt !== undefined) {
@@ -1192,19 +1190,12 @@ export function serveAccount (
         return
       }
     }
-    // Stub mode: ack the request shape, log the intent. The wiring PR
-    // for the workspace transactor will replace this body with a call
-    // through setGrantExpiry from @hcengineering/server-workspace-access.
-    measureCtx.info('wac-set-expiry: accepted (stub mode)', {
-      workspace: ctx.params.workspace,
-      grantId: ctx.params.grantId,
-      expires_at: expiresAt ?? null
-    })
-    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.writeHead(501, KEEP_ALIVE_HEADERS)
     ctx.res.end(JSON.stringify({
-      grantId: ctx.params.grantId,
-      expires_at: expiresAt ?? null,
-      changed: true
+      error: 'not_implemented',
+      code: 'grant_expiry_not_wired',
+      detail: 'Time-bounded grants backend (transactor.collaborator.expires_at) not wired yet; route + shape are stable.',
+      grantId: ctx.params.grantId
     }))
   })
 
@@ -1223,194 +1214,53 @@ export function serveAccount (
   // will be re-introduced when the route receives a real RoleCtx in
   // the wiring PR.
 
-  type _WebhookMem = {
-    id: string
-    workspace: string
-    url: string
-    secret: string | null
-    eventTypes: string[]
-    active: boolean
-    dataFilter: 'minimal' | 'full'
-    createdBy: string | null
-    createdAt: string
-  }
-  const _webhookMem = new Map<string, _WebhookMem>()
-  let _webhookSeq = 1
-  const _webhookMemBackend = {
-    list: async (ws: string) => Array.from(_webhookMem.values()).filter((r) => r.workspace === ws),
-    getById: async (ws: string, id: string) => {
-      const r = _webhookMem.get(id)
-      return r != null && r.workspace === ws ? r : null
-    },
-    listActiveForEvent: async (ws: string, ev: string) =>
-      Array.from(_webhookMem.values()).filter((r) => r.workspace === ws && r.active && r.eventTypes.includes(ev)),
-    create: async (input: any) => {
-      const id = `wh-${_webhookSeq++}`
-      const row: _WebhookMem = {
-        id,
-        workspace: input.workspace,
-        url: input.url,
-        secret: input.secret,
-        eventTypes: input.eventTypes,
-        active: input.active,
-        dataFilter: input.dataFilter,
-        createdBy: input.createdBy,
-        createdAt: new Date().toISOString()
-      }
-      _webhookMem.set(id, row)
-      return row
-    },
-    update: async (ws: string, id: string, patch: any) => {
-      const r = _webhookMem.get(id)
-      if (r == null || r.workspace !== ws) return null
-      const merged: _WebhookMem = {
-        ...r,
-        url: patch.url ?? r.url,
-        secret: patch.secret === undefined ? r.secret : patch.secret,
-        eventTypes: patch.eventTypes ?? r.eventTypes,
-        active: patch.active ?? r.active,
-        dataFilter: patch.dataFilter ?? r.dataFilter
-      }
-      _webhookMem.set(id, merged)
-      return merged
-    },
-    delete: async (ws: string, id: string) => {
-      const r = _webhookMem.get(id)
-      if (r == null || r.workspace !== ws) return false
-      _webhookMem.delete(id)
-      return true
-    }
-  }
 
-  async function _gateWacAdmin (ctx: any, label: string): Promise<boolean> {
-    const token = extractToken(ctx.request.headers) ?? ''
-    const [db] = await accountsDb
-    try {
-      await assertAdmin(measureCtx.newChild(label, {}), db, token)
-      return true
-    } catch {
-      ctx.res.writeHead(403, KEEP_ALIVE_HEADERS)
-      ctx.res.end('{"error":"Forbidden"}')
-      return false
-    }
+  // Webhook routes — honest 501 until PG-backed backend + audit
+  // dispatcher integration land. E7 fix for Codex E6 Block: the prior
+  // in-memory backend + fake _wacRouteCtx pattern lied to the plugin's
+  // auth gates (webhookEndpoints expects a real RoleCtx) and silently
+  // dropped on restart. The shape of the future contract is preserved
+  // in the plugin's `webhookEndpoints.ts` exports — wiring PR swaps
+  // these 501s for the real PG-backed flow without touching the route
+  // surface. Auth via the proper WAC 'edit' gate so the failure mode
+  // matches production once the body lands.
+  const _webhookNotWired = (ctx: any): void => {
+    ctx.res.writeHead(501, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({
+      error: 'not_implemented',
+      code: 'webhooks_not_wired',
+      detail: 'Outbound webhook backend (PG persistence + audit dispatcher) not wired yet; route + shape are stable.'
+    }))
   }
-
-  function _wacError (ctx: any, err: any): void {
-    const status = typeof err?.status === 'number' ? err.status : 500
-    const code = typeof err?.code === 'string' ? err.code : 'internal_error'
-    ctx.res.writeHead(status, KEEP_ALIVE_HEADERS)
-    ctx.res.end(JSON.stringify({ error: code, message: err?.message ?? String(err) }))
-  }
-
-  function _serializeWebhook (r: _WebhookMem): Record<string, unknown> {
-    return {
-      id: r.id,
-      workspace: r.workspace,
-      url: r.url,
-      // Never echo the secret back; only flag presence.
-      hasSecret: r.secret != null && r.secret !== '',
-      event_types: r.eventTypes,
-      active: r.active,
-      data_filter: r.dataFilter,
-      created_by: r.createdBy,
-      created_at: r.createdAt
-    }
-  }
-
-  // Lazy-require so the account-service bundle compiles even if the
-  // plugin isn't installed (e.g. in self-host bootstraps that skip the
-  // WAC v1 surface).
-  let _wacEndpoints: any
-  function _wac (): any {
-    if (_wacEndpoints == null) {
-      _wacEndpoints = require('@hcengineering/server-workspace-access')
-    }
-    return _wacEndpoints
-  }
-
-  const _wacRouteCtx = (workspace: string): any => ({
-    token: { audience: 'workspace', workspace },
-    account: { uuid: 'instance-admin' },
-    membership: { role: 'OWNER', ownedSpaces: [] },
-    isImpersonating: false,
-    workspace,
-    actorUuid: 'instance-admin',
-    actorRole: 'workspace_owner',
-    tx: { begin: async <T>(fn: (txCtx: any) => Promise<T>) => await fn({ ws: async () => undefined, admin: async () => undefined, domain: {} }) }
-  })
 
   router.get('/api/wac/:workspace/webhooks', async (ctx) => {
-    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-list'))) return
-    try {
-      const workspace = ctx.params.workspace as string
-      const rows = await _wac().listWebhooks(_wacRouteCtx(workspace), workspace, _webhookMemBackend)
-      ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-      ctx.res.end(JSON.stringify({ items: rows.map(_serializeWebhook) }))
-    } catch (err) {
-      _wacError(ctx, err)
-    }
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'edit', authDeps)
+    if (auth === null) return
+    _webhookNotWired(ctx)
   })
 
   router.post('/api/wac/:workspace/webhooks', async (ctx) => {
-    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-create'))) return
-    try {
-      const workspace = ctx.params.workspace as string
-      const body = (ctx.request as any).body ?? {}
-      const row = await _wac().createWebhook(_wacRouteCtx(workspace), workspace, body, _webhookMemBackend)
-      ctx.res.writeHead(201, KEEP_ALIVE_HEADERS)
-      ctx.res.end(JSON.stringify(_serializeWebhook(row)))
-    } catch (err) {
-      _wacError(ctx, err)
-    }
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'edit', authDeps)
+    if (auth === null) return
+    _webhookNotWired(ctx)
   })
 
   router.put('/api/wac/:workspace/webhooks/:id', async (ctx) => {
-    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-update'))) return
-    try {
-      const workspace = ctx.params.workspace as string
-      const id = ctx.params.id as string
-      const body = (ctx.request as any).body ?? {}
-      const row = await _wac().updateWebhook(_wacRouteCtx(workspace), workspace, id, body, _webhookMemBackend)
-      ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-      ctx.res.end(JSON.stringify(_serializeWebhook(row)))
-    } catch (err) {
-      _wacError(ctx, err)
-    }
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'edit', authDeps)
+    if (auth === null) return
+    _webhookNotWired(ctx)
   })
 
   router.delete('/api/wac/:workspace/webhooks/:id', async (ctx) => {
-    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-delete'))) return
-    try {
-      const workspace = ctx.params.workspace as string
-      const id = ctx.params.id as string
-      await _wac().deleteWebhook(_wacRouteCtx(workspace), workspace, id, _webhookMemBackend)
-      ctx.res.writeHead(204, KEEP_ALIVE_HEADERS)
-      ctx.res.end()
-    } catch (err) {
-      _wacError(ctx, err)
-    }
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'edit', authDeps)
+    if (auth === null) return
+    _webhookNotWired(ctx)
   })
 
   router.post('/api/wac/:workspace/webhooks/:id/test', async (ctx) => {
-    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-test'))) return
-    try {
-      const workspace = ctx.params.workspace as string
-      const id = ctx.params.id as string
-      const dnsLookup = async (host: string): Promise<Array<{ address: string, family: 4 | 6 }>> => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const dns = require('dns').promises
-        const res = await dns.lookup(host, { all: true })
-        return res.map((r: any) => ({ address: r.address, family: r.family as 4 | 6 }))
-      }
-      const result = await _wac().testWebhook(_wacRouteCtx(workspace), workspace, id, _webhookMemBackend, {
-        fetch,
-        lookup: dnsLookup
-      })
-      ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
-      ctx.res.end(JSON.stringify(result))
-    } catch (err) {
-      _wacError(ctx, err)
-    }
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'edit', authDeps)
+    if (auth === null) return
+    _webhookNotWired(ctx)
   })
 
   // ── End WAC outbound webhooks ───────────────────────────────────────────
@@ -1418,69 +1268,87 @@ export function serveAccount (
   // ── WAC CSV bulk-invite ─────────────────────────────────────────────────
   //
   // POST /api/wac/<workspace>/invites/bulk-csv
-  //   * Body: { csv: <string>, dry_run: <bool> } — JSON for now so the
-  //     existing koa-bodyparser handles it; a multipart variant lands
-  //     in the wiring PR once @koa/multer is added to the plugin tree.
-  //   * dry_run=true returns a per-row preview + summary without
-  //     creating any invites.
-  //   * dry_run=false dispatches sendInvite for every row where
-  //     status === 'ok'; if ANY row is invalid the call rejects with
-  //     422 to force the user to fix the upload before dispatch.
+  //   * Body: { csv: <string>, dry_run: <bool> }
+  //   * dry_run=true → honest validation + preview using the plugin's
+  //     pure helpers (stripBom + splitCsvLine + email/role validation).
+  //     addToSpaces are returned in the preview but marked unvalidated
+  //     since the workspace-space lookup isn't wired yet (no silent
+  //     spaceExists:async () => true lie — Codex E6 amendment).
+  //   * dry_run=false → 501 csv_dispatch_not_wired (E7 fix for Codex E6
+  //     Block: previously returned `dispatched: N` without sending
+  //     anything, which lied to the UI).
   //
-  // DSGVO contract is enforced inside processBulkInviteCsv: the upload
-  // is never persisted, the audit log carries aggregate counts only,
-  // and per-row e-mails carry a sha256 fingerprint for log/audit
-  // matching without plaintext leakage.
+  // Auth via the proper WAC 'edit' gate (was assertAdmin which let
+  // instance admins through but blocked workspace owners).
+  //
+  // DSGVO: the upload is never persisted; audit row carries only
+  // aggregate counts (the per-row email sha256 hashes ship with the
+  // wiring PR once we actually persist them).
 
-  const _BULK_VALID_ROLES = ['OWNER', 'MAINTAINER', 'USER', 'GUEST'] as const
+  const _BULK_VALID_ROLES = ['OWNER', 'MAINTAINER', 'USER', 'GUEST']
+  const _EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
   router.post('/api/wac/:workspace/invites/bulk-csv', async (ctx) => {
-    if (!(await _gateWacAdmin(ctx, 'wac-bulk-invite'))) return
+    const workspace = ctx.params.workspace as string
+    const auth = await authenticateWac(ctx as any, workspace, 'edit', authDeps)
+    if (auth === null) return
+    const body = (ctx.request as any).body ?? {}
+    const csvRaw = typeof body.csv === 'string' ? body.csv : ''
+    const dryRun = body.dry_run !== false && body.dryRun !== false
+    if (!dryRun) {
+      ctx.res.writeHead(501, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify({
+        error: 'not_implemented',
+        code: 'csv_dispatch_not_wired',
+        detail: 'CSV bulk-invite send path (mail-hook + transactor.invite write) not wired yet; route + dry-run validation are stable.'
+      }))
+      return
+    }
+    // Honest inline parse for dry-run preview. Uses the plugin's pure
+    // helpers (no auth context required, no spaceExists lie).
     try {
-      const workspace = ctx.params.workspace as string
-      const body = (ctx.request as any).body ?? {}
-      const csvRaw = typeof body.csv === 'string' ? body.csv : ''
-      const dryRun = body.dry_run !== false && body.dryRun !== false
-      const wac = _wac()
-      const result = await wac.processBulkInviteCsv(_wacRouteCtx(workspace), {
-        workspace,
-        csv: csvRaw,
-        dryRun,
-        validRoles: _BULK_VALID_ROLES,
-        // No live workspace-space lookup yet — accept the upload's
-        // claimed spaces but the dispatch step in the wiring PR will
-        // re-validate against the actual workspace transactor.
-        spaceExists: async (_ws: string, _sp: string) => true
-      })
-      const preview = {
-        rows: result.preview.rows.map((r: any) => wac.previewRowForResponse(r)),
-        summary: result.preview.summary
-      }
-      let dispatched: number | undefined
-      if (!dryRun && result.toSend != null) {
-        // The actual sendInvite() call lives in @hcengineering/account;
-        // wiring it here without a workspace transactor connection is
-        // out of scope for this commit. The route returns the toSend
-        // count so the UI can render an accurate "x invites queued"
-        // message; the dispatch loop lands with the PG-backed wiring.
-        dispatched = result.toSend.length
-        measureCtx.info('WAC bulk-invite ready to dispatch', {
-          workspace,
-          dispatched,
-          ...result.auditMetadata
+      const wac = require('@hcengineering/server-workspace-access')
+      const text = wac.stripBom(csvRaw)
+      const rawLines = text.split(/\r\n|\r|\n/).filter((l: string) => l.trim() !== '')
+      const rows: Array<Record<string, unknown>> = []
+      let valid = 0
+      let invalid = 0
+      const byStatus: Record<string, number> = {}
+      for (let i = 0; i < rawLines.length; i++) {
+        const parts: string[] = wac.splitCsvLine(rawLines[i])
+        const email = (parts[0] ?? '').trim()
+        const role = (parts[1] ?? '').trim().toUpperCase()
+        const spaces = (parts[2] ?? '').split(';').map((s: string) => s.trim()).filter((s: string) => s !== '')
+        let status: string
+        if (!_EMAIL_RE.test(email)) status = 'invalid_email'
+        else if (!_BULK_VALID_ROLES.includes(role)) status = 'invalid_role'
+        else status = 'ok'
+        if (status === 'ok') valid++
+        else invalid++
+        byStatus[status] = (byStatus[status] ?? 0) + 1
+        rows.push({
+          line: i + 1,
+          email_hash: wac.hashEmail(email),
+          role,
+          addToSpaces: spaces,
+          addToSpaces_unvalidated: spaces.length > 0,
+          status
         })
       }
       ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
       ctx.res.end(JSON.stringify({
-        dry_run: dryRun,
-        dispatched,
-        ...preview,
-        // Surface the DSGVO-cleansed audit metadata so the caller can
-        // mirror it into their own logs without re-introducing PII.
-        audit_metadata: result.auditMetadata
+        dry_run: true,
+        rows,
+        summary: { total: rows.length, valid, invalid, byStatus },
+        audit_metadata: { total: rows.length, valid, invalid },
+        notes: {
+          addToSpaces: 'unvalidated_until_dispatch_wiring',
+          dispatch: 'not_available_in_v1'
+        }
       }))
     } catch (err) {
-      _wacError(ctx, err)
+      ctx.res.writeHead(500, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify({ error: 'csv_parse_failed', detail: String((err as Error)?.message ?? err) }))
     }
   })
 
