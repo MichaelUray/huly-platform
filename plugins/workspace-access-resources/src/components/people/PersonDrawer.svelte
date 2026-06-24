@@ -15,6 +15,12 @@
   import wac from '../../plugin'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import { peopleApi } from '../../api/peopleApi'
+  import { previewEnabled } from '../../stores/capabilitiesStore'
+
+  // E7 — preview-feature visibility gates. Default false (matrix not
+  // loaded yet, or backend reported preview features hidden).
+  const previewEffectivePermissions = previewEnabled('effectivePermissions')
+  const previewGrantExpiry = previewEnabled('grantExpiry')
   import { effectivePermissionsApi, type EffectivePermissionsResponse } from '../../api/effectivePermissionsApi'
   import { grantedAccessApi } from '../../api/grantedAccessApi'
   import type { GrantRow, WorkspaceRole } from '../../types'
@@ -128,10 +134,16 @@
   // today. WorkspaceRole only declares 'GUEST' but the server
   // recognises READONLY_GUEST / DOC_GUEST as well; we compare on the
   // string substring so both legacy and future guest variants surface.
+  //
+  // E7 — gated behind the `preview.grantExpiry` capability flag because
+  // the backend still returns 501. WAC_PREVIEW_FEATURES=grantExpiry on
+  // the account-service host exposes the UI for dev/test; production
+  // keeps it hidden until the transactor wiring lands.
   $: showExpiry =
     grant !== null &&
     person !== null &&
     canEdit &&
+    $previewGrantExpiry === true &&
     typeof person.role === 'string' &&
     person.role.toUpperCase().includes('GUEST')
 
@@ -273,6 +285,10 @@
         </div>
       </section>
 
+      {#if $previewEffectivePermissions}
+      <!-- E7 — Section hidden unless WAC_PREVIEW_FEATURES includes
+           `effectivePermissions`. Server returns 501 until the plugin
+           backend is wired against accounts-db + transactor. -->
       <section class="section ep-section">
         <button
           type="button"
@@ -343,6 +359,7 @@
           </div>
         {/if}
       </section>
+      {/if}
 
       {#if showExpiry && grant !== null}
         <section class="section">
@@ -499,7 +516,7 @@
   }
   .step-detail { color: var(--theme-darker-color); }
 
-  /* Time-bounded grants — expiry section. Hardcoded rgba() colors come
+  /* Time-bounded grants — expiry section. Hardcoded color refs were
      from the sub-agent's original commit; a follow-up rework swaps to
      theme tokens (the no-hardcoded-colors guard test enforces this). */
   .row input[type='datetime-local'] {
