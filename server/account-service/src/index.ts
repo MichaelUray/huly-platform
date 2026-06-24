@@ -48,6 +48,7 @@ import {
   type WacWriteDeps,
   executeWorkspaceAuditInsert
 } from '@hcengineering/server-workspace-access'
+import { startWacExpiredGrantPruner } from './wacExpiredGrantWiring'
 
 export * from './migration/utils'
 export * from './migration/types'
@@ -1124,6 +1125,60 @@ export function serveAccount (
     return await next()
   })
 
+  // Time-bounded grants — set/clear expiry. DSGVO Art. 5 Abs. 1 lit. e.
+  //
+  // Body: { expires_at: <ISO-8601 in future> | null }
+  // Gating: Owner / IMPERSONATING_ADMIN — enforced by setGrantExpiry
+  // once the workspace transactor backend is wired. For the stub-era
+  // (collaborator schema not reachable from this process) we accept
+  // and ack so the frontend flow is exercisable end-to-end, but the
+  // actual write is a no-op. The shape mirrors the future contract.
+  //
+  // Validation is performed inline here even in stub mode so a bad
+  // request fails the same way it will in prod (no "looks fine in
+  // staging, breaks in prod" regression).
+  const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/
+  router.post('/api/wac/:workspace/grants/:grantId/expiry', async (ctx) => {
+    const token = extractToken(ctx.request.headers) ?? ''
+    const [db] = await accountsDb
+    try {
+      await assertAdmin(measureCtx.newChild('wac-set-expiry', {}), db, token)
+    } catch {
+      ctx.res.writeHead(403, KEEP_ALIVE_HEADERS)
+      ctx.res.end('{"error":"Forbidden"}')
+      return
+    }
+    const body = (ctx.request as any).body as { expires_at?: unknown } | undefined
+    const expiresAt = body?.expires_at
+    if (expiresAt !== null && expiresAt !== undefined) {
+      if (typeof expiresAt !== 'string' || !ISO_RE.test(expiresAt)) {
+        ctx.res.writeHead(400, KEEP_ALIVE_HEADERS)
+        ctx.res.end('{"error":"grant_expiry_invalid_format"}')
+        return
+      }
+      const parsed = Date.parse(expiresAt)
+      if (Number.isNaN(parsed) || parsed <= Date.now()) {
+        ctx.res.writeHead(400, KEEP_ALIVE_HEADERS)
+        ctx.res.end('{"error":"grant_expiry_in_past"}')
+        return
+      }
+    }
+    // Stub mode: ack the request shape, log the intent. The wiring PR
+    // for the workspace transactor will replace this body with a call
+    // through setGrantExpiry from @hcengineering/server-workspace-access.
+    measureCtx.info('wac-set-expiry: accepted (stub mode)', {
+      workspace: ctx.params.workspace,
+      grantId: ctx.params.grantId,
+      expires_at: expiresAt ?? null
+    })
+    ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({
+      grantId: ctx.params.grantId,
+      expires_at: expiresAt ?? null,
+      changed: true
+    }))
+  })
+
   // ── End WAC stub routes ─────────────────────────────────────────────────
 
   // ── WAC outbound webhooks (V35) ─────────────────────────────────────────
@@ -1402,6 +1457,12 @@ export function serveAccount (
 
   // ── End WAC CSV bulk-invite ─────────────────────────────────────────────
 
+  // Start the expired-grants prune loop. In stub mode (no transactor
+  // adapter injected yet) this fires every 5 min and DELETEs zero
+  // rows; the cadence + log lines are still observable. Wiring PR
+  // swaps in the real deleteExpired adapter without touching this file.
+  const expiredGrantPruner = startWacExpiredGrantPruner()
+
   app.use(router.routes()).use(router.allowedMethods())
 
   const server = app.listen(ACCOUNT_PORT, () => {
@@ -1418,6 +1479,7 @@ export function serveAccount (
         measureCtx.warn('rate-limiter close failed', { err: String(err) })
       })
     }
+    expiredGrantPruner.stop()
     void accountsDb.then(([, closeAccountsDb]) => {
       closeAccountsDb()
     })
