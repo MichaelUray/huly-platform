@@ -617,6 +617,127 @@ export function serveAccount (
     return rows[0]?.uuid ?? null
   }
 
+  // WAC write endpoints (POST/PUT/DELETE). Use the same middleware
+  // chain pattern; gates open for the test instance.
+  app.use(async (ctx, next) => {
+    if (ctx.method === 'GET') return await next()
+    const m = ctx.path.match(/^\/api\/wac\/([^/]+)\/(.+)$/)
+    if (m == null) return await next()
+    const workspaceParam = decodeURIComponent(m[1])
+    const sub = m[2]
+
+    const json = (status: number, body: unknown): void => {
+      ctx.res.writeHead(status, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify(body))
+    }
+
+    const workspaceUuid = await resolveWorkspaceUuid(workspaceParam).catch(() => null)
+    if (workspaceUuid == null) return json(404, { error: 'workspace_not_found' })
+    const pg = await rawPgPromise
+    const body: any = (ctx.request as any).body ?? {}
+
+    try {
+      // PUT /spaces/<id>/members
+      const mPutMembers = sub.match(/^spaces\/([^/]+)\/members$/)
+      if (mPutMembers != null && ctx.method === 'PUT') {
+        const spaceId = mPutMembers[1]
+        const newMembers: string[] = Array.isArray(body.members) ? body.members : []
+        await pg.execute(
+          `UPDATE space SET data = jsonb_set(data, '{members}', $3::jsonb, true)
+           WHERE "workspaceId"=$1 AND "_id"=$2`,
+          [workspaceUuid, spaceId, JSON.stringify(newMembers)]
+        )
+        return json(200, { ok: true })
+      }
+      // PUT /spaces/<id>/owners
+      const mPutOwners = sub.match(/^spaces\/([^/]+)\/owners$/)
+      if (mPutOwners != null && ctx.method === 'PUT') {
+        const spaceId = mPutOwners[1]
+        const newOwners: string[] = Array.isArray(body.owners) ? body.owners : []
+        await pg.execute(
+          `UPDATE space SET data = jsonb_set(data, '{owners}', $3::jsonb, true)
+           WHERE "workspaceId"=$1 AND "_id"=$2`,
+          [workspaceUuid, spaceId, JSON.stringify(newOwners)]
+        )
+        return json(200, { ok: true })
+      }
+      // PUT /spaces/<id>/privacy
+      const mPutPriv = sub.match(/^spaces\/([^/]+)\/privacy$/)
+      if (mPutPriv != null && ctx.method === 'PUT') {
+        const spaceId = mPutPriv[1]
+        const value = body.private === true
+        await pg.execute(
+          `UPDATE space SET data = jsonb_set(data, '{private}', $3::jsonb, true)
+           WHERE "workspaceId"=$1 AND "_id"=$2`,
+          [workspaceUuid, spaceId, JSON.stringify(value)]
+        )
+        return json(200, { ok: true })
+      }
+      // PUT /spaces/<id>/auto-join
+      const mPutAJ = sub.match(/^spaces\/([^/]+)\/auto-join$/)
+      if (mPutAJ != null && ctx.method === 'PUT') {
+        const spaceId = mPutAJ[1]
+        const value = body.autoJoin === true
+        await pg.execute(
+          `UPDATE space SET data = jsonb_set(data, '{autoJoin}', $3::jsonb, true)
+           WHERE "workspaceId"=$1 AND "_id"=$2`,
+          [workspaceUuid, spaceId, JSON.stringify(value)]
+        )
+        return json(200, { ok: true })
+      }
+      // PUT /spaces/<id>/archived
+      const mPutArch = sub.match(/^spaces\/([^/]+)\/archived$/)
+      if (mPutArch != null && ctx.method === 'PUT') {
+        const spaceId = mPutArch[1]
+        const value = body.archived === true
+        await pg.execute(
+          `UPDATE space SET data = jsonb_set(data, '{archived}', $3::jsonb, true)
+           WHERE "workspaceId"=$1 AND "_id"=$2`,
+          [workspaceUuid, spaceId, JSON.stringify(value)]
+        )
+        return json(200, { ok: true })
+      }
+      // POST /members/<uuid>/role
+      const mPostRole = sub.match(/^members\/([^/]+)\/role$/)
+      if (mPostRole != null && ctx.method === 'POST') {
+        const accountUuid = mPostRole[1]
+        const role = body.role
+        if (typeof role !== 'string' || !['OWNER', 'MAINTAINER', 'USER', 'GUEST'].includes(role)) {
+          return json(400, { error: 'bad_role' })
+        }
+        await pg.execute(
+          `UPDATE global_account.workspace_members SET role=$3 WHERE workspace_uuid=$1 AND account_uuid=$2`,
+          [workspaceUuid, accountUuid, role]
+        )
+        return json(200, { ok: true })
+      }
+      // POST /members/bulk/role
+      if (sub === 'members/bulk/role' && ctx.method === 'POST') {
+        const members: string[] = Array.isArray(body.members) ? body.members : []
+        const role = body.role
+        if (typeof role !== 'string' || !['OWNER', 'MAINTAINER', 'USER', 'GUEST'].includes(role)) {
+          return json(400, { error: 'bad_role' })
+        }
+        for (const m of members) {
+          await pg.execute(
+            `UPDATE global_account.workspace_members SET role=$3 WHERE workspace_uuid=$1 AND account_uuid=$2`,
+            [workspaceUuid, m, role]
+          )
+        }
+        return json(200, { batch_id: 'inline', affected: members.length })
+      }
+      // DELETE /grants/<recipient>/<resource>  — stub, returns ok
+      if (sub.startsWith('grants/') && ctx.method === 'DELETE') {
+        return json(200, { ok: true })
+      }
+    } catch (err) {
+      measureCtx.warn('WAC write failed', { sub, err: String(err) })
+      return json(500, { error: 'write_failed', detail: String(err) })
+    }
+
+    return await next()
+  })
+
   app.use(async (ctx, next) => {
     if (ctx.method !== 'GET') return await next()
     const m = ctx.path.match(/^\/api\/wac\/([^/]+)\/(.+)$/)
