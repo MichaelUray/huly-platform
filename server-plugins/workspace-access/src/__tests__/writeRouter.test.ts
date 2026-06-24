@@ -20,8 +20,8 @@
 //   - pg-audit insert throws AFTER successful updateDoc → 200 still
 //     returned, error logged via measureCtx.error('… wac_audit_orphan …').
 //
-// handleGrantRevoke is the 501 stub (P0-T5); a single test pins that
-// behavior until P2B-T6 lands.
+// handleGrantRevoke is the real revoke (P2B-T6): findOne collaborator,
+// removeDoc via TxOperations, audit row, 200. Failure paths covered.
 
 import core from '@hcengineering/core'
 
@@ -98,6 +98,20 @@ interface InvalidateCall {
   account: string
 }
 
+interface RemoveDocCall {
+  workspace: string
+  actor: string
+  _class: string
+  space: string
+  _id: string
+}
+
+interface FindOneCall {
+  workspace: string
+  _class: string
+  query: any
+}
+
 interface Harness {
   deps: WacWriteDeps
   handlers: WacWriteHandlers
@@ -105,6 +119,8 @@ interface Harness {
   pgCalls: PgCall[]
   roleCalls: RoleUpdateCall[]
   invalidateCalls: InvalidateCall[]
+  removeDocCalls: RemoveDocCall[]
+  findOneCalls: FindOneCall[]
   errors: Array<{ msg: string, attrs: any }>
   warns: Array<{ msg: string, attrs: any }>
 }
@@ -120,6 +136,10 @@ interface MakeHarnessOpts {
   withCacheInvalidator?: boolean
   /** P2B-T5 — make the invalidator throw to verify swallowing. */
   invalidatorThrows?: boolean
+  /** P2B-T6 — controls what txClient.findOne returns for grant lookup. */
+  findOneImpl?: (call: FindOneCall) => Promise<any>
+  /** P2B-T6 — throw from txClient.removeDoc. */
+  removeDocImpl?: (call: RemoveDocCall) => Promise<void>
 }
 
 function defaultSpaceRow (id = 'space-1', _class = 'tracker:class:Project'): Record<string, any> {
@@ -140,6 +160,8 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
   const pgCalls: PgCall[] = []
   const roleCalls: RoleUpdateCall[] = []
   const invalidateCalls: InvalidateCall[] = []
+  const removeDocCalls: RemoveDocCall[] = []
+  const findOneCalls: FindOneCall[] = []
   const errors: Array<{ msg: string, attrs: any }> = []
   const warns: Array<{ msg: string, attrs: any }> = []
 
@@ -161,7 +183,27 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
       txCalls.push(call)
       if (opts.updateDocImpl != null) await opts.updateDocImpl(call)
     }) as any,
-    findOne: (async () => undefined) as any
+    findOne: (async (workspace: any, _class: any, query: any) => {
+      const call: FindOneCall = {
+        workspace: String(workspace),
+        _class: String(_class),
+        query
+      }
+      findOneCalls.push(call)
+      if (opts.findOneImpl != null) return await opts.findOneImpl(call)
+      return undefined
+    }) as any,
+    removeDoc: (async (workspace: any, actor: any, _class: any, space: any, _id: any) => {
+      const call: RemoveDocCall = {
+        workspace: String(workspace),
+        actor: String(actor),
+        _class: String(_class),
+        space: String(space),
+        _id: String(_id)
+      }
+      removeDocCalls.push(call)
+      if (opts.removeDocImpl != null) await opts.removeDocImpl(call)
+    }) as any
   }
 
   const spaceRow = opts.spaceRow !== undefined ? opts.spaceRow : defaultSpaceRow()
@@ -216,7 +258,18 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
     }
   }
   const handlers = createWacWriteHandlers(deps)
-  return { deps, handlers, txCalls, pgCalls, roleCalls, invalidateCalls, errors, warns }
+  return {
+    deps,
+    handlers,
+    txCalls,
+    pgCalls,
+    roleCalls,
+    invalidateCalls,
+    removeDocCalls,
+    findOneCalls,
+    errors,
+    warns
+  }
 }
 
 function auditCalls (h: Harness): PgCall[] {
@@ -707,18 +760,108 @@ describe('writeRouter — P2B-T5 cacheInvalidator (handleBulkMemberRole)', () =>
 })
 
 // ---------------------------------------------------------------------------
-// handleGrantRevoke — 501 stub
+// P2B-T6 — handleGrantRevoke (real implementation)
 // ---------------------------------------------------------------------------
 
-describe('writeRouter — handleGrantRevoke', () => {
-  it('returns 501 not_implemented and writes no audit', async () => {
-    const h = makeHarness()
+describe('writeRouter — handleGrantRevoke (P2B-T6)', () => {
+  function makeCollab (id: string, attachedTo: string, recipient: string): any {
+    return {
+      _id: id,
+      _class: 'core:class:Collaborator',
+      space: 'core:space:Workspace',
+      collaborator: recipient,
+      attachedTo,
+      attachedToClass: 'tracker:class:Project'
+    }
+  }
+
+  it('happy path: finds collaborator → removeDoc → audit → 200', async () => {
+    const collab = makeCollab('c-1', 'resource-1', 'recipient-1')
+    const h = makeHarness({
+      findOneImpl: async () => collab
+    })
     const { ctx, captured } = makeCtx({})
     await h.handlers.handleGrantRevoke(ctx, 'ws-1', 'caller-1', 'recipient-1', 'resource-1')
-    expect(captured.status).toBe(501)
-    expect(captured.body.error).toBe('not_implemented')
-    expect(captured.body.detail).toBe('wac_grant_revoke_pending_v2')
+    expect(captured.status).toBe(200)
+    expect(captured.body).toEqual({ ok: true })
+    expect(h.findOneCalls).toHaveLength(1)
+    expect(h.findOneCalls[0].query).toEqual({ collaborator: 'recipient-1', attachedTo: 'resource-1' })
+    expect(h.removeDocCalls).toHaveLength(1)
+    expect(h.removeDocCalls[0]).toMatchObject({
+      workspace: 'ws-1',
+      actor: 'caller-1',
+      _class: 'core:class:Collaborator',
+      space: 'core:space:Workspace',
+      _id: 'c-1'
+    })
+    const audits = auditCalls(h)
+    expect(audits).toHaveLength(1)
+    expect(audits[0].params[1]).toBe('grant_revoked')
+    expect(audits[0].params[4]).toBe('recipient-1') // target_account
+    expect(audits[0].params[5]).toBe('resource-1') // target_space
+  })
+
+  it('400 when recipient empty', async () => {
+    const h = makeHarness()
+    const { ctx, captured } = makeCtx({})
+    await h.handlers.handleGrantRevoke(ctx, 'ws-1', 'caller-1', '', 'resource-1')
+    expect(captured.status).toBe(400)
+    expect(h.findOneCalls).toHaveLength(0)
+    expect(h.removeDocCalls).toHaveLength(0)
+  })
+
+  it('400 when resource empty', async () => {
+    const h = makeHarness()
+    const { ctx, captured } = makeCtx({})
+    await h.handlers.handleGrantRevoke(ctx, 'ws-1', 'caller-1', 'recipient-1', '')
+    expect(captured.status).toBe(400)
+  })
+
+  it('404 when collaborator not found', async () => {
+    const h = makeHarness({ findOneImpl: async () => undefined })
+    const { ctx, captured } = makeCtx({})
+    await h.handlers.handleGrantRevoke(ctx, 'ws-1', 'caller-1', 'recipient-1', 'resource-1')
+    expect(captured.status).toBe(404)
+    expect(captured.body).toEqual({ error: 'grant_not_found' })
+    expect(h.removeDocCalls).toHaveLength(0)
     expect(auditCalls(h)).toHaveLength(0)
-    expect(h.warns.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('500 when txClient.findOne throws, no removeDoc, no audit', async () => {
+    const h = makeHarness({
+      findOneImpl: async () => { throw new Error('connect failed') }
+    })
+    const { ctx, captured } = makeCtx({})
+    await h.handlers.handleGrantRevoke(ctx, 'ws-1', 'caller-1', 'recipient-1', 'resource-1')
+    expect(captured.status).toBe(500)
+    expect(captured.body.error).toBe('write_failed')
+    expect(h.removeDocCalls).toHaveLength(0)
+    expect(auditCalls(h)).toHaveLength(0)
+  })
+
+  it('500 when txClient.removeDoc throws, no audit', async () => {
+    const collab = makeCollab('c-1', 'resource-1', 'recipient-1')
+    const h = makeHarness({
+      findOneImpl: async () => collab,
+      removeDocImpl: async () => { throw new Error('tx fail') }
+    })
+    const { ctx, captured } = makeCtx({})
+    await h.handlers.handleGrantRevoke(ctx, 'ws-1', 'caller-1', 'recipient-1', 'resource-1')
+    expect(captured.status).toBe(500)
+    expect(h.removeDocCalls).toHaveLength(1)
+    expect(auditCalls(h)).toHaveLength(0)
+  })
+
+  it('200 + orphan-log when audit throws post-removal', async () => {
+    const collab = makeCollab('c-1', 'resource-1', 'recipient-1')
+    const h = makeHarness({
+      findOneImpl: async () => collab,
+      auditInsertThrows: true
+    })
+    const { ctx, captured } = makeCtx({})
+    await h.handlers.handleGrantRevoke(ctx, 'ws-1', 'caller-1', 'recipient-1', 'resource-1')
+    expect(captured.status).toBe(200)
+    expect(h.removeDocCalls).toHaveLength(1)
+    expect(h.errors.some((e) => e.attrs.breadcrumb === 'wac_audit_orphan')).toBe(true)
   })
 })

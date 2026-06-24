@@ -84,6 +84,17 @@ export interface WacTxClientLike {
     _class: Ref<Class<T>>,
     query: any
   ) => Promise<T | undefined>
+  /**
+   * P2B-T6 — remove a doc via TxOperations. Broadcasts the removal
+   * to live transactor clients (covers collaborator-grant revoke).
+   */
+  removeDoc: <T extends Doc>(
+    workspaceUuid: WorkspaceUuid,
+    actorUuid: string,
+    _class: Ref<Class<T>>,
+    space: Ref<Space>,
+    _id: Ref<T>
+  ) => Promise<void>
 }
 
 /**
@@ -608,14 +619,76 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
     },
 
     async handleGrantRevoke (ctx, workspaceUuid, callerUuid, recipient, resource) {
-      // TODO P2B-T6: real revocation via txClient.removeDoc(collaborator)
-      deps.measureCtx.warn('wac:/grants DELETE called — endpoint not implemented yet', {
-        workspace: workspaceUuid,
-        actor: callerUuid,
-        recipient,
-        resource
-      })
-      json(ctx, 501, { error: 'not_implemented', detail: 'wac_grant_revoke_pending_v2' })
+      // P2B-T6 — real revocation. A WAC "grant" maps to a
+      // `core.class.Collaborator` row that attaches a recipient
+      // (AccountUuid) to a resource Doc with optional permissions.
+      // Revoke = remove that row via TxOperations.removeDoc; the
+      // transactor broadcasts the removal to live clients.
+      //
+      // Same atomicity caveat as the other writes: removeDoc goes via
+      // WS, audit goes via pg. We sequence removeDoc → audit and
+      // log a 'wac_audit_orphan' breadcrumb if the audit INSERT
+      // fails post-removal.
+      if (recipient === '' || resource === '') {
+        json(ctx, 400, { error: 'bad_request' })
+        return
+      }
+      const collaboratorClass =
+        (core.class as Record<string, any>).Collaborator as Ref<Class<Doc>>
+      let collab: Doc | undefined
+      try {
+        collab = await deps.txClient.findOne(
+          workspaceUuid as WorkspaceUuid,
+          collaboratorClass,
+          { collaborator: recipient, attachedTo: resource }
+        )
+      } catch (err) {
+        deps.measureCtx.error('wac grant findOne failed', {
+          workspace: workspaceUuid,
+          recipient,
+          resource,
+          err: String(err)
+        })
+        json(ctx, 500, { error: 'write_failed', detail: String(err) })
+        return
+      }
+      if (collab === undefined) {
+        json(ctx, 404, { error: 'grant_not_found' })
+        return
+      }
+      try {
+        await deps.txClient.removeDoc(
+          workspaceUuid as WorkspaceUuid,
+          callerUuid,
+          collab._class as Ref<Class<Doc>>,
+          collab.space as Ref<Space>,
+          collab._id as Ref<Doc>
+        )
+      } catch (err) {
+        deps.measureCtx.error('wac grant removeDoc failed', {
+          workspace: workspaceUuid,
+          recipient,
+          resource,
+          err: String(err)
+        })
+        json(ctx, 500, { error: 'write_failed', detail: String(err) })
+        return
+      }
+      const pg = await deps.pgClient()
+      await writeAuditPostMutation(
+        deps,
+        pg,
+        workspaceUuid,
+        'grant_revoked',
+        callerUuid,
+        CALLER_ROLE_LABEL,
+        {
+          target_account: recipient,
+          target_space: resource,
+          old_value: { collaborator_id: String(collab._id) }
+        }
+      )
+      json(ctx, 200, { ok: true })
     }
   }
 }

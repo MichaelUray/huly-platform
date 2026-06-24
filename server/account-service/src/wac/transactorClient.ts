@@ -92,6 +92,18 @@ export interface WacTxClient {
     query: any
   ) => Promise<T | undefined>
 
+  /**
+   * P2B-T6 — apply a removeDoc through the transactor. Same
+   * connect/error semantics as updateDoc.
+   */
+  removeDoc: <T extends Doc>(
+    workspaceUuid: WorkspaceUuid,
+    actorUuid: string,
+    _class: Ref<Class<T>>,
+    space: Ref<Space>,
+    _id: Ref<T>
+  ) => Promise<void>
+
   /** Graceful shutdown — closes every cached client. */
   close: () => Promise<void>
 }
@@ -186,6 +198,11 @@ export function createWacTxClient (opts: WacTxClientOptions): WacTxClient {
     async findOne (workspaceUuid, _class, query) {
       const ops = await getOrConnect(workspaceUuid)
       return (await ops.findOne(_class, query)) as any
+    },
+    async removeDoc (workspaceUuid, actorUuid, _class, space, _id) {
+      const ops = await getOrConnect(workspaceUuid)
+      void actorUuid
+      await ops.removeDoc(_class, space, _id)
     },
     async close () {
       const entries = Array.from(pool.values())

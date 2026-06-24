@@ -51,8 +51,9 @@ function makeMockTx (): MockTxClient {
       updateDocCalls.push({ workspace, actor, _class, space, _id, update })
     }) as any,
     findOne: jest.fn(async () => undefined) as any,
+    removeDoc: jest.fn(async () => {}) as any,
     close: jest.fn(async () => {}) as any
-  } as any
+  }
   return { client, updateDocCalls, shouldThrow }
 }
 
