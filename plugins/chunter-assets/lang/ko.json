@@ -133,6 +133,10 @@
         "OpenChatInSidebar": "사이드바에서 채팅 열기",
         "ResolveThread": "해결",
         "NoThreadsYet": "아직 스레드가 없습니다.",
-        "SummarizeMessages": "내용 요약"
+        "SummarizeMessages": "내용 요약",
+        "MentionGrantConfirmTitle": "This mention grants access",
+        "MentionGrantConfirmBody": "{count, plural, one {The selected person will get read} other {Selected people will get read}} access to \"{targetName}\" in \"{spaceName}\" and the ability to comment. They cannot edit document fields. Uncheck anyone you do not want to grant access to.",
+        "MentionGrantConfirmSend": "Send with selected grants",
+        "MentionGrantConfirmCancel": "Cancel"
     }
 }
