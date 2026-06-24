@@ -943,16 +943,19 @@ export function serveAccount (
         }
         return json(200, { batch_id: batchId, affected: members.length })
       }
-      // DELETE /grants/<recipient>/<resource>  — stub, returns ok
+      // DELETE /grants/<recipient>/<resource>  — Phase 2B: implement via TxOperations.
+      // Phase 0: return 501 explicitly so the UI does not get false-confidence
+      // from a silent 200 ok while the data is not actually mutated.
       if (sub.startsWith('grants/') && ctx.method === 'DELETE') {
         const parts = sub.split('/')
-        if (parts.length === 3) {
-          await writeWacAudit(workspaceUuid, 'grant_revoked', caller.actor, caller.role, {
-            target_account: parts[1],
-            target_space: parts[2]
-          })
-        }
-        return json(200, { ok: true })
+        const recipient = parts[1] ?? null
+        const resource = parts[2] ?? null
+        measureCtx.warn('wac:/grants DELETE called — endpoint not implemented yet', {
+          workspace: workspaceUuid,
+          recipient,
+          resource
+        })
+        return json(501, { error: 'not_implemented', detail: 'wac_grant_revoke_pending_v2' })
       }
     } catch (err) {
       measureCtx.warn('WAC write failed', { sub, err: String(err) })
