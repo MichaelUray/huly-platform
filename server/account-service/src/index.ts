@@ -15,6 +15,7 @@ import account, {
   cleanExpiredOtp,
   listAccountsAdmin,
   assertAdmin,
+  generateTokenWithVersion,
   decodeFilterParam,
   FilterDecodeError
 } from '@hcengineering/account'
@@ -785,7 +786,16 @@ export function serveAccount (
         // and set options.exp so the documented 30-minute expiry actually
         // applies to the JWT. Token expiry is the only revocation mechanism
         // in v1 (see D7 note above).
-        const impersonationToken = generateToken(
+        //
+        // A3 — use `generateTokenWithVersion` instead of `generateToken` so the
+        // impersonation token carries the admin's current `token_version`
+        // claim. If the admin's tokenVersion is later bumped (password reset,
+        // forced-logout), `authenticateWac` will reject the in-flight
+        // impersonation token at the next request — the only revocation path
+        // in v1 besides the 30-min `exp`.
+        const impersonationToken = await generateTokenWithVersion(
+          measureCtx,
+          db,
           adminUuid,
           workspaceUuid as any,
           {
@@ -795,7 +805,6 @@ export function serveAccount (
             jti,
             admin: 'true'
           },
-          undefined,
           { exp }
         )
         // Audit start in workspace_audit_log
@@ -860,6 +869,10 @@ export function serveAccount (
     const auth = await authenticateWac(ctx, workspaceParam, 'edit', authDeps)
     if (auth === null) return
     const { callerUuid, workspaceUuid } = auth
+    // A3 — when the request rode in on an impersonation token, forward
+    // the admin's UUID so the audit row records "actor X did Y while
+    // impersonating workspace Z" (metadata.impersonation_actor_admin).
+    const actorAdmin = auth.impersonation === true ? auth.actorAdmin : undefined
 
     // Phase 2B Tasks 2+3+4 — write-route bodies live in the plugin's
     // writeRouter.ts. The host owns route-matching + auth-gating + the
@@ -869,42 +882,42 @@ export function serveAccount (
       // PUT /spaces/<id>/members
       const mPutMembers = sub.match(/^spaces\/([^/]+)\/members$/)
       if (mPutMembers != null && ctx.method === 'PUT') {
-        await wacWriteHandlers.handleSpaceMembers(ctx as any, workspaceUuid, callerUuid, mPutMembers[1])
+        await wacWriteHandlers.handleSpaceMembers(ctx as any, workspaceUuid, callerUuid, mPutMembers[1], actorAdmin)
         return
       }
       // PUT /spaces/<id>/owners
       const mPutOwners = sub.match(/^spaces\/([^/]+)\/owners$/)
       if (mPutOwners != null && ctx.method === 'PUT') {
-        await wacWriteHandlers.handleSpaceOwners(ctx as any, workspaceUuid, callerUuid, mPutOwners[1])
+        await wacWriteHandlers.handleSpaceOwners(ctx as any, workspaceUuid, callerUuid, mPutOwners[1], actorAdmin)
         return
       }
       // PUT /spaces/<id>/privacy
       const mPutPriv = sub.match(/^spaces\/([^/]+)\/privacy$/)
       if (mPutPriv != null && ctx.method === 'PUT') {
-        await wacWriteHandlers.handleSpacePrivacy(ctx as any, workspaceUuid, callerUuid, mPutPriv[1])
+        await wacWriteHandlers.handleSpacePrivacy(ctx as any, workspaceUuid, callerUuid, mPutPriv[1], actorAdmin)
         return
       }
       // PUT /spaces/<id>/auto-join
       const mPutAJ = sub.match(/^spaces\/([^/]+)\/auto-join$/)
       if (mPutAJ != null && ctx.method === 'PUT') {
-        await wacWriteHandlers.handleSpaceAutoJoin(ctx as any, workspaceUuid, callerUuid, mPutAJ[1])
+        await wacWriteHandlers.handleSpaceAutoJoin(ctx as any, workspaceUuid, callerUuid, mPutAJ[1], actorAdmin)
         return
       }
       // PUT /spaces/<id>/archived
       const mPutArch = sub.match(/^spaces\/([^/]+)\/archived$/)
       if (mPutArch != null && ctx.method === 'PUT') {
-        await wacWriteHandlers.handleSpaceArchived(ctx as any, workspaceUuid, callerUuid, mPutArch[1])
+        await wacWriteHandlers.handleSpaceArchived(ctx as any, workspaceUuid, callerUuid, mPutArch[1], actorAdmin)
         return
       }
       // POST /members/<uuid>/role
       const mPostRole = sub.match(/^members\/([^/]+)\/role$/)
       if (mPostRole != null && ctx.method === 'POST') {
-        await wacWriteHandlers.handleMemberRole(ctx as any, workspaceUuid, callerUuid, mPostRole[1])
+        await wacWriteHandlers.handleMemberRole(ctx as any, workspaceUuid, callerUuid, mPostRole[1], actorAdmin)
         return
       }
       // POST /members/bulk/role
       if (sub === 'members/bulk/role' && ctx.method === 'POST') {
-        await wacWriteHandlers.handleBulkMemberRole(ctx as any, workspaceUuid, callerUuid)
+        await wacWriteHandlers.handleBulkMemberRole(ctx as any, workspaceUuid, callerUuid, actorAdmin)
         return
       }
       // DELETE /grants/<recipient>/<resource>
@@ -912,7 +925,7 @@ export function serveAccount (
         const parts = sub.split('/')
         const recipient = parts[1] ?? ''
         const resource = parts[2] ?? ''
-        await wacWriteHandlers.handleGrantRevoke(ctx as any, workspaceUuid, callerUuid, recipient, resource)
+        await wacWriteHandlers.handleGrantRevoke(ctx as any, workspaceUuid, callerUuid, recipient, resource, actorAdmin)
         return
       }
     } catch (err) {
