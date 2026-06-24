@@ -970,33 +970,39 @@ export function serveAccount (
     const wsParam = decodeURIComponent(csvMatch[1])
     const workspaceUuid = await resolveWorkspaceUuid(wsParam).catch(() => null)
     if (workspaceUuid == null) {
-      ctx.res.writeHead(404, { 'Content-Type': 'text/plain' })
-      ctx.res.end('workspace_not_found')
+      ctx.res.writeHead(404, { 'Content-Type': 'application/json' })
+      ctx.res.end(JSON.stringify({ error: 'workspace_not_found', workspace: wsParam }))
       return
     }
-    const pg = await rawPgPromise
-    const rows = await pg.execute(
-      `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
-              target_account::text AS target_account, target_space, target_space_class
-       FROM workspace_audit_log
-       WHERE workspace=$1
-       ORDER BY ts DESC LIMIT 5000`,
-      [workspaceUuid]
-    )
-    ctx.res.writeHead(200, {
-      'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': `attachment; filename="wac-audit-${Date.now()}.csv"`,
-      'Cache-Control': 'no-store'
-    })
-    ctx.res.write(Buffer.from([0xEF, 0xBB, 0xBF]))
-    ctx.res.write('id,ts,action,actor,actor_role,target_account,target_space,target_space_class\r\n')
-    for (const r of rows as any[]) {
-      ctx.res.write(csvLine([
-        r.id, r.ts, r.action, r.actor ?? '', r.actor_role,
-        r.target_account ?? '', r.target_space ?? '', r.target_space_class ?? ''
-      ]))
+    try {
+      const pg = await rawPgPromise
+      const rows = await pg.execute(
+        `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
+                target_account::text AS target_account, target_space, target_space_class
+         FROM workspace_audit_log
+         WHERE workspace=$1
+         ORDER BY ts DESC LIMIT 5000`,
+        [workspaceUuid]
+      )
+      ctx.res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename="wac-audit-${Date.now()}.csv"`,
+        'Cache-Control': 'no-store'
+      })
+      ctx.res.write(Buffer.from([0xEF, 0xBB, 0xBF]))
+      ctx.res.write('id,ts,action,actor,actor_role,target_account,target_space,target_space_class\r\n')
+      for (const r of rows as any[]) {
+        ctx.res.write(csvLine([
+          r.id, r.ts, r.action, r.actor ?? '', r.actor_role,
+          r.target_account ?? '', r.target_space ?? '', r.target_space_class ?? ''
+        ]))
+      }
+      ctx.res.end()
+    } catch (err) {
+      measureCtx.error('wac:/audit/export.csv read failed', { err: String(err) })
+      ctx.res.writeHead(500, { 'Content-Type': 'application/json' })
+      ctx.res.end(JSON.stringify({ error: 'internal', detail: 'wac_read_failed' }))
     }
-    ctx.res.end()
   })
   // ── End WAC audit CSV export ────────────────────────────────────────────
 
@@ -1016,340 +1022,335 @@ export function serveAccount (
     const pg = await rawPgPromise
 
     if (sub === 'members') {
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
+      }
       try {
         const [db] = await accountsDb
-        if (workspaceUuid != null) {
-          const members = await db.getWorkspaceMembers(workspaceUuid as any)
-          const personUuids = members.map((m: any) => m.person)
-          const items: any[] = []
-          for (const m of members) {
-            const personUuid = m.person as string
-            const personRows = await pg.execute(
-              'SELECT first_name, last_name FROM global_account.person WHERE uuid=$1 LIMIT 1', [personUuid]
-            )
-            const emailRows = await pg.execute(
-              `SELECT value FROM global_account.social_id WHERE person_uuid=$1 AND type='email' LIMIT 1`, [personUuid]
-            )
-            const acctRows = await pg.execute(
-              `SELECT last_activity_at FROM global_account.account WHERE uuid=$1::uuid LIMIT 1`, [personUuid]
-            )
-            const rawAct = acctRows[0]?.last_activity_at
-            const lastAct = rawAct == null ? null : Number(rawAct)
-            const spacesRows = await pg.execute(
-              `SELECT count(*)::int AS n FROM public.space
-                 WHERE "workspaceId" = $1
-                   AND ((data->'members') ? $2 OR (data->'owners') ? $2)`,
-              [workspaceUuid as any, personUuid]
-            )
-            const spacesCount = Number(spacesRows[0]?.n ?? 0)
-            const fn = personRows[0]?.first_name ?? ''
-            const ln = personRows[0]?.last_name ?? ''
-            const display = `${fn} ${ln}`.trim() || (emailRows[0]?.value ?? personUuid)
-            items.push({
-              uuid: personUuid,
-              name: display,
-              email: emailRows[0]?.value ?? '',
-              role: m.role ?? 'USER',
-              activityBucket: lastAct == null || !Number.isFinite(lastAct) ? '90d+'
-                : (Date.now() - lastAct) < 86400_000 ? 'today'
-                : (Date.now() - lastAct) < 7 * 86400_000 ? '7d'
-                : (Date.now() - lastAct) < 30 * 86400_000 ? '30d'
-                : '90d+',
-              spacesCount
-            })
-          }
-          return json(200, { items, cursor: null, _workspace: workspaceParam })
+        const members = await db.getWorkspaceMembers(workspaceUuid as any)
+        const items: any[] = []
+        for (const m of members) {
+          const personUuid = m.person as string
+          const personRows = await pg.execute(
+            'SELECT first_name, last_name FROM global_account.person WHERE uuid=$1 LIMIT 1', [personUuid]
+          )
+          const emailRows = await pg.execute(
+            `SELECT value FROM global_account.social_id WHERE person_uuid=$1 AND type='email' LIMIT 1`, [personUuid]
+          )
+          const acctRows = await pg.execute(
+            `SELECT last_activity_at FROM global_account.account WHERE uuid=$1::uuid LIMIT 1`, [personUuid]
+          )
+          const rawAct = acctRows[0]?.last_activity_at
+          const lastAct = rawAct == null ? null : Number(rawAct)
+          const spacesRows = await pg.execute(
+            `SELECT count(*)::int AS n FROM public.space
+               WHERE "workspaceId" = $1
+                 AND ((data->'members') ? $2 OR (data->'owners') ? $2)`,
+            [workspaceUuid as any, personUuid]
+          )
+          const spacesCount = Number(spacesRows[0]?.n ?? 0)
+          const fn = personRows[0]?.first_name ?? ''
+          const ln = personRows[0]?.last_name ?? ''
+          const display = `${fn} ${ln}`.trim() || (emailRows[0]?.value ?? personUuid)
+          items.push({
+            uuid: personUuid,
+            name: display,
+            email: emailRows[0]?.value ?? '',
+            role: m.role ?? 'USER',
+            activityBucket: lastAct == null || !Number.isFinite(lastAct) ? '90d+'
+              : (Date.now() - lastAct) < 86400_000 ? 'today'
+              : (Date.now() - lastAct) < 7 * 86400_000 ? '7d'
+              : (Date.now() - lastAct) < 30 * 86400_000 ? '30d'
+              : '90d+',
+            spacesCount
+          })
         }
+        return json(200, { items, cursor: null, _workspace: workspaceParam })
       } catch (err) {
-        measureCtx.warn('wac:/members fallback to fixtures', { err: String(err) })
+        measureCtx.error('wac:/members read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
       }
-      // Fallback fixtures for unknown workspaces.
-      const items = [
-        { uuid: 'demo-1', name: 'Alice Owner', email: 'alice@demo.test', role: 'OWNER', activityBucket: 'today', spacesCount: 3 },
-        { uuid: 'demo-2', name: 'Bob Maintainer', email: 'bob@demo.test', role: 'MAINTAINER', activityBucket: '7d', spacesCount: 2 },
-        { uuid: 'demo-3', name: 'Carol User', email: 'carol@demo.test', role: 'USER', activityBucket: '30d', spacesCount: 1 }
-      ]
-      return json(200, { items, cursor: null, _workspace: workspaceParam })
     }
     if (sub === 'invites') {
-      try {
-        if (workspaceUuid != null) {
-          const rows = await pg.execute(
-            `SELECT id::text AS id, email, expires_on::text AS expires_on, created_on::text AS created_on
-             FROM global_account.invite
-             WHERE workspace_uuid=$1
-             ORDER BY created_on DESC LIMIT 100`,
-            [workspaceUuid]
-          )
-          const items = rows.map((r: any) => ({
-            id: r.id,
-            email: r.email ?? 'unknown',
-            invitedBy: 'system',
-            invitedAt: r.created_on,
-            expiresAt: r.expires_on
-          }))
-          return json(200, { items, cursor: null })
-        }
-      } catch (err) {
-        measureCtx.warn('wac:/invites query failed', { err: String(err) })
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
       }
-      return json(200, { items: [], cursor: null })
+      try {
+        const rows = await pg.execute(
+          `SELECT id::text AS id, email, expires_on::text AS expires_on, created_on::text AS created_on
+           FROM global_account.invite
+           WHERE workspace_uuid=$1
+           ORDER BY created_on DESC LIMIT 100`,
+          [workspaceUuid]
+        )
+        const items = rows.map((r: any) => ({
+          id: r.id,
+          email: r.email ?? 'unknown',
+          invitedBy: 'system',
+          invitedAt: r.created_on,
+          expiresAt: r.expires_on
+        }))
+        return json(200, { items, cursor: null })
+      } catch (err) {
+        measureCtx.error('wac:/invites read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
+      }
     }
     if (sub === 'admins/count') {
-      let remaining = 1
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
+      }
       try {
-        if (workspaceUuid != null) {
-          const rows = await pg.execute(
-            `SELECT count(*) AS c FROM global_account.workspace_members WHERE workspace_uuid=$1 AND role IN ('OWNER','MAINTAINER')`,
-            [workspaceUuid]
-          )
-          remaining = parseInt(rows[0]?.c ?? '1', 10)
-        }
-      } catch { /* keep default */ }
-      return json(200, { remaining })
+        const rows = await pg.execute(
+          `SELECT count(*) AS c FROM global_account.workspace_members WHERE workspace_uuid=$1 AND role IN ('OWNER','MAINTAINER')`,
+          [workspaceUuid]
+        )
+        const remaining = parseInt(rows[0]?.c ?? '0', 10)
+        return json(200, { remaining })
+      } catch (err) {
+        measureCtx.error('wac:/admins/count read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
+      }
     }
     if (sub === 'spaces') {
-      try {
-        if (workspaceUuid != null) {
-          const rows = await pg.execute(
-            `SELECT s."_id", s."_class",
-                    s.data->>'name' AS name,
-                    (s.data->>'private')::boolean AS private_flag,
-                    (s.data->>'autoJoin')::boolean AS auto_join,
-                    (s.data->>'archived')::boolean AS archived,
-                    s.data->'owners' AS owners,
-                    (SELECT count(*)::int FROM collaborator c
-                       WHERE c."workspaceId" = s."workspaceId"
-                         AND c."attachedTo" = s."_id") AS members_count
-             FROM space s
-             WHERE s."workspaceId"=$1
-               AND s."_class" IN ('tracker:class:Project','document:class:Teamspace','drive:class:Drive','card:class:CardSpace','lead:class:Funnel','recruit:class:Vacancy','recruit:class:JobFunnel')
-             ORDER BY s.data->>'name' ASC
-             LIMIT 200`,
-            [workspaceUuid]
-          )
-          const items = rows.map((r: any) => {
-            let owners: string[] = []
-            try {
-              if (Array.isArray(r.owners)) owners = r.owners
-              else if (typeof r.owners === 'string') owners = JSON.parse(r.owners)
-            } catch { /* keep [] */ }
-            return {
-              _id: r._id,
-              _class: String(r._class).replace(/:/g, '.'),
-              name: r.name ?? '—',
-              ownerIds: owners,
-              membersCount: Number(r.members_count ?? 0),
-              private: r.private_flag === true,
-              autoJoin: r.auto_join === true,
-              archived: r.archived === true
-            }
-          })
-          return json(200, { items, cursor: null })
-        }
-      } catch (err) {
-        measureCtx.warn('wac:/spaces fallback to fixtures', { err: String(err) })
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
       }
-      return json(200, {
-        items: [
-          { _id: 'demo-space-1', _class: 'tracker.class.Project', name: 'Demo Project', ownerIds: [], membersCount: 0, private: false, autoJoin: false, archived: false },
-          { _id: 'demo-space-2', _class: 'document.class.Teamspace', name: 'Demo Teamspace', ownerIds: [], membersCount: 0, private: true, autoJoin: false, archived: false }
-        ],
-        cursor: null
-      })
+      try {
+        const rows = await pg.execute(
+          `SELECT s."_id", s."_class",
+                  s.data->>'name' AS name,
+                  (s.data->>'private')::boolean AS private_flag,
+                  (s.data->>'autoJoin')::boolean AS auto_join,
+                  (s.data->>'archived')::boolean AS archived,
+                  s.data->'owners' AS owners,
+                  (SELECT count(*)::int FROM collaborator c
+                     WHERE c."workspaceId" = s."workspaceId"
+                       AND c."attachedTo" = s."_id") AS members_count
+           FROM space s
+           WHERE s."workspaceId"=$1
+             AND s."_class" IN ('tracker:class:Project','document:class:Teamspace','drive:class:Drive','card:class:CardSpace','lead:class:Funnel','recruit:class:Vacancy','recruit:class:JobFunnel')
+           ORDER BY s.data->>'name' ASC
+           LIMIT 200`,
+          [workspaceUuid]
+        )
+        const items = rows.map((r: any) => {
+          let owners: string[] = []
+          try {
+            if (Array.isArray(r.owners)) owners = r.owners
+            else if (typeof r.owners === 'string') owners = JSON.parse(r.owners)
+          } catch { /* keep [] */ }
+          return {
+            _id: r._id,
+            _class: String(r._class).replace(/:/g, '.'),
+            name: r.name ?? '—',
+            ownerIds: owners,
+            membersCount: Number(r.members_count ?? 0),
+            private: r.private_flag === true,
+            autoJoin: r.auto_join === true,
+            archived: r.archived === true
+          }
+        })
+        return json(200, { items, cursor: null })
+      } catch (err) {
+        measureCtx.error('wac:/spaces read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
+      }
     }
     if (sub.startsWith('spaces/')) {
       const spaceId = sub.slice('spaces/'.length)
-      try {
-        if (workspaceUuid != null) {
-          const rows = await pg.execute(
-            `SELECT "_id", "_class",
-                    data->>'name' AS name,
-                    (data->>'private')::boolean AS private_flag,
-                    (data->>'autoJoin')::boolean AS auto_join,
-                    (data->>'archived')::boolean AS archived,
-                    data->>'members' AS members,
-                    data->>'owners' AS owners
-             FROM space WHERE "workspaceId"=$1 AND "_id"=$2 LIMIT 1`,
-            [workspaceUuid, spaceId]
-          )
-          if (rows[0] != null) {
-            const r = rows[0]
-            let members: string[] = []
-            let owners: string[] = []
-            try { if (typeof r.members === 'string') members = JSON.parse(r.members) } catch { /* keep [] */ }
-            try { if (typeof r.owners === 'string') owners = JSON.parse(r.owners) } catch { /* keep [] */ }
-            return json(200, {
-              _id: r._id,
-              _class: String(r._class).replace(/:/g, '.'),
-              name: r.name ?? '—',
-              ownerIds: owners,
-              members,
-              membersCount: members.length,
-              private: r.private_flag === true,
-              autoJoin: r.auto_join === true,
-              archived: r.archived === true
-            })
-          }
-        }
-      } catch (err) {
-        measureCtx.warn('wac:/spaces/<id> fallback to fixture', { err: String(err) })
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
       }
-      return json(200, {
-        _id: spaceId, _class: 'tracker.class.Project', name: 'Demo Space',
-        ownerIds: [], members: [], membersCount: 0,
-        private: false, autoJoin: false, archived: false
-      })
+      try {
+        const rows = await pg.execute(
+          `SELECT "_id", "_class",
+                  data->>'name' AS name,
+                  (data->>'private')::boolean AS private_flag,
+                  (data->>'autoJoin')::boolean AS auto_join,
+                  (data->>'archived')::boolean AS archived,
+                  data->>'members' AS members,
+                  data->>'owners' AS owners
+           FROM space WHERE "workspaceId"=$1 AND "_id"=$2 LIMIT 1`,
+          [workspaceUuid, spaceId]
+        )
+        if (rows[0] == null) {
+          return json(404, { error: 'space_not_found', workspace: workspaceParam, space: spaceId })
+        }
+        const r = rows[0]
+        let members: string[] = []
+        let owners: string[] = []
+        try { if (typeof r.members === 'string') members = JSON.parse(r.members) } catch { /* keep [] */ }
+        try { if (typeof r.owners === 'string') owners = JSON.parse(r.owners) } catch { /* keep [] */ }
+        return json(200, {
+          _id: r._id,
+          _class: String(r._class).replace(/:/g, '.'),
+          name: r.name ?? '—',
+          ownerIds: owners,
+          members,
+          membersCount: members.length,
+          private: r.private_flag === true,
+          autoJoin: r.auto_join === true,
+          archived: r.archived === true
+        })
+      } catch (err) {
+        measureCtx.error('wac:/spaces/<id> read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
+      }
     }
     if (sub === 'audit') {
-      try {
-        if (workspaceUuid != null) {
-          const rows = await pg.execute(
-            `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
-                    target_account::text AS target_account, target_space,
-                    metadata
-             FROM workspace_audit_log
-             WHERE workspace=$1
-             ORDER BY ts DESC
-             LIMIT 100`,
-            [workspaceUuid]
-          )
-          const items = rows.map((r: any) => ({
-            id: r.id,
-            ts: r.ts,
-            action: r.action,
-            actor: r.actor,
-            actor_pseudonym: null,
-            actor_role: r.actor_role,
-            target_account: r.target_account,
-            target_space: r.target_space,
-            metadata: r.metadata ?? {}
-          }))
-          return json(200, { items, cursor: null })
-        }
-      } catch (err) {
-        measureCtx.warn('wac:/audit fallback to empty', { err: String(err) })
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
       }
-      return json(200, { items: [], cursor: null })
+      try {
+        const rows = await pg.execute(
+          `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
+                  target_account::text AS target_account, target_space,
+                  metadata
+           FROM workspace_audit_log
+           WHERE workspace=$1
+           ORDER BY ts DESC
+           LIMIT 100`,
+          [workspaceUuid]
+        )
+        const items = rows.map((r: any) => ({
+          id: r.id,
+          ts: r.ts,
+          action: r.action,
+          actor: r.actor,
+          actor_pseudonym: null,
+          actor_role: r.actor_role,
+          target_account: r.target_account,
+          target_space: r.target_space,
+          metadata: r.metadata ?? {}
+        }))
+        return json(200, { items, cursor: null })
+      } catch (err) {
+        measureCtx.error('wac:/audit read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
+      }
     }
     if (sub === 'grants') {
-      try {
-        if (workspaceUuid != null) {
-          const rows = await pg.execute(
-            `SELECT c."_id" AS resource_id,
-                    c.collaborator AS recipient,
-                    c."attachedTo" AS resource,
-                    c."attachedToClass" AS attached_class,
-                    c."createdBy" AS granter,
-                    c."createdOn"::text AS granted_at,
-                    rp.first_name AS recipient_first, rp.last_name AS recipient_last,
-                    re.value AS recipient_email,
-                    gp.first_name AS granter_first, gp.last_name AS granter_last
-             FROM collaborator c
-             LEFT JOIN global_account.person rp ON rp.uuid::text = c.collaborator
-             LEFT JOIN global_account.social_id re ON re.person_uuid::text = c.collaborator AND re.type='email'
-             LEFT JOIN global_account.person gp ON gp.uuid::text = c."createdBy"
-             WHERE c."workspaceId"=$1
-             ORDER BY c."createdOn" DESC LIMIT 200`,
-            [workspaceUuid]
-          )
-          const items = (rows as any[]).map((r) => {
-            const recipName = `${r.recipient_first ?? ''} ${r.recipient_last ?? ''}`.trim() || r.recipient_email || r.recipient || 'unknown'
-            const grantName = `${r.granter_first ?? ''} ${r.granter_last ?? ''}`.trim() || r.granter || 'system'
-            return {
-              recipientUuid: r.recipient ?? 'unknown',
-              recipientName: recipName,
-              granterUuid: r.granter ?? 'system',
-              granterName: grantName,
-              resourceId: r.resource ?? r.resource_id,
-              resourceClass: String(r.attached_class ?? '').replace(/:/g, '.'),
-              resourceTitle: String(r.attached_class ?? 'Resource').replace(/.*:class:/, ''),
-              grantedAt: r.granted_at
-            }
-          })
-          return json(200, { items, cursor: null })
-        }
-      } catch (err) {
-        measureCtx.warn('wac:/grants query failed', { err: String(err) })
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
       }
-      return json(200, { items: [], cursor: null })
+      try {
+        const rows = await pg.execute(
+          `SELECT c."_id" AS resource_id,
+                  c.collaborator AS recipient,
+                  c."attachedTo" AS resource,
+                  c."attachedToClass" AS attached_class,
+                  c."createdBy" AS granter,
+                  c."createdOn"::text AS granted_at,
+                  rp.first_name AS recipient_first, rp.last_name AS recipient_last,
+                  re.value AS recipient_email,
+                  gp.first_name AS granter_first, gp.last_name AS granter_last
+           FROM collaborator c
+           LEFT JOIN global_account.person rp ON rp.uuid::text = c.collaborator
+           LEFT JOIN global_account.social_id re ON re.person_uuid::text = c.collaborator AND re.type='email'
+           LEFT JOIN global_account.person gp ON gp.uuid::text = c."createdBy"
+           WHERE c."workspaceId"=$1
+           ORDER BY c."createdOn" DESC LIMIT 200`,
+          [workspaceUuid]
+        )
+        const items = (rows as any[]).map((r) => {
+          const recipName = `${r.recipient_first ?? ''} ${r.recipient_last ?? ''}`.trim() || r.recipient_email || r.recipient || 'unknown'
+          const grantName = `${r.granter_first ?? ''} ${r.granter_last ?? ''}`.trim() || r.granter || 'system'
+          return {
+            recipientUuid: r.recipient ?? 'unknown',
+            recipientName: recipName,
+            granterUuid: r.granter ?? 'system',
+            granterName: grantName,
+            resourceId: r.resource ?? r.resource_id,
+            resourceClass: String(r.attached_class ?? '').replace(/:/g, '.'),
+            resourceTitle: String(r.attached_class ?? 'Resource').replace(/.*:class:/, ''),
+            grantedAt: r.granted_at
+          }
+        })
+        return json(200, { items, cursor: null })
+      } catch (err) {
+        measureCtx.error('wac:/grants read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
+      }
     }
     if (sub === 'grants/count') {
-      try {
-        if (workspaceUuid != null) {
-          const rows = await pg.execute(
-            'SELECT count(*) AS c FROM collaborator WHERE "workspaceId"=$1',
-            [workspaceUuid]
-          )
-          return json(200, { count: parseInt((rows[0] as any)?.c ?? '0', 10) })
-        }
-      } catch (err) {
-        measureCtx.warn('wac:/grants/count failed', { err: String(err) })
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
       }
-      return json(200, { count: 0 })
+      try {
+        const rows = await pg.execute(
+          'SELECT count(*) AS c FROM collaborator WHERE "workspaceId"=$1',
+          [workspaceUuid]
+        )
+        return json(200, { count: parseInt((rows[0] as any)?.c ?? '0', 10) })
+      } catch (err) {
+        measureCtx.error('wac:/grants/count read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
+      }
     }
     if (sub === 'my-access') {
-      try {
-        if (workspaceUuid != null) {
-          const [db] = await accountsDb
-          const members = await db.getWorkspaceMembers(workspaceUuid as any)
-          const token = extractToken(ctx.request.headers) ?? ''
-          let callerRole: string = 'OWNER'
-          let callerUuid: string | null = null
-          try {
-            const decoded = decodeToken(token)
-            callerUuid = (decoded as any).account as string
-            const callerEntry = members.find((m: any) => m.person === callerUuid)
-            if (callerEntry?.role != null) callerRole = callerEntry.role
-          } catch { /* keep default */ }
-          let spacesMemberOf: any[] = []
-          let spacesOwned: any[] = []
-          if (callerUuid != null) {
-            const rows = await pg.execute(
-              `SELECT "_id", "_class", data->>'name' AS name,
-                      data->>'members' AS members, data->>'owners' AS owners,
-                      (data->>'private')::boolean AS private_flag,
-                      (data->>'archived')::boolean AS archived
-               FROM space
-               WHERE "workspaceId"=$1
-                 AND (data->'members' ? $2 OR data->'owners' ? $2)
-               ORDER BY data->>'name' ASC LIMIT 200`,
-              [workspaceUuid, callerUuid]
-            )
-            for (const r of rows as any[]) {
-              let members: string[] = []
-              let owners: string[] = []
-              try { if (typeof r.members === 'string') members = JSON.parse(r.members) } catch {}
-              try { if (typeof r.owners === 'string') owners = JSON.parse(r.owners) } catch {}
-              const spaceOut = {
-                _id: r._id,
-                _class: String(r._class).replace(/:/g, '.'),
-                name: r.name ?? '—',
-                ownerIds: owners,
-                membersCount: members.length,
-                private: r.private_flag === true,
-                autoJoin: false,
-                archived: r.archived === true
-              }
-              if (owners.includes(callerUuid)) spacesOwned.push(spaceOut)
-              if (members.includes(callerUuid) && !owners.includes(callerUuid)) spacesMemberOf.push(spaceOut)
-            }
-          }
-          return json(200, {
-            role: callerRole,
-            spacesMemberOf,
-            spacesOwned,
-            grantsReceived: [],
-            grantsGiven: []
-          })
-        }
-      } catch (err) {
-        measureCtx.warn('wac:/my-access fallback', { err: String(err) })
+      if (workspaceUuid == null) {
+        return json(404, { error: 'workspace_not_found', workspace: workspaceParam })
       }
-      return json(200, {
-        role: 'OWNER', spacesMemberOf: [], spacesOwned: [],
-        grantsReceived: [], grantsGiven: []
-      })
+      try {
+        const [db] = await accountsDb
+        const members = await db.getWorkspaceMembers(workspaceUuid as any)
+        const token = extractToken(ctx.request.headers) ?? ''
+        let callerUuid: string | null = null
+        try {
+          const decoded = decodeToken(token)
+          callerUuid = (decoded as any).account as string
+        } catch { /* unauthenticated → no membership */ }
+        if (callerUuid == null) {
+          return json(403, { error: 'no_workspace_membership' })
+        }
+        const callerEntry = members.find((m: any) => m.person === callerUuid)
+        if (callerEntry?.role == null) {
+          return json(403, { error: 'no_workspace_membership' })
+        }
+        const callerRole: string = callerEntry.role
+        const spacesMemberOf: any[] = []
+        const spacesOwned: any[] = []
+        const rows = await pg.execute(
+          `SELECT "_id", "_class", data->>'name' AS name,
+                  data->>'members' AS members, data->>'owners' AS owners,
+                  (data->>'private')::boolean AS private_flag,
+                  (data->>'archived')::boolean AS archived
+           FROM space
+           WHERE "workspaceId"=$1
+             AND (data->'members' ? $2 OR data->'owners' ? $2)
+           ORDER BY data->>'name' ASC LIMIT 200`,
+          [workspaceUuid, callerUuid]
+        )
+        for (const r of rows as any[]) {
+          let memberList: string[] = []
+          let owners: string[] = []
+          try { if (typeof r.members === 'string') memberList = JSON.parse(r.members) } catch {}
+          try { if (typeof r.owners === 'string') owners = JSON.parse(r.owners) } catch {}
+          const spaceOut = {
+            _id: r._id,
+            _class: String(r._class).replace(/:/g, '.'),
+            name: r.name ?? '—',
+            ownerIds: owners,
+            membersCount: memberList.length,
+            private: r.private_flag === true,
+            autoJoin: false,
+            archived: r.archived === true
+          }
+          if (owners.includes(callerUuid)) spacesOwned.push(spaceOut)
+          if (memberList.includes(callerUuid) && !owners.includes(callerUuid)) spacesMemberOf.push(spaceOut)
+        }
+        return json(200, {
+          role: callerRole,
+          spacesMemberOf,
+          spacesOwned,
+          grantsReceived: [],
+          grantsGiven: []
+        })
+      } catch (err) {
+        measureCtx.error('wac:/my-access read failed', { err: String(err) })
+        return json(500, { error: 'internal', detail: 'wac_read_failed' })
+      }
     }
     return await next()
   })
