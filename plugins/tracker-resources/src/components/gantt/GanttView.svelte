@@ -22,7 +22,11 @@
   // into lib/cascade-commit.ts together with relationSatisfied.
   import { computeCriticalPath } from './lib/critical-path'
   import type { CriticalPathResult } from './lib/types'
-  import { exportGanttDataToPdf, exportGanttDataToPng } from './lib/exporter'
+  import {
+    defaultExportStamp,
+    runExportToPdf,
+    runExportToPng
+  } from './lib/menu-export-actions'
   import GanttHelpPopup from './GanttHelpPopup.svelte'
   import GanttQuickInfoPopup from './GanttQuickInfoPopup.svelte'
   import { type BarLabelSlot } from './lib/bar-labels'
@@ -2713,36 +2717,31 @@
     pinchState = reducePinch(pinchState, { type: 'cancel' })
   }
 
+  // W10-D2 seam 6 — exporter wrappers moved to lib/menu-export-actions.ts.
+  // Component-side wrappers feed the snapshot from the reactive variables
+  // and surface failure as a toast.
+  function exportSnapshot (): Parameters<typeof runExportToPng>[0] {
+    return {
+      rows: sortedRows,
+      relations: displayedRelations,
+      summaryRanges,
+      timeScale,
+      dateRange,
+      totalCanvasWidth
+    }
+  }
+
   async function exportToPng (): Promise<void> {
-    const stamp = `gantt-${new Date().toISOString().slice(0, 10)}`
-    try {
-      await exportGanttDataToPng({
-        rows: sortedRows,
-        relations: displayedRelations,
-        summaryRanges,
-        timeScale,
-        range: [dateRange.from, dateRange.to],
-        chartWidth: totalCanvasWidth,
-        title: `${formatRange(dateRange.from)} – ${formatRange(dateRange.to)}`
-      }, stamp)
-    } catch (err) {
+    const err = await runExportToPng(exportSnapshot(), defaultExportStamp())
+    if (err !== null) {
       const title = await translate(tracker.string.GanttExportFailed, {}, undefined)
       addNotification(title, String(err), undefined as any, undefined, NotificationSeverity.Error)
     }
   }
 
   async function exportToPdf (): Promise<void> {
-    try {
-      await exportGanttDataToPdf({
-        rows: sortedRows,
-        relations: displayedRelations,
-        summaryRanges,
-        timeScale,
-        range: [dateRange.from, dateRange.to],
-        chartWidth: totalCanvasWidth,
-        title: `${formatRange(dateRange.from)} – ${formatRange(dateRange.to)}`
-      }, `gantt-${new Date().toISOString().slice(0, 10)}`)
-    } catch (err) {
+    const err = await runExportToPdf(exportSnapshot(), defaultExportStamp())
+    if (err !== null) {
       const title = await translate(tracker.string.GanttExportFailed, {}, undefined)
       addNotification(title, String(err), undefined as any, undefined, NotificationSeverity.Error)
     }
@@ -2846,9 +2845,9 @@
   }
   let datePickerValue: string = ''
 
-  function formatRange (ms: number): string {
-    return new Date(ms).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })
-  }
+  // W10-D2 seam 6 — formatRange moved to lib/menu-export-actions.ts as
+  // formatRangeLabel; was only used inside the (now extracted) PNG/PDF
+  // exporters.
 
   // Custom horizontal scrollbar thumb geometry (proxy for hScrollEl).
   $: hTrackWidth = canvasViewportWidth > 0 ? canvasViewportWidth : 1
