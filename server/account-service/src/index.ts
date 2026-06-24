@@ -969,10 +969,18 @@ export function serveAccount (
     // Phase 1 Task 2 — pick the required capability for this sub-route.
     // my-access is per-member (USER+); everything else is MAINTAINER+ (read).
     // Unknown routes default to 'edit' (safest — OWNER-only).
+    //
+    // M5 — defense in depth: `audit/export.csv` already hits a dedicated
+    // 'admin'-gated middleware earlier in the chain. If a future
+    // sub-path under `audit/...` is added without registering a more
+    // specific middleware, fall through here as 'read' (MAINTAINER+)
+    // instead of leaking through to 'edit' or worse — anything dropped
+    // under audit/ is read-by-default.
     const wacCapability: 'read' | 'read-self' | 'edit' | 'admin' = (
       sub === 'my-access' ? 'read-self'
         : (sub === 'members' || sub === 'spaces' || sub.startsWith('spaces/')
-            || sub === 'audit' || sub === 'admins/count' || sub === 'invites'
+            || sub === 'audit' || sub.startsWith('audit/')
+            || sub === 'admins/count' || sub === 'invites'
             || sub === 'grants' || sub === 'grants/count')
             ? 'read'
             : 'edit'
