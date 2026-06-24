@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { Label } from '@hcengineering/ui'
+  import { EditBox, Label } from '@hcengineering/ui'
   import type { IntlString } from '@hcengineering/platform'
   import { EntityTable, type EntityColumn } from '@hcengineering/access-management-ui'
   import wac from '../../plugin'
@@ -18,10 +18,16 @@
 
   const dispatch = createEventDispatcher<{ rowClick: { spaceId: string } }>()
 
-  let items: SpaceRow[] = []
+  let spaces: SpaceRow[] = []
   let loading: boolean = true
   let error: string | null = null
   let sort: { field: string, direction: 'asc' | 'desc' } | undefined
+  // A3 — client-side search over already-loaded spaces. Matches
+  // case-insensitively on `name` and as prefix on `_id` so operators
+  // can paste a known UUID prefix and still find the space. The v2
+  // placeholder rows (chat/office/guest-link) are sticky info-rows and
+  // are NOT filtered — they always appear at the end of the list.
+  let searchQuery: string = ''
 
   const columns: EntityColumn<SpaceRow>[] = [
     { key: '_class', label: 'Type' as any, width: 140 },
@@ -87,16 +93,29 @@
     error = null
     try {
       const res = await resourcesApi.listSpaces(workspace, { filter: preset, sort: sort?.field })
-      // Append the v2 "coming soon" placeholders after the real rows so
-      // users see a single combined list — the rendered styling already
-      // distinguishes them via `capabilities.v2NotYet`.
-      items = [...res.items, ...v2Placeholders]
+      spaces = res.items
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
       loading = false
     }
   }
+
+  // A3 — reactive client-side filter. Empty query returns the full
+  // list. Filtering is case-insensitive on `name` (contains) and on
+  // `_id` (prefix-only — IDs are UUIDs so substring matches deep in
+  // the middle would be noisy). v2-placeholder rows are appended last,
+  // always, regardless of the query — they are sticky info rows about
+  // resource families that don't have a v2 surface yet.
+  $: filteredSpaces = (() => {
+    const q = searchQuery.trim().toLowerCase()
+    const real: SpaceRow[] = q === ''
+      ? spaces
+      : spaces.filter((s) =>
+        s.name.toLowerCase().includes(q) || s._id.toLowerCase().startsWith(q)
+      )
+    return [...real, ...v2Placeholders]
+  })()
 
   onMount(refresh)
 
@@ -126,8 +145,17 @@
 </script>
 
 <div class="all-spaces">
+  <div class="toolbar">
+    <div class="search-box">
+      <EditBox
+        bind:value={searchQuery}
+        placeholder={wac.string.ResourceSearchPlaceholder}
+        kind={'search-style'}
+      />
+    </div>
+  </div>
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
-  <EntityTable items={items} {columns} {loading} {sort} idKey="_id"
+  <EntityTable items={filteredSpaces} {columns} {loading} {sort} idKey="_id"
     on:sort={onSort} on:rowClick={onRowClick}>
     <svelte:fragment slot="empty">
       <Label label={emptyLabel} />
@@ -160,6 +188,20 @@
 
 <style lang="scss">
   .all-spaces { padding: 1rem 1.25rem; }
+  .toolbar {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+  }
+  .search-box {
+    flex: 0 0 18rem;
+    padding: 0.25rem 0.5rem;
+    background: var(--theme-bg-color);
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 0.25rem;
+  }
   .err {
     padding: 0.75rem;
     background: var(--theme-state-negative-background-color);
