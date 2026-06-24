@@ -22,7 +22,7 @@ const snap: GanttSavedViewSnapshot = {
 
 const VIEWLET_ID = 'viewlet-1' as Ref<Viewlet>
 
-function fv (overrides: Partial<FilteredView> & { viewOptions?: Record<string, unknown> }): FilteredView {
+function fv (overrides: { viewletId?: Ref<Viewlet>, viewOptions?: Record<string, unknown> }): FilteredView {
   return {
     _id: 'fv-1' as unknown as Ref<FilteredView>,
     viewletId: VIEWLET_ID,
