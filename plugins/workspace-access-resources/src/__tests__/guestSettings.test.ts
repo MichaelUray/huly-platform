@@ -55,11 +55,13 @@ describe('GuestSettings — Phase 2.5 5th tab', () => {
       expect(tabsForRole('GUEST')).toEqual([])
     })
 
-    it('OWNER tab order: People → Resources → My Access → Audit → Guest Settings', () => {
+    it('OWNER tab order: People → Resources → My Access → Audit → Guest Settings → Presets', () => {
       // Pin position so a future tab insertion doesn't accidentally
-      // push GuestSettings into a confusing slot.
+      // push GuestSettings into a confusing slot. WAC-Presets sits AFTER
+      // guest-settings as the workspace-templates surface.
       const tabs = tabsForRole('OWNER')
-      expect(tabs[tabs.length - 1]).toBe('guest-settings')
+      expect(tabs.indexOf('guest-settings')).toBe(4)
+      expect(tabs[tabs.length - 1]).toBe('presets')
     })
   })
 

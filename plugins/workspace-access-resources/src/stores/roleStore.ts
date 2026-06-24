@@ -97,7 +97,11 @@ export function tabsForRole (r: EffectiveRole): string[] {
   // a surface that won't function. IMPERSONATING_ADMIN inherits Owner
   // privileges (every action is dual-audited) and therefore sees it.
   if (r === 'OWNER' || r === 'IMPERSONATING_ADMIN') {
-    return ['people', 'resources', 'my-access', 'audit', 'guest-settings']
+    // 'presets' is the Permission Templates tab (workspace-local
+    // Role+Spaces templates). Owner-only because every apply mutates
+    // workspace_members + space members on N targets at once — same
+    // gating contract as the per-target /members/<uuid>/role endpoint.
+    return ['people', 'resources', 'my-access', 'audit', 'guest-settings', 'presets']
   }
   // OWNER/MAINTAINER + their variants + IMPERSONATING/INSTANCE_ADMIN
   // see the full workspace-wide surface; everyone else only sees their

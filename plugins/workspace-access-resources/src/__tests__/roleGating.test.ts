@@ -32,13 +32,14 @@ import type { WorkspaceRole } from '../types'
 
 describe('D5 role-semantics matrix', () => {
   describe('tabsForRole', () => {
-    it('OWNER sees all five tabs (Phase 2.5: guest-settings added)', () => {
+    it('OWNER sees all six tabs (Phase 2.5: guest-settings; WAC-Presets: presets)', () => {
       expect(tabsForRole('OWNER')).toEqual([
         'people',
         'resources',
         'my-access',
         'audit',
-        'guest-settings'
+        'guest-settings',
+        'presets'
       ])
     })
 
