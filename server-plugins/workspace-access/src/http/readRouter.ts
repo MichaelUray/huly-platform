@@ -709,18 +709,23 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
 
     async handleInvites (ctx, workspaceUuid) {
       const pg = await deps.pgClient()
+      // NOTE: global_account.invite has no created_on column (see
+      // server/account/src/collections/postgres/migrations.ts:253). The
+      // table's PK `id` is a monotonically increasing auto-increment, so
+      // ordering by id DESC yields newest-first. invitedAt is reported as
+      // null because the schema doesn't track creation time.
       const rows = await pg.execute(
-        `SELECT id::text AS id, email, expires_on::text AS expires_on, created_on::text AS created_on
+        `SELECT id::text AS id, email, expires_on::text AS expires_on
          FROM global_account.invite
          WHERE workspace_uuid=$1
-         ORDER BY created_on DESC LIMIT 100`,
+         ORDER BY id DESC LIMIT 100`,
         [workspaceUuid]
       )
       const items = rows.map((r: any) => ({
         id: r.id,
         email: r.email ?? 'unknown',
         invitedBy: 'system',
-        invitedAt: r.created_on,
+        invitedAt: null,
         expiresAt: r.expires_on
       }))
       json(ctx, 200, { items, cursor: null })

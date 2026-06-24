@@ -750,8 +750,8 @@ describe('readRouter — handleInvites', () => {
     const { ctx, captured } = makeCtx()
     const pg = makePg([
       [
-        { id: 'i1', email: 'a@x.test', expires_on: '2026-07-01', created_on: '2026-06-01' },
-        { id: 'i2', email: null, expires_on: null, created_on: '2026-06-02' }
+        { id: 'i1', email: 'a@x.test', expires_on: '2026-07-01' },
+        { id: 'i2', email: null, expires_on: null }
       ]
     ])
     const handlers = buildHandlers({ pgClient: async () => pg })
@@ -761,10 +761,11 @@ describe('readRouter — handleInvites', () => {
       id: 'i1',
       email: 'a@x.test',
       invitedBy: 'system',
-      invitedAt: '2026-06-01',
+      invitedAt: null,
       expiresAt: '2026-07-01'
     })
     expect(captured.body.items[1].email).toBe('unknown')
+    expect(captured.body.items[1].invitedAt).toBeNull()
   })
 
   it('throws on pg failure', async () => {
