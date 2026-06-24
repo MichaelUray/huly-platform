@@ -103,6 +103,8 @@
     "AuditActionImpersonationIdorAttempt": "Impersonation IDOR attempt",
     "AuditActionImpersonationReplayAttempt": "Impersonation replay attempt",
     "AuditActionGrantRevoked": "Grant revoked",
-    "AuditActionTokenRevoked": "Token revoked"
+    "AuditActionTokenRevoked": "Token revoked",
+    "AuditFilterFrom": "De",
+    "AuditFilterTo": "Au"
   }
 }
