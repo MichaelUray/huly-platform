@@ -1286,7 +1286,6 @@ export function serveAccount (
   // wiring PR once we actually persist them).
 
   const _BULK_VALID_ROLES = ['OWNER', 'MAINTAINER', 'USER', 'GUEST']
-  const _EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
   router.post('/api/wac/:workspace/invites/bulk-csv', async (ctx) => {
     const workspace = ctx.params.workspace as string
@@ -1304,49 +1303,50 @@ export function serveAccount (
       }))
       return
     }
-    // Honest inline parse for dry-run preview. Uses the plugin's pure
-    // helpers (no auth context required, no spaceExists lie).
+    // Honest dry-run preview via the plugin's header-aware parser
+    // (previewBulkInviteCsv) — same byte/row caps, duplicate detection,
+    // header-skip semantics and line-numbering as processBulkInviteCsv.
+    // The host's pre-E7 inline `for (let i = 0; i < rawLines.length;
+    // i++)` loop incorrectly fed the header row into per-row validation,
+    // which always produced an `invalid_email`/`invalid_role` row for
+    // the header.
     try {
       const wac = require('@hcengineering/server-workspace-access')
-      const text = wac.stripBom(csvRaw)
-      const rawLines = text.split(/\r\n|\r|\n/).filter((l: string) => l.trim() !== '')
-      const rows: Array<Record<string, unknown>> = []
-      let valid = 0
-      let invalid = 0
-      const byStatus: Record<string, number> = {}
-      for (let i = 0; i < rawLines.length; i++) {
-        const parts: string[] = wac.splitCsvLine(rawLines[i])
-        const email = (parts[0] ?? '').trim()
-        const role = (parts[1] ?? '').trim().toUpperCase()
-        const spaces = (parts[2] ?? '').split(';').map((s: string) => s.trim()).filter((s: string) => s !== '')
-        let status: string
-        if (!_EMAIL_RE.test(email)) status = 'invalid_email'
-        else if (!_BULK_VALID_ROLES.includes(role)) status = 'invalid_role'
-        else status = 'ok'
-        if (status === 'ok') valid++
-        else invalid++
-        byStatus[status] = (byStatus[status] ?? 0) + 1
-        rows.push({
-          line: i + 1,
-          email_hash: wac.hashEmail(email),
-          role,
-          addToSpaces: spaces,
-          addToSpaces_unvalidated: spaces.length > 0,
-          status
-        })
-      }
+      const result = wac.previewBulkInviteCsv(csvRaw, _BULK_VALID_ROLES)
+      // Map BulkInviteRow → wire shape (email_hash, status, etc.). We
+      // surface only the audit-safe `email_hash` (NOT the plaintext
+      // email) to keep the response DSGVO-cleansed in line with the
+      // plugin's auditMetadata contract.
+      const wireRows = result.rows.map((r: any) => ({
+        line: r.line,
+        email_hash: r.emailHash,
+        role: r.role,
+        addToSpaces: r.addToSpaces,
+        addToSpaces_unvalidated: r.addToSpaces_unvalidated,
+        status: r.status,
+        detail: r.detail
+      }))
       ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
       ctx.res.end(JSON.stringify({
         dry_run: true,
-        rows,
-        summary: { total: rows.length, valid, invalid, byStatus },
-        audit_metadata: { total: rows.length, valid, invalid },
+        rows: wireRows,
+        summary: result.summary,
+        audit_metadata: result.auditMetadata,
         notes: {
           addToSpaces: 'unvalidated_until_dispatch_wiring',
           dispatch: 'not_available_in_v1'
         }
       }))
     } catch (err) {
+      const e = err as { code?: string, status?: number, message?: string }
+      // BulkInviteError surfaces { code, status }. Map to the documented
+      // HTTP statuses: 400 for empty_csv/missing_header, 413 for
+      // csv_too_large/too_many_rows. Unknown errors fall through to 500.
+      if (e != null && typeof e.code === 'string' && typeof e.status === 'number') {
+        ctx.res.writeHead(e.status, KEEP_ALIVE_HEADERS)
+        ctx.res.end(JSON.stringify({ error: e.code, code: e.code, detail: e.message ?? e.code }))
+        return
+      }
       ctx.res.writeHead(500, KEEP_ALIVE_HEADERS)
       ctx.res.end(JSON.stringify({ error: 'csv_parse_failed', detail: String((err as Error)?.message ?? err) }))
     }

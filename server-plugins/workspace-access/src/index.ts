@@ -201,6 +201,7 @@ export type { LookupFn, UrlValidationResult } from './webhooks/ssrf'
 
 export {
   processBulkInviteCsv,
+  previewBulkInviteCsv,
   previewRowForResponse,
   splitCsvLine,
   stripBom,
@@ -216,5 +217,7 @@ export type {
   BulkInviteResult,
   BulkInviteRow,
   BulkInviteSummary,
+  PreviewBulkInviteResult,
+  PreviewBulkInviteRow,
   RowStatus
 } from './endpoints/bulkInviteEndpoints'
