@@ -1,4 +1,10 @@
 module.exports = {
   extends: ['./node_modules/@hcengineering/platform-rig/profiles/ui/eslint.config.json'],
-  parserOptions: { tsconfigRootDir: __dirname }
+  parserOptions: { tsconfigRootDir: __dirname },
+  rules: {
+    // Wave-8 Task D3 — gate new `as any` casts. Existing branded-type /
+    // event-handler / behavior-coupled casts are documented with
+    // `eslint-disable-next-line` + reason comments.
+    '@typescript-eslint/no-explicit-any': 'error'
+  }
 }
