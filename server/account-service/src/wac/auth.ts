@@ -296,7 +296,9 @@ export async function authenticateWac (
     // Account row may be missing for service-issued tokens — match upstream
     // verifyTokenVersion behaviour and only enforce when a row exists.
     if (account != null) {
-      const currentVersion = (account as any).tokenVersion ?? 0
+      // Wave-8 D3 — Account.tokenVersion / disabledAt are typed on the
+      // Account interface (V27); the prior casts were redundant.
+      const currentVersion = account.tokenVersion ?? 0
       if (currentVersion > tokenVersionClaim) {
         measureCtx.warn('wac auth denied', {
           reason: 'invalid_token',
@@ -307,7 +309,7 @@ export async function authenticateWac (
         writeJson(ctx, 401, { error: 'invalid_token', detail: 'token_version' })
         return null
       }
-      if ((account as any).disabledAt != null) {
+      if (account.disabledAt != null) {
         measureCtx.warn('wac auth denied', {
           reason: 'invalid_token',
           detail: 'account_disabled',
@@ -375,7 +377,8 @@ export async function authenticateWac (
   if (extra?.impersonation === 'true') {
     const adminUuidClaim = typeof extra.actor_admin === 'string' ? extra.actor_admin : null
     const workspaceClaim = decoded.workspace as string | undefined
-    const expClaim = (decoded as any).exp as number | undefined
+    // Wave-8 D3 — Token.exp is typed; redundant cast removed.
+    const expClaim = decoded.exp
     if (adminUuidClaim == null || adminUuidClaim === '' || workspaceClaim !== workspaceUuid || expClaim == null) {
       measureCtx.warn('wac auth denied', {
         reason: 'invalid_impersonation_token',
