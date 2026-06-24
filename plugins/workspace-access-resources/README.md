@@ -2,6 +2,53 @@
 
 Workspace Access Center (WAC) — per-workspace surface for People, Resources, My Access and Audit, plus the Instance-Admin impersonation flow.
 
+## Glossary
+
+WAC uses precise terminology to avoid the Workspace/Space overload that
+is common in Huly platform documentation:
+
+- **Workspace** — the tenant container. One Huly deployment can host many
+  Workspaces; users in Workspace A cannot see anything in Workspace B
+  unless explicitly invited. Workspace-level membership is what
+  `accountClient.getWorkspaceMembers` returns and what the `OWNER /
+  MAINTAINER / USER / GUEST` role enum gates.
+- **Space** — a container *inside* a Workspace (Project, Drive,
+  Teamspace, CardSpace, Funnel, Vacancy, JobFunnel, ...). Each Space
+  has its own members/owners list and access-control mixins. In code:
+  `core.class.Space` / `core.class.TypedSpace`.
+- **SpaceType** — the schema-class of a Space (e.g.
+  `tracker.class.Project`). Different SpaceTypes have different default
+  fields, default workflows and admin lists. In code:
+  `core.class.SpaceType`.
+
+WAC's tabs map directly onto this hierarchy:
+
+| Tab | Scope |
+|---|---|
+| **People** | Workspace-level members + roles |
+| **Resources** | all Spaces in this Workspace + per-Space ownership |
+| **My Access** | the current caller's slice across both levels |
+| **Audit** | mutation log for both Workspace-level and Space-level changes |
+
+### Legacy Settings entries (Phase 2 T1)
+
+As of Phase 2 of the post-Codex-block hardening, the legacy Settings
+entries `Workspace Members` (`/setting/owners`), `Guests`
+(`/setting/guestPermissions`), and `Global Space Admins`
+(`/setting/allSpaces`) no longer appear as separate sidebar entries.
+Their routes are kept registered as compat-shims so existing
+bookmarked deep-links continue to render the appropriate Access Center
+sub-tab:
+
+| Legacy route | Lands on |
+|---|---|
+| `/setting/owners` | Access Center → People → All |
+| `/setting/guestPermissions` | Access Center → People → By role |
+| `/setting/allSpaces` | Access Center → Resources |
+
+The only visible Settings sidebar entry for workspace-level access is
+now `Access Center` itself.
+
 ## Mount
 
 Register a workbench route for `/workbench/<workspace>/access-center` and render `<AccessCenter>`:
