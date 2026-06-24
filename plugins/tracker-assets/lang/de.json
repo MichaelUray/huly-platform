@@ -383,7 +383,6 @@
     "GanttShowPredecessors": "Vorgänger-Spalte anzeigen",
     "Predecessors": "Vorgänger",
     "NoPredecessors": "Keine Vorgänger",
-    "Dependency": "Abhängigkeit",
     "DependencyKind": "Art",
     "DependencyKindFS": "Ende-Anfang (FS)",
     "DependencyKindSS": "Anfang-Anfang (SS)",
@@ -540,7 +539,10 @@
     "SearchEmptyActiveFilters": "Aktive Filter: {filters}",
     "SearchEmptyClearFilters": "Suche ohne Filter",
     "SearchEmptyAllProjects": "In allen Projekten suchen",
-    "SharedWithYouTooltip": "Du hast nur Zugriff auf einzelne Issues; du bist kein Mitglied dieses Projekts"
+    "SharedWithYouTooltip": "Du hast nur Zugriff auf einzelne Issues; du bist kein Mitglied dieses Projekts",
+    "SetStartDate": "Set start date…",
+    "Hierarchy": "Hierarchy",
+    "SetParentIssueLabel": "Set parent issue…"
   },
   "status": {}
 }
