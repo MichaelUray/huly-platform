@@ -1,7 +1,7 @@
 {
     "string": {
         "Setting": "설정",
-        "Spaces": "스페이스",
+        "Spaces": "글로벌 스페이스 관리자",
         "Integrations": "연동",
         "Support": "고객 지원",
         "Privacy": "개인정보 보호",
@@ -67,7 +67,7 @@
         "NewValue": "새 값",
         "Leave": "워크스페이스 나가기",
         "LeaveDescr": "워크스페이스에서 나가시겠습니까? 이 작업은 되돌릴 수 없습니다.",
-        "Members": "멤버",
+        "Members": "워크스페이스 멤버",
     "AccessCenter": "Access Center",
         "WorkspaceSettings": "워크스페이스 설정",
         "Select": "선택",
@@ -111,7 +111,7 @@
         "Automations": "자동화",
         "Collections": "컬렉션",
         "ClassColon": "클래스:",
-        "SpaceTypes": "스페이스 유형",
+        "SpaceTypes": "고급 / 스키마",
         "NewSpaceType": "새 스페이스 유형",
         "SpaceTypeTitle": "스페이스 유형 제목",
         "General": "일반",

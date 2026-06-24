@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "Paramètre",
-    "Spaces": "Espaces",
+    "Spaces": "Administrateurs d'espaces globaux",
     "Integrations": "Intégrations",
     "Support": "Support",
     "Privacy": "Confidentialité",
@@ -67,7 +67,7 @@
     "NewValue": "Nouvelle valeur",
     "Leave": "Quitter l'espace de travail",
     "LeaveDescr": "Êtes-vous sûr de vouloir quitter l'espace de travail ? Cette action est irréversible.",
-    "Members": "Membres",
+    "Members": "Membres de l'espace de travail",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "Paramètres de l'espace de travail",
     "Select": "Sélectionner",
@@ -111,7 +111,7 @@
     "Automations": "Automatisations",
     "Collections": "Collections",
     "ClassColon": "Classe :",
-    "SpaceTypes": "Types d'espace",
+    "SpaceTypes": "Avancé / Schéma",
     "NewSpaceType": "Nouveau type d'espace",
     "SpaceTypeTitle": "Titre du type d'espace",
     "General": "Général",

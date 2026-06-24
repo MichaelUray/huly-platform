@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "Nastavení",
-    "Spaces": "Prostory",
+    "Spaces": "Globální správci prostorů",
     "Integrations": "Integrace",
     "Support": "Podpora",
     "Privacy": "Soukromí",
@@ -61,7 +61,7 @@
     "NewValue": "Nová hodnota",
     "Leave": "Opustit pracovní prostor",
     "LeaveDescr": "Opravdu chcete opustit tento pracovní prostor? Tuto akci nelze vrátit zpět.",
-    "Members": "Členové",
+    "Members": "Členové pracovního prostoru",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "Nastavení pracovního prostoru",
     "Select": "Vybrat",
@@ -105,7 +105,7 @@
     "Automations": "Automatizace",
     "Collections": "Kolekce",
     "ClassColon": "Třída:",
-    "SpaceTypes": "Typy prostor",
+    "SpaceTypes": "Pokročilé / Schéma",
     "NewSpaceType": "Nový typ prostoru",
     "SpaceTypeTitle": "Název typu prostoru",
     "General": "Obecné",

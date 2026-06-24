@@ -1,7 +1,7 @@
 {
   "string": {
     "Setting": "Impostazione",
-    "Spaces": "Spazi",
+    "Spaces": "Amministratori globali degli spazi",
     "Integrations": "Integrazioni",
     "Support": "Supporto",
     "Privacy": "Privacy",
@@ -67,7 +67,7 @@
     "NewValue": "Nuovo valore",
     "Leave": "Lascia spazio di lavoro",
     "LeaveDescr": "Sei sicuro di voler lasciare lo spazio di lavoro? Questa azione non può essere annullata.",
-    "Members": "Membri",
+    "Members": "Membri del workspace",
     "AccessCenter": "Access Center",
     "WorkspaceSettings": "Impostazioni spazio di lavoro",
     "Select": "Seleziona",
@@ -111,7 +111,7 @@
     "Automations": "Automazioni",
     "Collections": "Collezioni",
     "ClassColon": "Classe:",
-    "SpaceTypes": "Tipi di spazio",
+    "SpaceTypes": "Avanzato / Schema",
     "NewSpaceType": "Nuovo tipo di spazio",
     "SpaceTypeTitle": "Titolo tipo di spazio",
     "General": "Generale",
