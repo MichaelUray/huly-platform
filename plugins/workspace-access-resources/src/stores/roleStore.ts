@@ -10,9 +10,26 @@ export interface RoleModel {
   workspaceRole: WorkspaceRole
   /** Space IDs where the caller is in `space.owners`. */
   ownedSpaceIds: string[]
+  /**
+   * Set to `true` once the role has been resolved from the backend
+   * (`/api/wac/<workspace>/my-access`). Downstream UI can refuse to
+   * render — or render in a safe read-only fallback — while this is
+   * `false`, so the page never paints with a privilege we haven't
+   * actually proven yet.
+   *
+   * Pre-Phase-1-Task-3 the page used to seed `OWNER` straight from the
+   * route mount; that gave every visitor full edit affordances for the
+   * brief window before the real role landed. The `hydrated` flag
+   * eliminates that gap.
+   */
+  hydrated: boolean
 }
 
-export const roleStore = writable<RoleModel>({ workspaceRole: 'USER', ownedSpaceIds: [] })
+export const roleStore = writable<RoleModel>({
+  workspaceRole: 'GUEST',
+  ownedSpaceIds: [],
+  hydrated: false
+})
 
 export const effectiveRole = derived(
   [roleStore, impersonationStore],
