@@ -182,3 +182,23 @@ export {
   WebhookUrlError
 } from './webhooks/ssrf'
 export type { LookupFn, UrlValidationResult } from './webhooks/ssrf'
+
+export {
+  processBulkInviteCsv,
+  previewRowForResponse,
+  splitCsvLine,
+  stripBom,
+  hashEmail,
+  BulkInviteError,
+  MAX_CSV_BYTES,
+  MAX_CSV_ROWS
+} from './endpoints/bulkInviteEndpoints'
+export type {
+  BulkInviteCtx,
+  BulkInviteOptions,
+  BulkInvitePreview,
+  BulkInviteResult,
+  BulkInviteRow,
+  BulkInviteSummary,
+  RowStatus
+} from './endpoints/bulkInviteEndpoints'
