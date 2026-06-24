@@ -30320,6 +30320,9 @@ importers:
       '@types/jest':
         specifier: ^29.5.5
         version: 29.5.14
+      '@types/node':
+        specifier: ^22.18.1
+        version: 22.19.0
       '@typescript-eslint/eslint-plugin':
         specifier: ^6.21.0
         version: 6.21.0(@typescript-eslint/parser@6.21.0(eslint@8.57.1)(typescript@5.9.3))(eslint@8.57.1)(typescript@5.9.3)
@@ -62044,7 +62047,7 @@ snapshots:
   node-loader@2.0.0(webpack@5.102.1):
     dependencies:
       loader-utils: 2.0.4
-      webpack: 5.102.1(esbuild@0.25.12)(webpack-cli@5.1.4)
+      webpack: 5.102.1
 
   node-localstorage@2.2.1:
     dependencies:
