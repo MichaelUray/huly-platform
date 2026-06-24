@@ -36,7 +36,7 @@ import {
   type WorkspaceUuid,
   type IntegrationKind
 } from '@hcengineering/core'
-import platform, { getMetadata, PlatformError, Severity, Status, translate } from '@hcengineering/platform'
+import platform, { getMetadata, PlatformError, Severity, Status, type StatusCode, translate } from '@hcengineering/platform'
 import { decodeToken, decodeTokenVerbose, generateToken, type PermissionsGrant, TokenError } from '@hcengineering/server-token'
 
 import { isAdminEmail } from './admin'
@@ -204,7 +204,7 @@ export async function login (
 
     if (existingAccount.disabledAt != null) {
       ctx.warn('Login attempt on disabled account', { email: normalizedEmail })
-      throw new PlatformError(new Status(Severity.ERROR, 'account_disabled' as any, {}))
+      throw new PlatformError(new Status(Severity.ERROR, 'account_disabled' as StatusCode, {}))
     }
 
     // Check if account is locked due to too many failed login attempts
@@ -450,7 +450,7 @@ export async function validateOtp (
 
     if (targetAccount?.disabledAt != null) {
       ctx.warn('OTP validation attempt on disabled account', { email: normalizedEmail })
-      throw new PlatformError(new Status(Severity.ERROR, 'account_disabled' as any, {}))
+      throw new PlatformError(new Status(Severity.ERROR, 'account_disabled' as StatusCode, {}))
     }
 
     if (action !== 'verify') {
@@ -3350,7 +3350,7 @@ export async function setWorkspaceMemberRole (
     const members = await db.getWorkspaceMembers(params.workspaceUuid)
     const otherOwners = members.filter((m) => m.role === AccountRole.Owner && m.person !== params.accountUuid)
     if (otherOwners.length === 0) {
-      throw new PlatformError(new Status(Severity.ERROR, 'last_owner_in_workspace' as any, {}))
+      throw new PlatformError(new Status(Severity.ERROR, 'last_owner_in_workspace' as StatusCode, {}))
     }
   }
 
@@ -3384,7 +3384,7 @@ export async function removeWorkspaceMember (
     const members = await db.getWorkspaceMembers(params.workspaceUuid)
     const otherOwners = members.filter((m) => m.role === AccountRole.Owner && m.person !== params.accountUuid)
     if (otherOwners.length === 0) {
-      throw new PlatformError(new Status(Severity.ERROR, 'last_owner_in_workspace' as any, {}))
+      throw new PlatformError(new Status(Severity.ERROR, 'last_owner_in_workspace' as StatusCode, {}))
     }
   }
 
@@ -3412,12 +3412,12 @@ export async function triggerPasswordReset (
   const socials = await db.socialId.find({ personUuid: params.accountUuid })
   const emailSocial = socials.find((s) => s.type === SocialIdType.EMAIL)
   if (emailSocial == null) {
-    throw new PlatformError(new Status(Severity.ERROR, 'user_has_no_email' as any, {}))
+    throw new PlatformError(new Status(Severity.ERROR, 'user_has_no_email' as StatusCode, {}))
   }
 
   const account = await db.account.findOne({ uuid: params.accountUuid })
   if (account?.hash == null) {
-    throw new PlatformError(new Status(Severity.ERROR, 'user_has_no_password' as any, {}))
+    throw new PlatformError(new Status(Severity.ERROR, 'user_has_no_password' as StatusCode, {}))
   }
 
   try {
@@ -3432,7 +3432,7 @@ export async function triggerPasswordReset (
       details: { emailSentTo: emailSocial.value, failed: true, errMsg: err?.message ?? String(err) }
     })
     if (err instanceof PlatformError) throw err
-    throw new PlatformError(new Status(Severity.ERROR, 'password_reset_send_failed' as any, {}))
+    throw new PlatformError(new Status(Severity.ERROR, 'password_reset_send_failed' as StatusCode, {}))
   }
 
   await db.adminAuditLog.insert({
@@ -3472,7 +3472,7 @@ export async function removeWorkspaceMemberInternal (
     const members = await db.getWorkspaceMembers(params.workspaceUuid)
     const otherOwners = members.filter((m) => m.role === AccountRole.Owner && m.person !== params.accountUuid)
     if (otherOwners.length === 0) {
-      throw new PlatformError(new Status(Severity.ERROR, 'last_owner_in_workspace' as any, {}))
+      throw new PlatformError(new Status(Severity.ERROR, 'last_owner_in_workspace' as StatusCode, {}))
     }
   }
 
@@ -3562,14 +3562,14 @@ export async function disableAccountInternal (
 ): Promise<{ ok: true }> {
   if (adminUuid === params.accountUuid) {
     await auditAdminActionDenied(ctx, db, adminUuid, 'self_disable', methodName, params.accountUuid)
-    throw new PlatformError(new Status(Severity.ERROR, 'cannot_self_disable' as any, {}))
+    throw new PlatformError(new Status(Severity.ERROR, 'cannot_self_disable' as StatusCode, {}))
   }
 
   const socials = await db.socialId.find({ personUuid: params.accountUuid })
   const targetEmail = socials.find((s) => s.type === SocialIdType.EMAIL)?.value
   if (targetEmail != null && (await isLastAdmin(db, targetEmail))) {
     await auditAdminActionDenied(ctx, db, adminUuid, 'last_admin', methodName, params.accountUuid)
-    throw new PlatformError(new Status(Severity.ERROR, 'last_admin' as any, {}))
+    throw new PlatformError(new Status(Severity.ERROR, 'last_admin' as StatusCode, {}))
   }
 
   const account = await db.account.findOne({ uuid: params.accountUuid })
@@ -3627,12 +3627,12 @@ export async function triggerPasswordResetInternal (
   const socials = await db.socialId.find({ personUuid: params.accountUuid })
   const emailSocial = socials.find((s) => s.type === SocialIdType.EMAIL)
   if (emailSocial == null) {
-    throw new PlatformError(new Status(Severity.ERROR, 'user_has_no_email' as any, {}))
+    throw new PlatformError(new Status(Severity.ERROR, 'user_has_no_email' as StatusCode, {}))
   }
 
   const account = await db.account.findOne({ uuid: params.accountUuid })
   if (account?.hash == null) {
-    throw new PlatformError(new Status(Severity.ERROR, 'user_has_no_password' as any, {}))
+    throw new PlatformError(new Status(Severity.ERROR, 'user_has_no_password' as StatusCode, {}))
   }
 
   try {
@@ -3648,7 +3648,7 @@ export async function triggerPasswordResetInternal (
       batchId
     })
     if (err instanceof PlatformError) throw err
-    throw new PlatformError(new Status(Severity.ERROR, 'password_reset_send_failed' as any, {}))
+    throw new PlatformError(new Status(Severity.ERROR, 'password_reset_send_failed' as StatusCode, {}))
   }
 
   await db.adminAuditLog.insert({
