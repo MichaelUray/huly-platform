@@ -18,11 +18,17 @@
 // the matrix doesn't quietly diverge for drill-down sessions.
 //
 
+import { get } from 'svelte/store'
 import {
   canEdit,
   canReadWorkspaceWide,
+  effectiveRole,
+  isGuestVariant,
+  roleStore,
   tabsForRole
 } from '../stores/roleStore'
+import { impersonationStore } from '../stores/impersonationStore'
+import type { WorkspaceRole } from '../types'
 
 describe('D5 role-semantics matrix', () => {
   describe('tabsForRole', () => {
@@ -96,5 +102,74 @@ describe('D5 role-semantics matrix', () => {
     it('GUEST does not read workspace-wide', () => {
       expect(canReadWorkspaceWide('GUEST')).toBe(false)
     })
+  })
+})
+
+// ----------------------------------------------------------------------------
+// T3 — Guest sub-role matrix.
+//
+// All three guest variants (GUEST / READONLY_GUEST / DOC_GUEST) collapse
+// to the same EffectiveRole bucket (`GUEST`) for v1 — they share the
+// "no tabs, no edit, no workspace-wide read" capability set. Finer
+// per-variant gating is a v2 follow-up.
+// ----------------------------------------------------------------------------
+
+describe('T3 Guest sub-role matrix', () => {
+  const guestVariants: WorkspaceRole[] = ['GUEST', 'READONLY_GUEST', 'DOC_GUEST']
+
+  describe('isGuestVariant', () => {
+    for (const r of guestVariants) {
+      it(`recognizes ${r} as a guest variant`, () => {
+        expect(isGuestVariant(r)).toBe(true)
+      })
+    }
+    it('rejects non-guest roles', () => {
+      expect(isGuestVariant('OWNER')).toBe(false)
+      expect(isGuestVariant('MAINTAINER')).toBe(false)
+      expect(isGuestVariant('USER')).toBe(false)
+    })
+  })
+
+  describe('effectiveRole derivation', () => {
+    // Reset the impersonation store to 'normal' so derivation depends
+    // solely on the workspace-role under test.
+    beforeEach(() => {
+      impersonationStore.set({
+        state: 'normal',
+        exp: null,
+        ref: null,
+        workspace: null
+      })
+    })
+
+    for (const r of guestVariants) {
+      it(`collapses workspaceRole=${r} to EffectiveRole=GUEST`, () => {
+        roleStore.set({ workspaceRole: r, ownedSpaceIds: [], hydrated: true })
+        expect(get(effectiveRole)).toBe('GUEST')
+      })
+    }
+  })
+
+  describe('capability bucket (no tabs / no edit / no read)', () => {
+    // After the collapse to EffectiveRole=GUEST, the existing helpers
+    // already enforce the matrix; re-assert here so a future regression
+    // (e.g. splitting the buckets) shows up in this exact test file.
+    for (const r of guestVariants) {
+      it(`${r} → tabsForRole=[] (via collapse to GUEST)`, () => {
+        roleStore.set({ workspaceRole: r, ownedSpaceIds: [], hydrated: true })
+        impersonationStore.set({ state: 'normal', exp: null, ref: null, workspace: null })
+        expect(tabsForRole(get(effectiveRole))).toEqual([])
+      })
+      it(`${r} → canEdit=false`, () => {
+        roleStore.set({ workspaceRole: r, ownedSpaceIds: [], hydrated: true })
+        impersonationStore.set({ state: 'normal', exp: null, ref: null, workspace: null })
+        expect(canEdit(get(effectiveRole))).toBe(false)
+      })
+      it(`${r} → canReadWorkspaceWide=false`, () => {
+        roleStore.set({ workspaceRole: r, ownedSpaceIds: [], hydrated: true })
+        impersonationStore.set({ state: 'normal', exp: null, ref: null, workspace: null })
+        expect(canReadWorkspaceWide(get(effectiveRole))).toBe(false)
+      })
+    }
   })
 })

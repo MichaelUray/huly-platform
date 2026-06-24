@@ -81,7 +81,11 @@
   >
     <svelte:fragment slot="cell" let:item let:col>
       {#if String(col.key) === 'role'}
-        <span class="role role-{(item.role || '').toLowerCase()}">{item.role}</span>
+        <span class="role role-{(item.role || '').toLowerCase().replace(/_/g, '-')}">
+          {#if item.role === 'READONLY_GUEST'}Read-only Guest
+          {:else if item.role === 'DOC_GUEST'}Doc Guest
+          {:else}{item.role}{/if}
+        </span>
       {:else if String(col.key) === 'activityBucket'}
         <span class="bucket bucket-{item.activityBucket}">{item.activityBucket}</span>
       {:else}
@@ -99,6 +103,11 @@
   .role-maintainer { background: rgba(99,102,241,0.18); color: #4338ca; }
   .role-user { background: var(--theme-divider-color); color: var(--theme-darker-color); }
   .role-guest { background: rgba(156,163,175,0.18); color: #6b7280; }
+  /* T3 — Guest sub-role badges. Same neutral-grey family as plain GUEST
+     but with subtly different hues so the role distinction reads at a
+     glance without implying any extra capability. */
+  .role-readonly-guest { background: rgba(125,211,252,0.22); color: #075985; }
+  .role-doc-guest { background: rgba(196,181,253,0.22); color: #5b21b6; }
   .bucket { font-size: 0.8rem; color: var(--theme-darker-color); }
   .bucket-today { color: #16a34a; font-weight: 500; }
   .bucket-90d\+ { color: #b91c1c; }

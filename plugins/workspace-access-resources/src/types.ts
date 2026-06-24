@@ -6,7 +6,22 @@
 // frontend doesn't depend on the server package.
 //
 
-export type WorkspaceRole = 'OWNER' | 'MAINTAINER' | 'USER' | 'GUEST'
+/**
+ * Workspace-level roles surfaced by `/api/wac/.../members`.
+ *
+ * Mirrors core's `AccountRole` enum but normalized to the WAC wire shape:
+ * GUEST, READONLY_GUEST and DOC_GUEST are kept distinct so the UI can
+ * label each guest variant correctly. v1 still treats all three guest
+ * variants identically for capability purposes (no read/edit, my-access
+ * only) — finer gating is a v2 follow-up documented in the README.
+ */
+export type WorkspaceRole =
+  | 'OWNER'
+  | 'MAINTAINER'
+  | 'USER'
+  | 'GUEST'
+  | 'READONLY_GUEST'
+  | 'DOC_GUEST'
 export type EffectiveRole =
   | 'OWNER'
   | 'MAINTAINER'

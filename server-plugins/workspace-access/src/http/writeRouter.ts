@@ -155,7 +155,20 @@ const DEFAULT_JSON_HEADERS: Record<string, string> = {
   'Keep-Alive': 'timeout=5, max=1000'
 }
 
-const ALLOWED_ROLES: ReadonlySet<string> = new Set(['OWNER', 'MAINTAINER', 'USER', 'GUEST'])
+// T3 — Guest sub-roles. Accept both the wire form (READONLY_GUEST,
+// DOC_GUEST) emitted by handleMembers and the core-enum form
+// (READONLYGUEST, DocGuest) coming from upstream callers, so the
+// edit-role surface is tolerant to whichever shape the UI sends.
+const ALLOWED_ROLES: ReadonlySet<string> = new Set([
+  'OWNER',
+  'MAINTAINER',
+  'USER',
+  'GUEST',
+  'READONLY_GUEST',
+  'READONLYGUEST',
+  'DOC_GUEST',
+  'DocGuest'
+])
 
 const CALLER_ROLE_LABEL = 'workspace_owner'
 

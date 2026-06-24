@@ -28,7 +28,11 @@
     { id: 'OWNER', label: getEmbeddedLabel('Owner') },
     { id: 'MAINTAINER', label: getEmbeddedLabel('Maintainer') },
     { id: 'USER', label: getEmbeddedLabel('User') },
-    { id: 'GUEST', label: getEmbeddedLabel('Guest') }
+    { id: 'GUEST', label: getEmbeddedLabel('Guest') },
+    // T3 — Guest sub-roles. All three share the same capability bucket
+    // in v1 but are reported distinctly so the role label is honest.
+    { id: 'READONLY_GUEST', label: getEmbeddedLabel('Read-only Guest') },
+    { id: 'DOC_GUEST', label: getEmbeddedLabel('Document Guest') }
   ]
 
   $: if (person != null) {
