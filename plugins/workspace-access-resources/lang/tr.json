@@ -140,6 +140,11 @@
     "ResourceSearchPlaceholder": "Kaynaklarda ara…",
     "ViewHierarchy": "View hierarchy",
     "InheritanceTreeTitle": "Resource hierarchy",
-    "InheritanceTreeEmpty": "No resources to visualize"
+    "InheritanceTreeEmpty": "No resources to visualize",
+    "GrantExpiryLabel": "Sona eriyor",
+    "GrantExpiryNever": "Hiç sona ermez",
+    "GrantExpiresIn": "{duration} içinde sona eriyor",
+    "GrantExpired": "Süresi doldu (yakında kaldırılacak)",
+    "GrantExpiryInPast": "Sona erme tarihi gelecekte olmalı."
   }
 }

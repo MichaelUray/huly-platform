@@ -140,6 +140,11 @@
     "ResourceSearchPlaceholder": "搜索资源…",
     "ViewHierarchy": "View hierarchy",
     "InheritanceTreeTitle": "Resource hierarchy",
-    "InheritanceTreeEmpty": "No resources to visualize"
+    "InheritanceTreeEmpty": "No resources to visualize",
+    "GrantExpiryLabel": "到期",
+    "GrantExpiryNever": "永不过期",
+    "GrantExpiresIn": "{duration}后到期",
+    "GrantExpired": "已过期 (将被删除)",
+    "GrantExpiryInPast": "到期时间必须在未来。"
   }
 }

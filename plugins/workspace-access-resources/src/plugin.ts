@@ -236,6 +236,15 @@ const wac = plugin(wacPluginId, {
     InheritanceTreeTitle: '' as IntlString,
     InheritanceTreeEmpty: '' as IntlString,
 
+    // Time-bounded Grants (DSGVO Art.5 Abs.1 lit.e Datensparsamkeit).
+    // GUEST-style grants may carry a TIMESTAMPTZ expiry; the background
+    // pruner deletes expired rows and emits `grant_expired` audit events.
+    GrantExpiryLabel: '' as IntlString,
+    GrantExpiryNever: '' as IntlString,
+    GrantExpiresIn: '' as IntlString,
+    GrantExpired: '' as IntlString,
+    GrantExpiryInPast: '' as IntlString,
+
     // Wave 5 D — Resources bulk-bar (Archive / Make Private / Transfer
     // Ownership). All confirm dialogs use Huly's MessageBox; bodies carry
     // dynamic context (count of selected spaces / target owner name).

@@ -140,6 +140,11 @@
     "ResourceSearchPlaceholder": "Поиск ресурсов…",
     "ViewHierarchy": "View hierarchy",
     "InheritanceTreeTitle": "Resource hierarchy",
-    "InheritanceTreeEmpty": "No resources to visualize"
+    "InheritanceTreeEmpty": "No resources to visualize",
+    "GrantExpiryLabel": "Истекает",
+    "GrantExpiryNever": "Бессрочно",
+    "GrantExpiresIn": "Истекает через {duration}",
+    "GrantExpired": "Истёк (будет удалён)",
+    "GrantExpiryInPast": "Срок должен быть в будущем."
   }
 }
