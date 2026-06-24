@@ -93,8 +93,13 @@ export const peopleApi = {
     return await getDefaultWacClient().get(`/${workspace}/invites${buildQuery(opts)}`)
   },
 
-  async getLastAdminInfo (workspace: string): Promise<{ remaining: number }> {
-    return await getDefaultWacClient().get(`/${workspace}/admins/count`)
+  // Wave 5 / Task C2 — endpoint renamed from /admins/count → /owners/count.
+  // Per D5 only OWNER is an "admin" for WAC purposes; MAINTAINER is read-only,
+  // so counting Maintainers as admins fired the last-admin demote-warning
+  // falsely. The function name follows suit so callers see what is actually
+  // counted: workspace members whose role === AccountRole.Owner.
+  async getLastOwnerInfo (workspace: string): Promise<{ remaining: number }> {
+    return await getDefaultWacClient().get(`/${workspace}/owners/count`)
   },
 
   async setMemberRole (

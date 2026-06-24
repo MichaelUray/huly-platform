@@ -54,8 +54,11 @@ describe('WAC routes — account-service is a thin host (Phase 2A)', () => {
     expect(indexSrc).not.toMatch(/SELECT\s+last_activity_at\s+FROM\s+global_account\.account/i)
   })
 
-  it('does not embed the invites / admins-count / grants reads', () => {
+  it('does not embed the invites / owners-count / grants reads', () => {
     expect(indexSrc).not.toMatch(/FROM\s+global_account\.invite\s+WHERE\s+workspace_uuid=\$1/i)
+    // Wave 5 / Task C2 — the old `role IN ('OWNER','MAINTAINER')` query
+    // is gone; handleOwnersCount uses AccountDB.getWorkspaceMembers and
+    // counts AccountRole.Owner only.
     expect(indexSrc).not.toMatch(/FROM\s+global_account\.workspace_members\s+WHERE\s+workspace_uuid=\$1\s+AND\s+role\s+IN/i)
     expect(indexSrc).not.toMatch(/SELECT\s+c\."_id"\s+AS\s+resource_id[\s\S]+?FROM\s+collaborator\s+c/i)
     expect(indexSrc).not.toMatch(/SELECT\s+count\(\*\)\s+AS\s+c\s+FROM\s+collaborator\s+WHERE\s+"workspaceId"=\$1/i)
@@ -91,7 +94,14 @@ describe('WAC routes — account-service is a thin host (Phase 2A)', () => {
     expect(indexSrc).toMatch(/wacReadHandlers\.handleSpaceDetail\(/)
     expect(indexSrc).toMatch(/wacReadHandlers\.handleAudit\(/)
     expect(indexSrc).toMatch(/wacReadHandlers\.handleMyAccess\(/)
-    expect(indexSrc).toMatch(/wacReadHandlers\.handleAdminsCount\(/)
+    // Wave 5 / Task C2 — hard-rename to /owners/count. The /admins/count
+    // route literal MUST be gone; the new /owners/count dispatch must be
+    // wired in. Clean diff for the eventual upstream PR (WAC isn't
+    // upstream yet so no backwards-compat shim is needed).
+    expect(indexSrc).not.toMatch(/handleAdminsCount/)
+    expect(indexSrc).not.toMatch(/'admins\/count'/)
+    expect(indexSrc).toMatch(/wacReadHandlers\.handleOwnersCount\(/)
+    expect(indexSrc).toMatch(/'owners\/count'/)
     expect(indexSrc).toMatch(/wacReadHandlers\.handleInvites\(/)
     expect(indexSrc).toMatch(/wacReadHandlers\.handleGrants\(/)
     expect(indexSrc).toMatch(/wacReadHandlers\.handleGrantsCount\(/)

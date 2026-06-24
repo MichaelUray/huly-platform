@@ -24,6 +24,8 @@
 // as runtime dependencies. The host owns the heavy types; the handlers
 // only need the duck-typed surface they actually touch.
 
+import { AccountRole } from '@hcengineering/core'
+
 // ---------------------------------------------------------------------------
 // Minimal structural surfaces (zero new package deps)
 // ---------------------------------------------------------------------------
@@ -96,7 +98,7 @@ export interface WacReadHandlers {
   handleSpaceDetail: (ctx: KoaCtxLike, workspaceUuid: string, workspaceParam: string, spaceId: string) => Promise<void>
   handleAudit: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
   handleMyAccess: (ctx: KoaCtxLike, workspaceUuid: string, callerUuid: string, callerRole: string) => Promise<void>
-  handleAdminsCount: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
+  handleOwnersCount: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
   handleInvites: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
   handleGrants: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
   handleGrantsCount: (ctx: KoaCtxLike, workspaceUuid: string) => Promise<void>
@@ -551,13 +553,21 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
       })
     },
 
-    async handleAdminsCount (ctx, workspaceUuid) {
-      const pg = await deps.pgClient()
-      const rows = await pg.execute(
-        "SELECT count(*) AS c FROM global_account.workspace_members WHERE workspace_uuid=$1 AND role IN ('OWNER','MAINTAINER')",
-        [workspaceUuid]
-      )
-      const remaining = parseInt(rows[0]?.c ?? '0', 10)
+    // Wave 5 / Task C2 — hard-rename of `/admins/count` → `/owners/count`.
+    //
+    // Codex Medium called this out: the previous endpoint counted role IN
+    // ('OWNER','MAINTAINER') as "admins". Per D5 only OWNER edits members;
+    // MAINTAINER is read-only. Counting Maintainers as admins fired the
+    // last-admin demote-warning falsely whenever a Maintainer was present
+    // beside a single Owner.
+    //
+    // The endpoint is now named for what it actually returns: a count of
+    // workspace members whose role === AccountRole.Owner. The UI uses it
+    // to gate the "Cannot demote the last Owner" warning in PersonDrawer.
+    async handleOwnersCount (ctx, workspaceUuid) {
+      const db = await deps.accountDb()
+      const members = await db.getWorkspaceMembers(workspaceUuid as any)
+      const remaining = members.filter((m) => m.role === AccountRole.Owner).length
       json(ctx, 200, { remaining })
     },
 

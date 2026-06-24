@@ -1,12 +1,17 @@
 <!--
 // Copyright © 2026 Hardcore Engineering Inc.
 //
-// Per-person drawer: role editor (last-admin-gated). Uses Huly
+// Per-person drawer: role editor (last-owner-gated). Uses Huly
 // Button + DropdownLabelsIntl for native look.
+//
+// Wave 5 / Task C2 — Last-Admin → Last-Owner rename.
+// Per D5 only OWNER edits workspace members; MAINTAINER is read-only,
+// so the demote-warning is now gated on the Owner count, not the
+// Owner+Maintainer count. UI strings + the consumed endpoint follow.
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { Button, DropdownLabelsIntl, type DropdownIntlItem } from '@hcengineering/ui'
+  import { Button, DropdownLabelsIntl, Label, type DropdownIntlItem } from '@hcengineering/ui'
   import wac from '../../plugin'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import { peopleApi } from '../../api/peopleApi'
@@ -20,8 +25,13 @@
   const dispatch = createEventDispatcher<{ close: void, changed: void }>()
 
   let newRole: WorkspaceRole = 'USER'
-  let lastAdminCount: number | null = null
+  let lastOwnerCount: number | null = null
   let error: string | null = null
+  // Wave 5 / Task C2 — separated from `error` so the localized
+  // "cannot demote the last Owner" message can be rendered via <Label>
+  // (and translated for all 13 locales) while server-side error strings
+  // fall through the plain `error` text.
+  let lastOwnerRefused: boolean = false
   let busy: boolean = false
 
   // H4 — role labels via IntlString.
@@ -39,18 +49,19 @@
   $: if (person != null) {
     newRole = person.role
     error = null
+    lastOwnerRefused = false
   }
 
-  async function refreshAdminInfo (): Promise<void> {
+  async function refreshOwnerInfo (): Promise<void> {
     try {
-      const info = await peopleApi.getLastAdminInfo(workspace)
-      lastAdminCount = info.remaining
+      const info = await peopleApi.getLastOwnerInfo(workspace)
+      lastOwnerCount = info.remaining
     } catch {
-      lastAdminCount = null
+      lastOwnerCount = null
     }
   }
 
-  onMount(refreshAdminInfo)
+  onMount(refreshOwnerInfo)
 
   async function applyRole (): Promise<void> {
     if (person == null) return
@@ -58,11 +69,17 @@
       dispatch('close')
       return
     }
-    if (person.role === 'OWNER' && newRole !== 'OWNER' && lastAdminCount != null && lastAdminCount <= 1) {
-      error = 'Cannot demote the last admin of this workspace.'
+    // Wave 5 / Task C2 — client-side gate against demoting the last Owner.
+    // The server enforces this independently (writeRouter.handleMemberRole
+    // returns last_owner_refused); this just prevents the round-trip and
+    // surfaces a localized message via <Label>.
+    if (person.role === 'OWNER' && newRole !== 'OWNER' && lastOwnerCount != null && lastOwnerCount <= 1) {
+      lastOwnerRefused = true
+      error = null
       return
     }
     busy = true
+    lastOwnerRefused = false
     try {
       await peopleApi.setMemberRole(workspace, person.uuid, newRole)
       dispatch('changed')
@@ -91,8 +108,15 @@
           disabled={!canEdit || busy}
           on:selected={(e) => { newRole = e.detail }}
         />
-        {#if lastAdminCount != null}
-          <p class="hint">Workspace currently has {lastAdminCount} admin{lastAdminCount === 1 ? '' : 's'}.</p>
+        {#if lastOwnerCount != null}
+          <p class="hint">
+            <Label label={wac.string.LastOwnerHint} params={{ count: lastOwnerCount }} />
+          </p>
+        {/if}
+        {#if lastOwnerRefused}
+          <p class="err" role="alert">
+            <Label label={wac.string.LastOwnerCannotDemote} />
+          </p>
         {/if}
         {#if error != null}
           <p class="err" role="alert">{error}</p>
