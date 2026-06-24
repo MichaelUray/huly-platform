@@ -74,6 +74,23 @@ export interface WacAuthContext {
   callerUuid: string
   workspaceUuid: string
   role: WacRole
+  /**
+   * A3 — true when the caller authenticated via an instance-admin
+   * impersonation token (`extra.impersonation === 'true'`). The early-branch
+   * in `authenticateWac` returns role='OWNER' for impersonation tokens so
+   * the existing capability gate is unchanged. Audit-write paths consult
+   * this flag to attribute the mutation to the real admin instead of the
+   * impersonated owner.
+   */
+  impersonation?: boolean
+  /**
+   * A3 — UUID of the admin who minted the impersonation token (= `callerUuid`
+   * for impersonation requests; also recorded in the token's `actor_admin`
+   * extra claim). Forwarded into the `workspace_audit_log.metadata.impersonation_actor_admin`
+   * field by mutation-audit paths so the timeline reflects "admin X did Y
+   * while impersonating workspace Z".
+   */
+  actorAdmin?: string
 }
 
 export interface WacAuthDeps {
@@ -208,11 +225,13 @@ function capabilityAllows (role: WacRole, required: WacRequiredCapability): bool
  * should treat null as a signal to return immediately without further work.
  *
  * Status codes used:
- *   401 missing_token            — no Authorization header (or no AUTH_TOKEN_COOKIE)
- *   401 invalid_token            — decode failed or token-version mismatch
- *   404 workspace_not_found      — resolveWorkspaceUuid returned null
- *   403 no_workspace_membership  — caller has no role row in workspace_members
- *   403 insufficient_role        — role too low for the required capability
+ *   401 missing_token                 — no Authorization header (or no AUTH_TOKEN_COOKIE)
+ *   401 invalid_token                 — decode failed or token-version mismatch
+ *   401 invalid_impersonation_token   — A3: impersonation flag set but actor_admin/workspace/exp missing/wrong
+ *   404 workspace_not_found           — resolveWorkspaceUuid returned null
+ *   403 no_workspace_membership       — caller has no role row in workspace_members
+ *   403 revoked_admin_impersonation   — A3: impersonation token but actor no longer in ADMIN_EMAILS allow-list
+ *   403 insufficient_role             — role too low for the required capability
  *
  * Token-version check note: `AccountDB` does not expose a dedicated
  * `verifyTokenVersion` method (that helper lives in `@hcengineering/account`
@@ -334,6 +353,87 @@ export async function authenticateWac (
     })
     writeJson(ctx, 404, { error: 'workspace_not_found', workspace: workspaceParam })
     return null
+  }
+
+  // 4b. Impersonation early-branch.
+  //
+  // A3 — Instance-admin impersonation tokens (minted by
+  // `/api/admin/impersonation/start`) carry `extra.impersonation === 'true'`
+  // and `extra.actor_admin = <adminUuid>`. The admin has no
+  // `workspace_members` row in the target workspace, so the regular
+  // `getWorkspaceRole` lookup at step 5 would 403 `no_workspace_membership`.
+  //
+  // Authoritative admin check: the source of truth is the ADMIN_EMAILS
+  // env-allowlist (via `AccountDB.isInstanceAdmin`), NOT the raw
+  // `extra.admin === 'true'` claim. A revoked-admin's token still carries
+  // that claim until its `exp`, but `isInstanceAdmin` returns false once
+  // their email is removed from the env, blocking new requests.
+  //
+  // Token-version + account-disabled were already verified at step 3 above
+  // (callerUuid IS adminUuid for an impersonation token), so we don't
+  // duplicate that work here.
+  if (extra?.impersonation === 'true') {
+    const adminUuidClaim = typeof extra.actor_admin === 'string' ? extra.actor_admin : null
+    const workspaceClaim = decoded.workspace as string | undefined
+    const expClaim = (decoded as any).exp as number | undefined
+    if (adminUuidClaim == null || adminUuidClaim === '' || workspaceClaim !== workspaceUuid || expClaim == null) {
+      measureCtx.warn('wac auth denied', {
+        reason: 'invalid_impersonation_token',
+        callerUuid,
+        workspace: workspaceParam,
+        adminUuidClaimPresent: adminUuidClaim != null,
+        workspaceMatches: workspaceClaim === workspaceUuid,
+        expPresent: expClaim != null
+      })
+      writeJson(ctx, 401, { error: 'invalid_impersonation_token' })
+      return null
+    }
+    if (adminUuidClaim !== callerUuid) {
+      // Defensive: `actor_admin` must equal the JWT subject. Mismatch is
+      // either tampering or a future refactor that forgot the invariant.
+      measureCtx.warn('wac auth denied', {
+        reason: 'invalid_impersonation_token',
+        detail: 'actor_admin_mismatch',
+        callerUuid,
+        adminUuidClaim,
+        workspace: workspaceParam
+      })
+      writeJson(ctx, 401, { error: 'invalid_impersonation_token' })
+      return null
+    }
+    let isAdmin = false
+    try {
+      const db = await accountDb()
+      isAdmin = await db.isInstanceAdmin(adminUuidClaim as AccountUuid)
+    } catch (err) {
+      measureCtx.error('wac auth isInstanceAdmin lookup failed', {
+        reason: 'revoked_admin_impersonation',
+        detail: 'db_error',
+        callerUuid: adminUuidClaim,
+        workspace: workspaceParam,
+        err: String(err)
+      })
+      writeJson(ctx, 403, { error: 'revoked_admin_impersonation' })
+      return null
+    }
+    if (!isAdmin) {
+      measureCtx.warn('wac auth denied', {
+        reason: 'revoked_admin_impersonation',
+        callerUuid: adminUuidClaim,
+        workspace: workspaceParam
+      })
+      writeJson(ctx, 403, { error: 'revoked_admin_impersonation' })
+      return null
+    }
+    // Capability gate stays unchanged: impersonation tokens map to OWNER,
+    // so admin / edit / read / read-self all pass.
+    return {
+      callerUuid,
+      workspaceUuid,
+      role: 'OWNER',
+      impersonation: true,
+      actorAdmin: adminUuidClaim
+    }
   }
 
   // 5. Membership + role lookup.
