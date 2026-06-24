@@ -7,6 +7,8 @@
 -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
+  import { Button, ToggleWithLabel } from '@hcengineering/ui'
+  import { getEmbeddedLabel } from '@hcengineering/platform'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import SpaceTypeIcon from './SpaceTypeIcon.svelte'
   import { resourcesApi } from '../../api/resourcesApi'
@@ -153,7 +155,15 @@
           disabled={!canEditMembership || !detailLoaded}
           placeholder={detailLoaded ? 'UUID, UUID, …' : 'Loading current members…'}
         ></textarea>
-        <button class="primary" on:click={saveMembers} disabled={!canEditMembership || !detailLoaded}>Save members</button>
+        <div class="actions">
+          <Button
+            kind={'primary'}
+            size={'small'}
+            label={getEmbeddedLabel('Save members')}
+            disabled={!canEditMembership || !detailLoaded}
+            on:click={saveMembers}
+          />
+        </div>
       </section>
 
       <section>
@@ -164,14 +174,43 @@
           disabled={!canEditMembership || !detailLoaded}
           placeholder={detailLoaded ? 'UUID, UUID, …' : 'Loading current owners…'}
         ></textarea>
-        <button class="primary" on:click={saveOwners} disabled={!canEditMembership || !detailLoaded}>Save owners</button>
+        <div class="actions">
+          <Button
+            kind={'primary'}
+            size={'small'}
+            label={getEmbeddedLabel('Save owners')}
+            disabled={!canEditMembership || !detailLoaded}
+            on:click={saveOwners}
+          />
+        </div>
       </section>
 
       <section class="toggles">
         <h3>Flags</h3>
-        <label><input type="checkbox" bind:checked={privateFlag} on:change={togglePrivacy} disabled={!canEditFlags} /> Private</label>
-        <label><input type="checkbox" bind:checked={autoJoinFlag} on:change={toggleAutoJoin} disabled={!canEditFlags} /> Auto-join</label>
-        <label><input type="checkbox" bind:checked={archivedFlag} on:change={toggleArchived} disabled={!canEditFlags} /> Archived</label>
+        <div class="toggle-row">
+          <ToggleWithLabel
+            label={getEmbeddedLabel('Private')}
+            bind:on={privateFlag}
+            disabled={!canEditFlags}
+            on:change={togglePrivacy}
+          />
+        </div>
+        <div class="toggle-row">
+          <ToggleWithLabel
+            label={getEmbeddedLabel('Auto-join')}
+            bind:on={autoJoinFlag}
+            disabled={!canEditFlags}
+            on:change={toggleAutoJoin}
+          />
+        </div>
+        <div class="toggle-row">
+          <ToggleWithLabel
+            label={getEmbeddedLabel('Archived')}
+            bind:on={archivedFlag}
+            disabled={!canEditFlags}
+            on:change={toggleArchived}
+          />
+        </div>
         {#if !canEditFlags}
           <p class="hint">Workspace-wide consequences — only Workspace Owners can change these.</p>
         {/if}
@@ -181,34 +220,36 @@
 </EntityDrawer>
 
 <style lang="scss">
-  section { margin-bottom: 1.5rem; }
-  h3 { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--theme-caption-color); }
+  section { margin-bottom: var(--spacing-3); }
+  h3 {
+    margin: 0 0 var(--spacing-1);
+    font-size: 0.95rem;
+    color: var(--theme-caption-color);
+  }
   textarea {
     width: 100%;
     background: var(--theme-bg-color);
     border: 1px solid var(--theme-divider-color);
     color: var(--theme-caption-color);
-    padding: 0.4rem;
+    padding: var(--spacing-1);
     border-radius: 0.25rem;
     font-family: monospace;
     font-size: 0.85rem;
   }
-  .primary {
-    margin-top: 0.5rem;
-    padding: 0.35rem 0.8rem;
-    background: var(--theme-caption-color);
-    color: var(--theme-bg-color);
-    border: 0;
-    border-radius: 0.25rem;
-    cursor: pointer;
-    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  .actions {
+    margin-top: var(--spacing-1);
+    display: flex;
+    gap: var(--spacing-1);
+  }
+  .toggle-row {
+    margin: var(--spacing-1) 0;
   }
   .head-meta {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1rem;
-    padding-bottom: 0.75rem;
+    margin-bottom: var(--spacing-2);
+    padding-bottom: var(--spacing-1_5);
     border-bottom: 1px solid var(--theme-divider-color);
   }
   .head-meta a { color: var(--theme-caption-color); font-size: 0.85rem; }
