@@ -6,8 +6,15 @@
   import SpaceDrawer from '../resources/SpaceDrawer.svelte'
   import { myAccessApi, type MyAccessSummary } from '../../api/myAccessApi'
   import type { SpaceRow, GrantRow } from '../../types'
+  import { previewEnabled } from '../../stores/capabilitiesStore'
 
   export let workspace: string
+
+  // FIX 4 — preview gate: server returns 501 my_access_mutations_not_wired
+  // until the per-caller mutation backend is wired. Default-false so the
+  // Leave + Decline buttons stay hidden in production; flip via the
+  // capabilities endpoint (operator sets WAC_PREVIEW_FEATURES=myAccessMutations).
+  const myAccessMutationsEnabled = previewEnabled('myAccessMutations')
 
   type Sub = 'role' | 'member-of' | 'owned' | 'received' | 'given'
   let sub: Sub = 'role'
@@ -105,7 +112,7 @@
             <li>
               <span class="space-name">{s.name}</span>
               <span class="muted">({s._class.split('.')[0]})</span>
-              {#if !s.archived}<button class="ghost" on:click={() => leave(s)}>Leave</button>{/if}
+              {#if !s.archived && $myAccessMutationsEnabled}<button class="ghost" on:click={() => leave(s)}>Leave</button>{/if}
             </li>
           {:else}
             <li class="hint">You are not a member of any space.</li>
@@ -129,7 +136,7 @@
             <li>
               <span class="grant-title">{g.resourceTitle}</span>
               <span class="muted">by {g.granterName}</span>
-              <button class="ghost" on:click={() => decline(g)}>Decline</button>
+              {#if $myAccessMutationsEnabled}<button class="ghost" on:click={() => decline(g)}>Decline</button>{/if}
             </li>
           {:else}
             <li class="hint">No grants received.</li>

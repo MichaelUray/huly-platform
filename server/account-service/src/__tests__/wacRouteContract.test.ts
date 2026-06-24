@@ -296,12 +296,29 @@ const CONTRACTS: Contract[] = [
     expect: 'mounted',
     hostMatch: /sub\.startsWith\('grants\/'\)[\s\S]{0,400}handleGrantRevoke/
   },
-  // ── My Access (FIX 4 adds the leave/decline POST rows here) ───────────
+  // ── My Access ─────────────────────────────────────────────────────────
   {
     name: 'my-access summary (GET)',
     clientUrl: /\/\$\{workspace\}\/my-access`/,
     expect: 'mounted',
     hostMatch: /sub === 'my-access'[\s\S]{0,300}handleMyAccess/
+  },
+  {
+    name: 'my-access leave (POST)',
+    // FIX 4: client invokes leaveSpace; host returns honest 501 until
+    // the per-caller mutation backend (workspace_collaborator DELETE)
+    // is wired. UI is preview-gated via capabilities.preview.myAccessMutations.
+    // The 501 + my_access_mutations_not_wired code lives in the shared
+    // `_myAccessMutationsNotWired` helper above the routes.
+    clientUrl: /\/\$\{workspace\}\/my-access\/leave\/\$\{spaceId\}/,
+    expect: 'preview-501',
+    hostMatch: /router\.post\('\/api\/wac\/:workspace\/my-access\/leave\/:spaceId'[\s\S]{0,400}authenticateWac[\s\S]{0,400}_myAccessMutationsNotWired/
+  },
+  {
+    name: 'my-access decline-grant (POST)',
+    clientUrl: /\/\$\{workspace\}\/my-access\/decline-grant\/\$\{resourceId\}/,
+    expect: 'preview-501',
+    hostMatch: /router\.post\('\/api\/wac\/:workspace\/my-access\/decline-grant\/:resourceId'[\s\S]{0,400}authenticateWac[\s\S]{0,400}_myAccessMutationsNotWired/
   }
 ]
 
@@ -358,7 +375,25 @@ describe('WAC route contract matrix (E7)', () => {
     expect(hostSrc).not.toMatch(/for \(let i = 0; i < rawLines\.length; i\+\+\)/)
   })
 
-  // 8. Each individual webhook shape (GET, POST, PUT, DELETE, POST :id/test)
+  // 8a. FIX 4 — my-access mutations use the per-caller 'read-self' capability,
+  //     NOT the workspace-wide 'edit' gate. A USER leaving their OWN space
+  //     should not require OWNER.
+  it('FIX 4 — my-access POST routes authenticate with read-self (not edit)', () => {
+    const block = hostSrc.slice(
+      hostSrc.indexOf('// ── WAC my-access mutations (FIX 4)'),
+      hostSrc.indexOf('// ── End WAC my-access mutations')
+    )
+    expect(block).toMatch(/authenticateWac\([^)]*'read-self'[^)]*authDeps\)/)
+    expect(block).not.toMatch(/authenticateWac\([^)]*'edit'[^)]*authDeps\)/)
+  })
+
+  // 8b. FIX 4 — write middleware lets my-access POSTs fall through to the
+  //     router (otherwise the OWNER-only 'edit' gate would 403 a USER).
+  it('FIX 4 — write middleware skips my-access/* so router can handle with read-self', () => {
+    expect(hostSrc).toMatch(/sub\.startsWith\('my-access\/'\)[\s\S]{0,80}return await next\(\)/)
+  })
+
+  // 9. Each individual webhook shape (GET, POST, PUT, DELETE, POST :id/test)
   //    appears in the host as a distinct router.<method> declaration. A
   //    pre-E7 contract that matched all 5 via a single regex would have
   //    let an accidental "DELETE missing" regression slip through.

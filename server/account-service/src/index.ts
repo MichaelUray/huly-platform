@@ -679,7 +679,12 @@ export function serveAccount (
     webhooks: _wacPreviewEnv.includes('webhooks'),
     grantExpiry: _wacPreviewEnv.includes('grantExpiry'),
     csvDispatch: _wacPreviewEnv.includes('csvDispatch'),
-    effectivePermissions: _wacPreviewEnv.includes('effectivePermissions')
+    effectivePermissions: _wacPreviewEnv.includes('effectivePermissions'),
+    // FIX 4 — preview-gates the "Leave space" + "Decline grant"
+    // buttons in MyAccessView. Host routes return 501 until the
+    // per-caller mutation backend (collaborator DELETE + grant DELETE)
+    // lands; client hides the buttons by default.
+    myAccessMutations: _wacPreviewEnv.includes('myAccessMutations')
   }
 
   // Phase 2A — read-side handlers live in server-plugins/workspace-access.
@@ -880,6 +885,14 @@ export function serveAccount (
     if (m == null) return await next()
     const workspaceParam = decodeURIComponent(m[1])
     const sub = m[2]
+
+    // FIX 4 — my-access POST mutations are per-caller state (not
+    // workspace-wide admin); they authenticate with 'read-self' inside
+    // the router handlers below. This middleware would otherwise force
+    // an OWNER-only 'edit' gate and 403 a USER trying to leave their
+    // own space. Falling through here lets the router pick up the
+    // routes with the correct narrower capability.
+    if (sub.startsWith('my-access/')) return await next()
 
     const json = (status: number, body: unknown): void => {
       ctx.res.writeHead(status, KEEP_ALIVE_HEADERS)
@@ -1200,6 +1213,47 @@ export function serveAccount (
   })
 
   // ── End WAC stub routes ─────────────────────────────────────────────────
+
+  // ── WAC my-access mutations (FIX 4) ─────────────────────────────────────
+  //
+  // POST /my-access/leave/:spaceId — caller leaves a space they belong to
+  // POST /my-access/decline-grant/:resourceId — caller declines an
+  //   incoming grant on a resource
+  //
+  // Both routes are per-caller state (NOT workspace-wide admin), so they
+  // authenticate with the 'read-self' capability — the same gate that
+  // protects GET /my-access. Using 'edit' would be too strict (a USER
+  // leaving their own space should not require OWNER).
+  //
+  // Honest 501 until the workspace transactor backend is wired
+  // (collaborator DELETE + grant DELETE). The client UI is preview-gated
+  // via `capabilities.preview.myAccessMutations` so the Leave + Decline
+  // buttons stay hidden until the backend lands; the routes themselves
+  // exist now so the matrix and contract tests can pin them.
+  const _myAccessMutationsNotWired = (ctx: any, kind: 'leave' | 'decline_grant', target: string): void => {
+    ctx.res.writeHead(501, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({
+      error: 'not_implemented',
+      code: 'my_access_mutations_not_wired',
+      detail: `My-Access mutation backend (${kind}) not wired yet; route + shape are stable.`,
+      kind,
+      target
+    }))
+  }
+
+  router.post('/api/wac/:workspace/my-access/leave/:spaceId', async (ctx) => {
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'read-self', authDeps)
+    if (auth === null) return
+    _myAccessMutationsNotWired(ctx, 'leave', ctx.params.spaceId)
+  })
+
+  router.post('/api/wac/:workspace/my-access/decline-grant/:resourceId', async (ctx) => {
+    const auth = await authenticateWac(ctx as any, ctx.params.workspace, 'read-self', authDeps)
+    if (auth === null) return
+    _myAccessMutationsNotWired(ctx, 'decline_grant', ctx.params.resourceId)
+  })
+
+  // ── End WAC my-access mutations ─────────────────────────────────────────
 
   // ── WAC outbound webhooks (V35) ─────────────────────────────────────────
   //
