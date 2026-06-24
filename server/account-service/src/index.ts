@@ -39,6 +39,7 @@ import { TokenBucketLimiter } from './util/rateLimiter'
 import { getDBClient, createDBClient } from '@hcengineering/postgres-base'
 import { authenticateWac, type WacAuthDeps } from './wac/auth'
 import { createWacTxClient, type WacTxClient } from './wac/transactorClient'
+import { createWacCacheInvalidator, type WacCacheInvalidator } from './wac/cacheInvalidator'
 import {
   createWacReadHandlers,
   type WacReadDeps,
@@ -118,6 +119,16 @@ export function serveAccount (
   const wacTxClient: WacTxClient = createWacTxClient({
     transactorUrl: transactorUri,
     serverSecret,
+    measureCtx
+  })
+
+  // Phase 2B Task 5 (E2) — best-effort cache invalidator for live
+  // workspace-role changes. Option (B): touches the workspace-level
+  // Space doc with a marker field so transactor broadcasts the
+  // change to every connected client of the workspace. Implementation
+  // documented in src/wac/cacheInvalidator.ts.
+  const wacCacheInvalidator: WacCacheInvalidator = createWacCacheInvalidator({
+    txClient: wacTxClient,
     measureCtx
   })
 
@@ -679,6 +690,7 @@ export function serveAccount (
     txClient: wacTxClient,
     pgClient: async () => (await rawPgPromise) as any,
     accountDb: async () => (await accountsDb)[0] as any,
+    cacheInvalidator: wacCacheInvalidator,
     jsonHeaders: KEEP_ALIVE_HEADERS
   }
   const wacWriteHandlers = createWacWriteHandlers(wacWriteDeps)

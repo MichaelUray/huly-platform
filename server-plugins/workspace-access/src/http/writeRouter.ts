@@ -86,6 +86,18 @@ export interface WacTxClientLike {
   ) => Promise<T | undefined>
 }
 
+/**
+ * P2B-T5 — best-effort cache invalidator. Called after a successful
+ * workspace-role mutation to nudge live clients to drop cached perms.
+ * The concrete implementation lives in account-service (Option (B) —
+ * a marker tx against the workspace-level Space). Failures inside
+ * `invalidateAccountInWorkspace` MUST NOT propagate — the handler
+ * does not wrap the call in try/catch.
+ */
+export interface WacCacheInvalidatorLike {
+  invalidateAccountInWorkspace: (workspaceUuid: WorkspaceUuid, accountUuid: string) => Promise<void>
+}
+
 // ---------------------------------------------------------------------------
 // Deps + handler surface
 // ---------------------------------------------------------------------------
@@ -95,6 +107,12 @@ export interface WacWriteDeps {
   txClient: WacTxClientLike
   pgClient: () => Promise<WritePgClientLike>
   accountDb: () => Promise<WriteAccountDbLike>
+  /**
+   * P2B-T5 — best-effort cache invalidator invoked after a successful
+   * workspace-role mutation. Optional: if absent, the handlers skip
+   * the invalidation step (legacy hosts / tests that don't care).
+   */
+  cacheInvalidator?: WacCacheInvalidatorLike
   /** Keep-alive response headers used by the host for JSON writes. */
   jsonHeaders?: Record<string, string>
 }
@@ -495,6 +513,17 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
         json(ctx, 500, { error: 'write_failed', detail: String(err) })
         return
       }
+      // P2B-T5 — best-effort live cache-invalidation. Role lives in
+      // account-db and is NOT carried by a TxOperations broadcast, so
+      // a demoted Owner could keep editing until reload. The
+      // invalidator emits a workspace-level marker tx (Option (B));
+      // failures are logged in the impl and do NOT block the response.
+      if (deps.cacheInvalidator !== undefined) {
+        await deps.cacheInvalidator.invalidateAccountInWorkspace(
+          workspaceUuid as WorkspaceUuid,
+          memberUuid
+        )
+      }
       const pg = await deps.pgClient()
       await writeAuditPostMutation(
         deps,
@@ -554,6 +583,13 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           })
           json(ctx, 500, { error: 'write_failed', detail: String(err) })
           return
+        }
+        // P2B-T5 — best-effort live cache-invalidation (per target).
+        if (deps.cacheInvalidator !== undefined) {
+          await deps.cacheInvalidator.invalidateAccountInWorkspace(
+            workspaceUuid as WorkspaceUuid,
+            t
+          )
         }
         await writeAuditPostMutation(
           deps,
