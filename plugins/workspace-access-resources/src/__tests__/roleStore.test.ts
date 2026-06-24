@@ -64,7 +64,9 @@ describe('role gate helpers', () => {
 
   it('tabsForRole hides audit for plain users', () => {
     expect(tabsForRole('USER_SELF_SCOPED')).toEqual(['my-access'])
-    expect(tabsForRole('GUEST')).toEqual(['my-access'])
+    // GUEST is fully blocked per D5 — backend returns 403, frontend
+    // surfaces a friendly "no access" message instead of any tab.
+    expect(tabsForRole('GUEST')).toEqual([])
   })
 
   it('tabsForRole shows the full surface for OWNER', () => {

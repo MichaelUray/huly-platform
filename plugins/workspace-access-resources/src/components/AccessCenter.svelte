@@ -24,7 +24,13 @@
     enterDrillDown,
     endImpersonation
   } from '../stores/impersonationStore'
-  import { effectiveRole, tabsForRole, canEdit as canEditRole } from '../stores/roleStore'
+  import {
+    roleStore,
+    effectiveRole,
+    tabsForRole,
+    canEdit as canEditRole,
+    canReadWorkspaceWide as canReadWWRole
+  } from '../stores/roleStore'
   import type { Asset, IntlString } from '@hcengineering/platform'
 
   export let workspace: string
@@ -51,7 +57,15 @@
 
   $: tabs = tabsForRole($effectiveRole)
   $: canEdit = canEditRole($effectiveRole)
-  $: { if (!tabs.includes(active)) active = tabs[0] ?? 'my-access' }
+  // Read-only banner triggers when the user can SEE workspace-wide
+  // surfaces but cannot edit them. The classic MAINTAINER case; also
+  // covers INSTANCE_ADMIN_READONLY drill-down.
+  $: readOnlyMode = !canEdit && canReadWWRole($effectiveRole)
+  // Audit CSV export is admin-only on the backend (Phase 1 Task 2);
+  // hide the button for everyone but OWNER / IMPERSONATING_ADMIN so the
+  // UI does not promise something the server will 403.
+  $: canExportAudit = canEdit
+  $: { if (tabs.length > 0 && !tabs.includes(active)) active = tabs[0] }
   $: tabItems = tabs.map((t) => ({ id: t, labelIntl: getEmbeddedLabel(tabLabels[t] ?? t) }))
 
   onMount(() => {
@@ -96,30 +110,51 @@
 
   <DsgvoFirstOpenBanner {workspace} {retentionDays} />
 
-  <div class="wac-tabs">
-    <TabList
-      items={tabItems}
-      selected={active}
-      kind={'plain'}
-      on:select={onTabSelect}
-    />
-  </div>
-
-  <div class="hulyComponent-content__column content">
-    <Scroller align={'center'} padding={'var(--spacing-3)'} bottomPadding={'var(--spacing-3)'}>
-      <div class="hulyComponent-content">
-        {#if active === 'people'}
-          <PeopleView {workspace} {canEdit} />
-        {:else if active === 'resources'}
-          <ResourcesView {workspace} canEditFlags={canEdit} canEditMembership={canEdit} />
-        {:else if active === 'my-access'}
-          <MyAccessView {workspace} />
-        {:else if active === 'audit'}
-          <AuditView {workspace} canExport={canEdit || $effectiveRole === 'MAINTAINER' || $effectiveRole === 'MAINTAINER_PLUS_SPACE_OWNER'} />
-        {/if}
+  {#if !$roleStore.hydrated}
+    <!-- Defensive: parent AccessCenterPage already waits for hydration,
+         but if anyone mounts AccessCenter directly we still render a
+         safe loading placeholder rather than edit affordances. -->
+    <div class="status-block" data-test="wac-loading">
+      <em>Loading…</em>
+    </div>
+  {:else if tabs.length === 0}
+    <!-- GUEST or otherwise denied: backend already returns 403, this
+         block keeps the surface from appearing empty. -->
+    <div class="status-block no-access" role="status" data-test="wac-no-access">
+      <p>You do not have access to this workspace's Access Center.</p>
+    </div>
+  {:else}
+    {#if readOnlyMode}
+      <div class="readonly-banner" role="status" data-test="wac-readonly-banner">
+        You're viewing in read-only mode (your role: {$roleStore.workspaceRole}). Only Owners can edit.
       </div>
-    </Scroller>
-  </div>
+    {/if}
+
+    <div class="wac-tabs">
+      <TabList
+        items={tabItems}
+        selected={active}
+        kind={'plain'}
+        on:select={onTabSelect}
+      />
+    </div>
+
+    <div class="hulyComponent-content__column content">
+      <Scroller align={'center'} padding={'var(--spacing-3)'} bottomPadding={'var(--spacing-3)'}>
+        <div class="hulyComponent-content">
+          {#if active === 'people'}
+            <PeopleView {workspace} {canEdit} />
+          {:else if active === 'resources'}
+            <ResourcesView {workspace} canEditFlags={canEdit} canEditMembership={canEdit} />
+          {:else if active === 'my-access'}
+            <MyAccessView {workspace} />
+          {:else if active === 'audit'}
+            <AuditView {workspace} canExport={canExportAudit} />
+          {/if}
+        </div>
+      </Scroller>
+    </div>
+  {/if}
 
   <AssumeRoleModal
     open={assumeOpen}
@@ -143,5 +178,24 @@
     background: var(--theme-bg-accent-color);
     border-radius: 0.25rem;
     margin-left: 0.5rem;
+  }
+  .readonly-banner {
+    margin: var(--spacing-1) var(--spacing-3);
+    padding: var(--spacing-1) var(--spacing-2);
+    background: var(--theme-warning-color, rgba(234, 179, 8, 0.12));
+    color: var(--theme-caption-color);
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 0.25rem;
+    font-size: 0.85rem;
+  }
+  .status-block {
+    padding: 1.5rem;
+    color: var(--theme-darker-color);
+  }
+  .status-block.no-access {
+    margin: 1rem;
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 0.375rem;
+    background: var(--theme-bg-accent-color);
   }
 </style>

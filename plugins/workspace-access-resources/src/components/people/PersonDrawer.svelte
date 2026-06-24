@@ -98,6 +98,7 @@
             size={'medium'}
             label={getEmbeddedLabel(busy ? 'Saving…' : 'Save role')}
             disabled={!canEdit || busy}
+            title={!canEdit ? 'Only Workspace Owners can change workspace roles.' : undefined}
             on:click={applyRole}
           />
         </div>
