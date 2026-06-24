@@ -141,6 +141,14 @@ export interface PreviewFeatureFlags {
    * when this is false so the dialog never reaches them.
    */
   myAccessMutations: boolean
+  /**
+   * FIX 4.1 (E7-block follow-up) — gate the "Add to Space" + "Remove
+   * from Space" People-bulk-bar buttons until the workspace TxOperations
+   * bulk-edit path is wired. Host routes return 501
+   * members_bulk_space_mutations_not_wired; client hides the bulk-bar
+   * actions when false so the SpacePickerModal never opens.
+   */
+  membersBulkSpaceMutations: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -827,7 +835,8 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
           grantExpiry: previewFlags.grantExpiry,
           csvDispatch: previewFlags.csvDispatch,
           effectivePermissions: previewFlags.effectivePermissions,
-          myAccessMutations: previewFlags.myAccessMutations
+          myAccessMutations: previewFlags.myAccessMutations,
+          membersBulkSpaceMutations: previewFlags.membersBulkSpaceMutations
         }
       })
     }

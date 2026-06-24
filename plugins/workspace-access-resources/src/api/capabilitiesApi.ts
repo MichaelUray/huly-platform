@@ -34,6 +34,14 @@ export interface WacCapabilities {
      * buttons when this is false.
      */
     myAccessMutations: boolean
+    /**
+     * FIX 4.1 — gates the People-bulk-bar "Add to Space" + "Remove
+     * from Space" actions. Server returns 501
+     * members_bulk_space_mutations_not_wired until the workspace
+     * TxOperations bulk-edit backend is wired; UI hides these
+     * actions in the bulk-bar so SpacePickerModal never opens.
+     */
+    membersBulkSpaceMutations: boolean
   }
 }
 
@@ -44,7 +52,8 @@ const DEFAULT_PREVIEW_HIDDEN: WacCapabilities = {
     auditFilter: true, inheritanceTree: true, resourceSearch: true, csvDryRun: true
   },
   preview: {
-    webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false, myAccessMutations: false
+    webhooks: false, grantExpiry: false, csvDispatch: false, effectivePermissions: false,
+    myAccessMutations: false, membersBulkSpaceMutations: false
   }
 }
 

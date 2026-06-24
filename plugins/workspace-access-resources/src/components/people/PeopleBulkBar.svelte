@@ -23,12 +23,18 @@
   } from '@hcengineering/ui'
   import wac from '../../plugin'
   import type { WorkspaceRole } from '../../types'
+  import { previewEnabled } from '../../stores/capabilitiesStore'
   import {
     summarizeBulkRoleResult,
     type BulkRoleResult,
     type BulkRoleStatus,
     type BulkRoleSummary
   } from '../../api/peopleApi'
+
+  // FIX 4.1 — gate Add-to-Space + Remove-from-Space buttons until
+  // the backend (workspace TxOperations bulk-edit) is wired. Server
+  // returns 501 members_bulk_space_mutations_not_wired meanwhile.
+  const previewMembersBulkSpace = previewEnabled('membersBulkSpaceMutations')
 
   export let count: number = 0
   // Wave 5 C1 — when the parent receives a bulk-role response it sets
@@ -117,22 +123,27 @@
   aria-disabled={count === 0}
 >
   <span class="count" aria-live="polite">{count} selected</span>
-  <Button
-    kind={'regular'}
-    size={'small'}
-    icon={IconAdd}
-    label={wac.string.BulkAddToSpace}
-    disabled={count === 0}
-    on:click={() => dispatch('addToSpace')}
-  />
-  <Button
-    kind={'regular'}
-    size={'small'}
-    icon={IconDelete}
-    label={wac.string.BulkRemoveFromSpace}
-    disabled={count === 0}
-    on:click={() => dispatch('removeFromSpace')}
-  />
+  {#if $previewMembersBulkSpace}
+    <!-- FIX 4.1 — Bulk-space mutations preview-gated. Backend returns
+         501 members_bulk_space_mutations_not_wired until the workspace
+         TxOperations bulk-edit is wired. -->
+    <Button
+      kind={'regular'}
+      size={'small'}
+      icon={IconAdd}
+      label={wac.string.BulkAddToSpace}
+      disabled={count === 0}
+      on:click={() => dispatch('addToSpace')}
+    />
+    <Button
+      kind={'regular'}
+      size={'small'}
+      icon={IconDelete}
+      label={wac.string.BulkRemoveFromSpace}
+      disabled={count === 0}
+      on:click={() => dispatch('removeFromSpace')}
+    />
+  {/if}
   <span class="role-changer">
     Change role
     <select bind:value={roleSelect} aria-label="New role" disabled={count === 0}>
