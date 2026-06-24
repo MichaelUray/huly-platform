@@ -31,7 +31,7 @@
     "PeopleTabAll": "Alle",
     "PeopleTabByRole": "Nach Rolle",
     "PeopleTabInactive": "Inaktiv (90 Tage+)",
-    "PeopleTabGrantedAccess": "Erteilte Zugriffe",
+    "PeopleTabGrantedAccess": "Erteilte Zugriffe ({count})",
     "PeopleTabPending": "Offene Einladungen",
     "ResourcesTabAll": "Alle",
     "ResourcesTabPrivate": "Nur privat",

@@ -6,8 +6,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { TabList } from '@hcengineering/ui'
-  import { translate } from '@hcengineering/platform'
-  import { getEmbeddedLabel } from '@hcengineering/platform'
   import wac from '../../plugin'
   import AllMembersTab from './AllMembersTab.svelte'
   import ByRoleTab from './ByRoleTab.svelte'
@@ -38,22 +36,15 @@
   // hand it straight to PeopleBulkBar which summarizes + renders.
   let lastBulkRoleResult: BulkRoleResult | null = null
 
-  // TabList does not forward per-item `params` to the underlying
-  // Label component. Translate the "Granted access" base label
-  // eagerly and append the count as a numeric suffix outside the
-  // ICU layer to avoid an "intl context variable 'count' not
-  // provided" runtime error.
-  let grantedAccessBaseLabel: string = 'Granted access'
-  $: void translate(wac.string.PeopleTabGrantedAccess, {}).then((s) => {
-    grantedAccessBaseLabel = s
-  })
-
+  // TabList accepts `labelParams` (NOT `params`) and forwards it to
+  // the underlying Label component. Pin the count via labelParams so
+  // the ICU `{count}` interpolation receives its binding.
   $: subItems = [
     { id: 'all', labelIntl: wac.string.PeopleTabAll },
     { id: 'by-role', labelIntl: wac.string.PeopleTabByRole },
     { id: 'inactive', labelIntl: wac.string.PeopleTabInactive },
     ...(grantsCount > 0
-      ? [{ id: 'granted', label: getEmbeddedLabel(`${grantedAccessBaseLabel} (${grantsCount})`) }]
+      ? [{ id: 'granted', labelIntl: wac.string.PeopleTabGrantedAccess, labelParams: { count: grantsCount } }]
       : []),
     { id: 'pending', labelIntl: wac.string.PeopleTabPending }
   ]
