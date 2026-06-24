@@ -221,8 +221,10 @@ async function OnChatMessageCreated (ctx: MeasureContext, tx: TxCUD<Doc>, contro
   // The grant-target branch writes Collaborator on the resolved doc and
   // dedups against THAT doc's collaborator list (not against targetDoc's,
   // which is the wrong basis when targetDoc is a child like ThreadMessage).
-  const grantTarget = await resolveMentionGrantTarget(targetDoc, (cls, q) =>
-    control.findAll(control.ctx, cls, q)
+  const grantTarget = await resolveMentionGrantTarget(
+    targetDoc,
+    (cls, q) => control.findAll(control.ctx, cls, q),
+    control.hierarchy
   )
   const targetClassCollab = (
     await control.findAll(control.ctx, core.class.ClassCollaborators, { attachedTo: targetDoc._class })
@@ -306,7 +308,11 @@ async function applyMentionGrants (ctx: MeasureContext, message: ChatMessage, co
   const collaboratorsFromMessage = employees.map((it) => it.personUuid).filter(notEmpty)
   if (collaboratorsFromMessage.length === 0) return []
 
-  const grantTarget = await resolveMentionGrantTarget(targetDoc, (cls, q) => control.findAll(control.ctx, cls, q))
+  const grantTarget = await resolveMentionGrantTarget(
+    targetDoc,
+    (cls, q) => control.findAll(control.ctx, cls, q),
+    control.hierarchy
+  )
   if (grantTarget == null) return [] // update-grant only applies to opted-in (protected) targets
 
   const grantCollabs = (
