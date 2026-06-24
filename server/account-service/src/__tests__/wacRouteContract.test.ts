@@ -319,6 +319,25 @@ const CONTRACTS: Contract[] = [
     clientUrl: /\/\$\{workspace\}\/my-access\/decline-grant\/\$\{resourceId\}/,
     expect: 'preview-501',
     hostMatch: /router\.post\('\/api\/wac\/:workspace\/my-access\/decline-grant\/:resourceId'[\s\S]{0,400}authenticateWac[\s\S]{0,400}_myAccessMutationsNotWired/
+  },
+  // ── Members bulk-space mutations (preview-501, FIX 5/E8) ──────────────
+  // peopleApi.bulkAddToSpace + bulkRemoveFromSpace post to these. Host
+  // returns honest 501 until the workspace TxOperations bulk-edit path
+  // through the plugin's setSpaceMembers is wired. PeopleBulkBar gates
+  // the Add-to-Space + Remove-from-Space buttons behind
+  // capabilities.preview.membersBulkSpaceMutations so SpacePickerModal
+  // never opens in production.
+  {
+    name: 'members bulk-add-to-space (POST)',
+    clientUrl: /\/\$\{workspace\}\/members\/bulk\/add-to-space/,
+    expect: 'preview-501',
+    hostMatch: /router\.post\('\/api\/wac\/:workspace\/members\/bulk\/add-to-space'[\s\S]{0,400}authenticateWac[\s\S]{0,400}_membersBulkSpaceNotWired/
+  },
+  {
+    name: 'members bulk-remove-from-space (POST)',
+    clientUrl: /\/\$\{workspace\}\/members\/bulk\/remove-from-space/,
+    expect: 'preview-501',
+    hostMatch: /router\.post\('\/api\/wac\/:workspace\/members\/bulk\/remove-from-space'[\s\S]{0,400}authenticateWac[\s\S]{0,400}_membersBulkSpaceNotWired/
   }
 ]
 
