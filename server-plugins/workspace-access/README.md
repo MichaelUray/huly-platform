@@ -202,6 +202,27 @@ in `/api/wac/<ws>/spaces`. They inherit the default capability block:
 custom `openInApp` deep-link, extend `capabilitiesForRealRow(...)` in
 `http/readRouter.ts` (a code change, not env-driven).
 
+### Cache-invalidation marker (H5)
+
+When a workspace-role mutation lands, account-service issues a single
+marker write against the workspace-level `Space` doc so the transactor
+broadcasts a `TxUpdateDoc` to every connected client of that workspace.
+Each affected client then refetches its capability set.
+
+The marker is **one scalar field** — `wacInvalidationTick` — a
+monotonic timestamp. We deliberately do NOT include the demoted
+account's UUID in the broadcast payload: the workspace-Space update is
+visible to every subscriber, and emitting the affected account would
+leak who got role-changed via the operations payload.
+
+The `wacInvalidationTick` field is not declared in the `Workspace`
+model. This is an intentional side-channel: we rely on the transactor's
+leniency for unknown attributes in `DocumentUpdate`. No consumer reads
+the value — its job is solely to trigger the broadcast. If a future
+Workspace model declares this field formally, switch
+`server/account-service/src/wac/cacheInvalidator.ts` to use that
+declared field instead.
+
 ### Process-local state
 
 D7: no process-local security state. account-service is load-balanced,

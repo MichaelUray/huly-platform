@@ -110,16 +110,41 @@ export function createWacCacheInvalidator (opts: WacCacheInvalidatorOptions): Wa
   return {
     async invalidateAccountInWorkspace (workspace, accountUuid) {
       try {
-        // Touch the workspace-level Space doc with a transient marker
-        // field. Transactor broadcasts the TxUpdateDoc to every
-        // subscribed client of `workspace`; observers of the workspace-
-        // Space (role store, presence) re-evaluate permissions on the
-        // next reactive tick. The field name carries the source so
-        // downstream consumers can ignore it if they wish.
+        // H5 — single scalar marker field, NOT the account UUID.
+        //
+        // Earlier versions wrote `lastRoleInvalidationFor: <accountUuid>`
+        // into the workspace-Space `data` blob. That had two problems:
+        //   1. It leaked the demoted account's UUID into a workspace-
+        //      level doc whose subscribers include every connected
+        //      client — anyone with read access could correlate
+        //      role-change events with specific accounts via the
+        //      broadcast TxUpdateDoc operations payload.
+        //   2. The Workspace model doesn't declare these fields, so we
+        //      were depending on the transactor's leniency for unknown
+        //      attributes.
+        //
+        // We now write a single monotonic tick. The transactor still
+        // broadcasts to every subscriber, but the payload carries no
+        // PII — just "something role-related changed; rehydrate". Each
+        // affected client refetches its capability set on the next
+        // reactive tick.
+        //
+        // Acknowledged design caveat (intentional side-channel): the
+        // `wacInvalidationTick` field is not part of the Workspace
+        // model. We rely on the transactor accepting unknown attributes
+        // in DocumentUpdate. If a future Workspace model declares this
+        // field formally, switch to that. Until then, the transactor's
+        // leniency for unknown attributes is sufficient — the broadcast
+        // is the only behavior we depend on; no consumer code reads
+        // the value.
         const marker = {
-          lastRoleInvalidationAt: now(),
-          lastRoleInvalidationFor: accountUuid
+          wacInvalidationTick: now()
         }
+        // accountUuid is intentionally NOT forwarded in the payload, but
+        // accepted as an arg so the signature remains symmetric and
+        // future Option-(A) implementations (direct WS push to the
+        // affected account) can use it without an API break.
+        void accountUuid
         await txClient.updateDoc(
           workspace,
           systemActorUuid,

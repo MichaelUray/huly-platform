@@ -58,7 +58,7 @@ function makeMockTx (): MockTxClient {
 }
 
 describe('createWacCacheInvalidator (P2B-T5)', () => {
-  it('writes a marker tx to the workspace-level Space doc', async () => {
+  it('writes a single scalar marker tx (H5: no accountUuid leak)', async () => {
     const tx = makeMockTx()
     const measureCtx = makeMeasureCtx()
     const inv = createWacCacheInvalidator({
@@ -73,10 +73,12 @@ describe('createWacCacheInvalidator (P2B-T5)', () => {
     expect(call._class).toBe(core.class.Space)
     expect(call.space).toBe(core.space.Space)
     expect(call._id).toBe(core.space.Workspace)
-    expect(call.update).toEqual({
-      lastRoleInvalidationAt: 1700000000000,
-      lastRoleInvalidationFor: ACCOUNT
-    })
+    // H5: only the monotonic tick — the demoted account's UUID must not
+    // appear in the broadcast payload (it would leak to every connected
+    // client of the workspace).
+    expect(call.update).toEqual({ wacInvalidationTick: 1700000000000 })
+    expect(Object.keys(call.update)).toEqual(['wacInvalidationTick'])
+    expect(JSON.stringify(call.update)).not.toContain(ACCOUNT)
     // No warn breadcrumb on the happy path.
     expect(measureCtx.warn).not.toHaveBeenCalled()
   })
