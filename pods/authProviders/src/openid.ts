@@ -102,7 +102,6 @@ export function registerOpenid (
               hasSession: ctx.session != null,
               sessionKeys: ctx.session != null ? Object.keys(ctx.session) : [],
               hasCookieHeader: ctx.request.headers.cookie != null,
-              cookieHeaderLen: ctx.request.headers.cookie?.length ?? 0,
               // request shape
               host: ctx.request.headers.host,
               forwardedProto: ctx.request.headers['x-forwarded-proto'],
@@ -174,7 +173,6 @@ export function registerOpenid (
         hasSession: ctx.session != null,
         sessionKeys: ctx.session != null ? Object.keys(ctx.session) : [],
         hasCookieHeader: ctx.request.headers.cookie != null,
-        cookieHeaderLen: ctx.request.headers.cookie?.length ?? 0,
         host: ctx.request.headers.host,
         forwardedProto: ctx.request.headers['x-forwarded-proto'],
         statePresent: typeof ctx.query?.state === 'string',
