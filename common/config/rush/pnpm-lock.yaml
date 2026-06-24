@@ -36213,6 +36213,9 @@ importers:
       '@hcengineering/server-token':
         specifier: workspace:^0.7.18
         version: link:../../foundations/core/packages/token
+      '@hcengineering/server-workspace-access':
+        specifier: workspace:^0.7.0
+        version: link:../../server-plugins/workspace-access
       '@koa/cors':
         specifier: ^5.0.0
         version: 5.0.0
