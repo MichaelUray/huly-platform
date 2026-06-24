@@ -31,7 +31,7 @@
     "PeopleTabAll": "All",
     "PeopleTabByRole": "By role",
     "PeopleTabInactive": "Inactive (90d+)",
-    "PeopleTabGrantedAccess": "Granted access ({count})",
+    "PeopleTabGrantedAccess": "Granted access",
     "PeopleTabPending": "Pending invites",
     "ResourcesTabAll": "All",
     "ResourcesTabPrivate": "Private only",
