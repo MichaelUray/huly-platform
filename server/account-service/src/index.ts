@@ -1128,6 +1128,211 @@ export function serveAccount (
 
   // ── End WAC stub routes ─────────────────────────────────────────────────
 
+  // ── WAC outbound webhooks (V35) ─────────────────────────────────────────
+  //
+  // CRUD over workspace_access_webhooks subscriptions. Persistence is
+  // currently in-memory while the WAC plugin's PG-backed backend lands
+  // in a follow-up wiring PR; the route shapes + validation are the
+  // contract the UI codes against and stay stable across that swap.
+  //
+  // Gating uses assertAdmin (matches existing stub routes) — equivalent
+  // to OWNER + IMPERSONATING_ADMIN being authorized. The deeper
+  // role-aware gate (getEffectiveRole) lives inside the plugin and
+  // will be re-introduced when the route receives a real RoleCtx in
+  // the wiring PR.
+
+  type _WebhookMem = {
+    id: string
+    workspace: string
+    url: string
+    secret: string | null
+    eventTypes: string[]
+    active: boolean
+    dataFilter: 'minimal' | 'full'
+    createdBy: string | null
+    createdAt: string
+  }
+  const _webhookMem = new Map<string, _WebhookMem>()
+  let _webhookSeq = 1
+  const _webhookMemBackend = {
+    list: async (ws: string) => Array.from(_webhookMem.values()).filter((r) => r.workspace === ws),
+    getById: async (ws: string, id: string) => {
+      const r = _webhookMem.get(id)
+      return r != null && r.workspace === ws ? r : null
+    },
+    listActiveForEvent: async (ws: string, ev: string) =>
+      Array.from(_webhookMem.values()).filter((r) => r.workspace === ws && r.active && r.eventTypes.includes(ev)),
+    create: async (input: any) => {
+      const id = `wh-${_webhookSeq++}`
+      const row: _WebhookMem = {
+        id,
+        workspace: input.workspace,
+        url: input.url,
+        secret: input.secret,
+        eventTypes: input.eventTypes,
+        active: input.active,
+        dataFilter: input.dataFilter,
+        createdBy: input.createdBy,
+        createdAt: new Date().toISOString()
+      }
+      _webhookMem.set(id, row)
+      return row
+    },
+    update: async (ws: string, id: string, patch: any) => {
+      const r = _webhookMem.get(id)
+      if (r == null || r.workspace !== ws) return null
+      const merged: _WebhookMem = {
+        ...r,
+        url: patch.url ?? r.url,
+        secret: patch.secret === undefined ? r.secret : patch.secret,
+        eventTypes: patch.eventTypes ?? r.eventTypes,
+        active: patch.active ?? r.active,
+        dataFilter: patch.dataFilter ?? r.dataFilter
+      }
+      _webhookMem.set(id, merged)
+      return merged
+    },
+    delete: async (ws: string, id: string) => {
+      const r = _webhookMem.get(id)
+      if (r == null || r.workspace !== ws) return false
+      _webhookMem.delete(id)
+      return true
+    }
+  }
+
+  async function _gateWacAdmin (ctx: any, label: string): Promise<boolean> {
+    const token = extractToken(ctx.request.headers) ?? ''
+    const [db] = await accountsDb
+    try {
+      await assertAdmin(measureCtx.newChild(label, {}), db, token)
+      return true
+    } catch {
+      ctx.res.writeHead(403, KEEP_ALIVE_HEADERS)
+      ctx.res.end('{"error":"Forbidden"}')
+      return false
+    }
+  }
+
+  function _wacError (ctx: any, err: any): void {
+    const status = typeof err?.status === 'number' ? err.status : 500
+    const code = typeof err?.code === 'string' ? err.code : 'internal_error'
+    ctx.res.writeHead(status, KEEP_ALIVE_HEADERS)
+    ctx.res.end(JSON.stringify({ error: code, message: err?.message ?? String(err) }))
+  }
+
+  function _serializeWebhook (r: _WebhookMem): Record<string, unknown> {
+    return {
+      id: r.id,
+      workspace: r.workspace,
+      url: r.url,
+      // Never echo the secret back; only flag presence.
+      hasSecret: r.secret != null && r.secret !== '',
+      event_types: r.eventTypes,
+      active: r.active,
+      data_filter: r.dataFilter,
+      created_by: r.createdBy,
+      created_at: r.createdAt
+    }
+  }
+
+  // Lazy-require so the account-service bundle compiles even if the
+  // plugin isn't installed (e.g. in self-host bootstraps that skip the
+  // WAC v1 surface).
+  let _wacEndpoints: any
+  function _wac (): any {
+    if (_wacEndpoints == null) {
+      _wacEndpoints = require('@hcengineering/server-workspace-access')
+    }
+    return _wacEndpoints
+  }
+
+  const _wacRouteCtx = (workspace: string): any => ({
+    token: { audience: 'workspace', workspace },
+    account: { uuid: 'instance-admin' },
+    membership: { role: 'OWNER', ownedSpaces: [] },
+    isImpersonating: false,
+    workspace,
+    actorUuid: 'instance-admin',
+    actorRole: 'workspace_owner',
+    tx: { begin: async <T>(fn: (txCtx: any) => Promise<T>) => await fn({ ws: async () => undefined, admin: async () => undefined, domain: {} }) }
+  })
+
+  router.get('/api/wac/:workspace/webhooks', async (ctx) => {
+    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-list'))) return
+    try {
+      const workspace = ctx.params.workspace as string
+      const rows = await _wac().listWebhooks(_wacRouteCtx(workspace), workspace, _webhookMemBackend)
+      ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify({ items: rows.map(_serializeWebhook) }))
+    } catch (err) {
+      _wacError(ctx, err)
+    }
+  })
+
+  router.post('/api/wac/:workspace/webhooks', async (ctx) => {
+    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-create'))) return
+    try {
+      const workspace = ctx.params.workspace as string
+      const body = (ctx.request as any).body ?? {}
+      const row = await _wac().createWebhook(_wacRouteCtx(workspace), workspace, body, _webhookMemBackend)
+      ctx.res.writeHead(201, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify(_serializeWebhook(row)))
+    } catch (err) {
+      _wacError(ctx, err)
+    }
+  })
+
+  router.put('/api/wac/:workspace/webhooks/:id', async (ctx) => {
+    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-update'))) return
+    try {
+      const workspace = ctx.params.workspace as string
+      const id = ctx.params.id as string
+      const body = (ctx.request as any).body ?? {}
+      const row = await _wac().updateWebhook(_wacRouteCtx(workspace), workspace, id, body, _webhookMemBackend)
+      ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify(_serializeWebhook(row)))
+    } catch (err) {
+      _wacError(ctx, err)
+    }
+  })
+
+  router.delete('/api/wac/:workspace/webhooks/:id', async (ctx) => {
+    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-delete'))) return
+    try {
+      const workspace = ctx.params.workspace as string
+      const id = ctx.params.id as string
+      await _wac().deleteWebhook(_wacRouteCtx(workspace), workspace, id, _webhookMemBackend)
+      ctx.res.writeHead(204, KEEP_ALIVE_HEADERS)
+      ctx.res.end()
+    } catch (err) {
+      _wacError(ctx, err)
+    }
+  })
+
+  router.post('/api/wac/:workspace/webhooks/:id/test', async (ctx) => {
+    if (!(await _gateWacAdmin(ctx, 'wac-webhooks-test'))) return
+    try {
+      const workspace = ctx.params.workspace as string
+      const id = ctx.params.id as string
+      const dnsLookup = async (host: string): Promise<Array<{ address: string, family: 4 | 6 }>> => {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const dns = require('dns').promises
+        const res = await dns.lookup(host, { all: true })
+        return res.map((r: any) => ({ address: r.address, family: r.family as 4 | 6 }))
+      }
+      const result = await _wac().testWebhook(_wacRouteCtx(workspace), workspace, id, _webhookMemBackend, {
+        fetch,
+        lookup: dnsLookup
+      })
+      ctx.res.writeHead(200, KEEP_ALIVE_HEADERS)
+      ctx.res.end(JSON.stringify(result))
+    } catch (err) {
+      _wacError(ctx, err)
+    }
+  })
+
+  // ── End WAC outbound webhooks ───────────────────────────────────────────
+
   app.use(router.routes()).use(router.allowedMethods())
 
   const server = app.listen(ACCOUNT_PORT, () => {
