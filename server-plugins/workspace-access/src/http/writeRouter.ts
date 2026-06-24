@@ -33,7 +33,7 @@ import type {
   Space,
   WorkspaceUuid
 } from '@hcengineering/core'
-import core from '@hcengineering/core'
+import core, { AccountRole } from '@hcengineering/core'
 import { executeWorkspaceAuditInsert } from '../audit/insert'
 
 // ---------------------------------------------------------------------------
@@ -58,10 +58,22 @@ export interface WritePgClientLike {
   execute: (query: string, parameters?: any[]) => Promise<any[]>
 }
 
-/** Subset of AccountDB used here (member-role updates + member-counting). */
+/** Subset of AccountDB used here (member-role updates + member-counting).
+ *
+ *  Roles cross the boundary in the **canonical** AccountRole form after
+ *  Wave-3 / Task A2. AccountDB's read paths return AccountRole values
+ *  (DB→canonical inside the implementation); write paths take
+ *  AccountRole inputs and convert canonical→DB internally. Wire-form
+ *  parsing is the WAC handler's job (`wireToAccountRole`).
+ *
+ *  We keep the `role?: string | null` shape on `getWorkspaceMembers`
+ *  for forward-compat with legacy AccountDB builds that still emit
+ *  raw strings; callers must compare via AccountRole literals (which
+ *  ARE strings under the enum), e.g. `m.role === AccountRole.Owner`.
+ */
 export interface WriteAccountDbLike {
   getWorkspaceMembers: (workspaceId: any) => Promise<Array<{ person: string, role?: string | null }>>
-  updateWorkspaceRole: (accountId: any, workspaceId: any, role: any) => Promise<void>
+  updateWorkspaceRole: (accountId: any, workspaceId: any, role: AccountRole) => Promise<void>
   /**
    * H3 — atomic compound update that refuses the role change if it would
    * leave the workspace with zero OWNERs. The predicate is enforced inside
@@ -99,7 +111,7 @@ export interface WriteAccountDbLike {
   updateWorkspaceRoleIfNotLastOwner?: (
     accountId: any,
     workspaceId: any,
-    role: any
+    role: AccountRole
   ) => Promise<boolean>
 }
 
@@ -203,20 +215,70 @@ const DEFAULT_JSON_HEADERS: Record<string, string> = {
   'Keep-Alive': 'timeout=5, max=1000'
 }
 
-// T3 — Guest sub-roles. Accept both the wire form (READONLY_GUEST,
-// DOC_GUEST) emitted by handleMembers and the core-enum form
-// (READONLYGUEST, DocGuest) coming from upstream callers, so the
-// edit-role surface is tolerant to whichever shape the UI sends.
-const ALLOWED_ROLES: ReadonlySet<string> = new Set([
-  'OWNER',
-  'MAINTAINER',
-  'USER',
-  'GUEST',
-  'READONLY_GUEST',
-  'READONLYGUEST',
-  'DOC_GUEST',
-  'DocGuest'
-])
+// Wave 3 / Task A2 — single canonicalization seam at the WAC boundary.
+// All HTTP role payloads are screaming-snake-case wire form
+// ('OWNER' | 'MAINTAINER' | 'USER' | 'GUEST' | 'READONLY_GUEST' | 'DOC_GUEST').
+// `wireToAccountRole` converts to TS canonical AccountRole; AccountDB
+// then internally converts canonical → DB enum form via canonicalToDb.
+//
+// We do NOT import server/account's canonical helper here because WAC
+// must not pick up account-service as a runtime dependency (see
+// readRouter mapWacRole comment for the same constraint). Instead we
+// mirror the wire→canonical conversion locally; it depends only on
+// `@hcengineering/core`.
+//
+// IMPORTANT: only the WIRE form is accepted. Mixed-case 'ReadOnlyGuest'
+// or DB-form 'READONLYGUEST' / 'DOCGUEST' on the wire is a 400. WAC has
+// always emitted screaming-snake-case in /members; we now reject the
+// other shapes instead of silently coercing them, to surface buggy
+// upstream callers.
+function wireToAccountRole (raw: unknown): AccountRole | null {
+  if (typeof raw !== 'string') return null
+  switch (raw) {
+    case 'OWNER':
+      return AccountRole.Owner
+    case 'MAINTAINER':
+      return AccountRole.Maintainer
+    case 'USER':
+      return AccountRole.User
+    case 'GUEST':
+      return AccountRole.Guest
+    case 'READONLY_GUEST':
+      return AccountRole.ReadOnlyGuest
+    case 'DOC_GUEST':
+      return AccountRole.DocGuest
+    default:
+      return null
+  }
+}
+
+/**
+ * Canonical → wire (audit payload + best-effort logging). Tolerates a
+ * null/unknown input from a corrupted DB row so the audit pipeline never
+ * crashes on a bad role; returns 'GUEST' as a safe fallback marker.
+ */
+function accountRoleToWire (canonical: AccountRole | string | null | undefined): string {
+  switch (canonical) {
+    case AccountRole.Owner:
+      return 'OWNER'
+    case AccountRole.Maintainer:
+      return 'MAINTAINER'
+    case AccountRole.User:
+      return 'USER'
+    case AccountRole.Guest:
+      return 'GUEST'
+    case AccountRole.ReadOnlyGuest:
+      return 'READONLY_GUEST'
+    case AccountRole.DocGuest:
+      return 'DOC_GUEST'
+    case AccountRole.Admin:
+      return 'ADMIN'
+    default:
+      // Unknown — fall back to GUEST so audit payloads keep their
+      // string contract. Logged elsewhere as a corrupted-row warning.
+      return 'GUEST'
+  }
+}
 
 const CALLER_ROLE_LABEL = 'workspace_owner'
 
@@ -562,8 +624,9 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
         json(ctx, 400, { error: 'bad_request' })
         return
       }
-      const role = body.role
-      if (typeof role !== 'string' || !ALLOWED_ROLES.has(role)) {
+      const rawRole = body.role
+      const canonicalRole = wireToAccountRole(rawRole)
+      if (canonicalRole === null) {
         json(ctx, 400, { error: 'bad_role' })
         return
       }
@@ -585,8 +648,11 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
       // 409 body (and pre-empt the round-trip when the caller is clearly
       // wrong), but the *authoritative* check is the atomic SQL gate
       // below.
-      if (oldRole === 'OWNER' && role !== 'OWNER') {
-        const ownerCount = members.filter((m) => m.role === 'OWNER').length
+      //
+      // Comparisons are against AccountRole.Owner ('OWNER') — AccountDB
+      // returns canonical roles after Wave-3 A2 so both sides match.
+      if (oldRole === AccountRole.Owner && canonicalRole !== AccountRole.Owner) {
+        const ownerCount = members.filter((m) => m.role === AccountRole.Owner).length
         if (ownerCount <= 1) {
           json(ctx, 409, { error: 'last_owner', detail: 'workspace_must_have_at_least_one_owner' })
           return
@@ -600,7 +666,7 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           const ok = await db.updateWorkspaceRoleIfNotLastOwner(
             memberUuid as any,
             workspaceUuid as any,
-            role as any
+            canonicalRole
           )
           if (!ok) {
             // The race was caught at the SQL boundary — the snapshot
@@ -619,7 +685,7 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
             workspace: workspaceUuid,
             target: memberUuid
           })
-          await db.updateWorkspaceRole(memberUuid as any, workspaceUuid as any, role as any)
+          await db.updateWorkspaceRole(memberUuid as any, workspaceUuid as any, canonicalRole)
         }
       } catch (err) {
         deps.measureCtx.error('wac role update failed', {
@@ -651,8 +717,11 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
         CALLER_ROLE_LABEL,
         {
           target_account: memberUuid,
-          old_value: { role: oldRole },
-          new_value: { role }
+          // Audit-shape contract: wire form on the wire AND in the
+          // audit body. AccountDB now returns canonical roles, so
+          // serialize them back to wire here.
+          old_value: { role: oldRole == null ? null : accountRoleToWire(oldRole) },
+          new_value: { role: accountRoleToWire(canonicalRole) }
         }
       )
       json(ctx, 200, { ok: true })
@@ -682,22 +751,23 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
         return
       }
       const targets: string[] = body.members.filter((m: any) => typeof m === 'string')
-      const role = body.role
-      if (typeof role !== 'string' || !ALLOWED_ROLES.has(role)) {
+      const rawRole = body.role
+      const canonicalRole = wireToAccountRole(rawRole)
+      if (canonicalRole === null) {
         json(ctx, 400, { error: 'bad_role' })
         return
       }
       const db = await deps.accountDb()
       const members = await db.getWorkspaceMembers(workspaceUuid as any)
       const memberIndex = new Map(members.map((m) => [m.person, m.role ?? null]))
-      const ownerSet = new Set(members.filter((m) => m.role === 'OWNER').map((m) => m.person))
+      const ownerSet = new Set(members.filter((m) => m.role === AccountRole.Owner).map((m) => m.person))
 
       // E3 — workspace-level last-owner guard kept as the hard 409: if
       // *every* requested demote would leave the OWNER set empty there's
       // no useful partial state to return. The per-target check below
       // additionally protects against a smaller bulk that targets only
       // the single remaining owner.
-      if (role !== 'OWNER') {
+      if (canonicalRole !== AccountRole.Owner) {
         const remainingOwners = new Set(ownerSet)
         for (const t of targets) remainingOwners.delete(t)
         if (ownerSet.size > 0 && remainingOwners.size === 0) {
@@ -723,7 +793,7 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           results.push({ memberUuid: t, status: 'not_found' })
           continue
         }
-        if (role !== 'OWNER' && memberIndex.get(t) === 'OWNER') {
+        if (canonicalRole !== AccountRole.Owner && memberIndex.get(t) === AccountRole.Owner) {
           if (ownerSet.size <= 1) {
             results.push({ memberUuid: t, status: 'last_owner_refused' })
             continue
@@ -734,7 +804,7 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
         }
 
         try {
-          await db.updateWorkspaceRole(t as any, workspaceUuid as any, role as any)
+          await db.updateWorkspaceRole(t as any, workspaceUuid as any, canonicalRole)
         } catch (err) {
           deps.measureCtx.error('wac bulk role update failed', {
             workspace: workspaceUuid,
@@ -748,7 +818,7 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
         }
         // Mutation succeeded — count + invalidate + audit only this one.
         appliedCount++
-        memberIndex.set(t, role)
+        memberIndex.set(t, canonicalRole)
         if (deps.cacheInvalidator !== undefined) {
           await deps.cacheInvalidator.invalidateAccountInWorkspace(
             workspaceUuid as WorkspaceUuid,
@@ -764,7 +834,8 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           CALLER_ROLE_LABEL,
           {
             target_account: t,
-            new_value: { role, batch_id: batchId }
+            // Audit wire-shape contract preserved.
+            new_value: { role: accountRoleToWire(canonicalRole), batch_id: batchId }
           }
         )
         results.push({ memberUuid: t, status: 'ok' })

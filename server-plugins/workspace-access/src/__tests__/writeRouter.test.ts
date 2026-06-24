@@ -23,7 +23,7 @@
 // handleGrantRevoke is the real revoke (P2B-T6): findOne collaborator,
 // removeDoc via TxOperations, audit row, 200. Failure paths covered.
 
-import core from '@hcengineering/core'
+import core, { AccountRole } from '@hcengineering/core'
 
 import {
   createWacWriteHandlers,
@@ -1025,5 +1025,116 @@ describe('writeRouter — handleGrantRevoke (P2B-T6)', () => {
     expect(captured.status).toBe(200)
     expect(h.removeDocCalls).toHaveLength(1)
     expect(h.errors.some((e) => e.attrs.breadcrumb === 'wac_audit_orphan')).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Wave 3 / Task A2 — canonical role-form contract at the WAC boundary.
+//
+// REST receives wire-form ('READONLY_GUEST', 'DOC_GUEST'); WAC must hand
+// AccountDB the canonical AccountRole values
+// (AccountRole.ReadOnlyGuest === 'READONLYGUEST',
+//  AccountRole.DocGuest      === 'DocGuest' [mixed-case per core]).
+//
+// We pin the canonical *string* value here rather than the literal
+// 'ReadOnlyGuest' / 'DocGuest' the bug previously emitted — asserting
+// 'ReadOnlyGuest' would re-introduce the round-trip confusion this
+// migration is meant to extinguish.
+// ---------------------------------------------------------------------------
+describe('writeRouter — A2 wire→canonical role contract', () => {
+  it('singular: READONLY_GUEST wire payload → AccountRole.ReadOnlyGuest (=== READONLYGUEST) to AccountDB', async () => {
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p3', role: 'USER' }
+      ]
+    })
+    const { ctx, captured } = makeCtx({ role: 'READONLY_GUEST' })
+    await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p3')
+    expect(captured.status).toBe(200)
+    expect(h.roleCalls).toHaveLength(1)
+    expect(h.roleCalls[0].role).toBe(AccountRole.ReadOnlyGuest)
+    // Pin the underlying canonical string — DB form, no underscore.
+    expect(h.roleCalls[0].role).toBe('READONLYGUEST')
+    // Anti-regression: must NOT be the wire form.
+    expect(h.roleCalls[0].role).not.toBe('READONLY_GUEST')
+  })
+
+  it('singular: DOC_GUEST wire payload → AccountRole.DocGuest (=== DocGuest)', async () => {
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p3', role: 'USER' }
+      ]
+    })
+    const { ctx, captured } = makeCtx({ role: 'DOC_GUEST' })
+    await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p3')
+    expect(captured.status).toBe(200)
+    expect(h.roleCalls[0].role).toBe(AccountRole.DocGuest)
+    expect(h.roleCalls[0].role).toBe('DocGuest') // mixed-case per core
+    expect(h.roleCalls[0].role).not.toBe('DOC_GUEST')
+  })
+
+  it('singular: mixed-case wire ReadOnlyGuest → 400 (only screaming-snake-case accepted)', async () => {
+    const h = makeHarness({
+      members: [{ person: 'p3', role: 'USER' }]
+    })
+    const { ctx, captured } = makeCtx({ role: 'ReadOnlyGuest' })
+    await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p3')
+    expect(captured.status).toBe(400)
+    expect(captured.body.error).toBe('bad_role')
+    expect(h.roleCalls).toHaveLength(0)
+  })
+
+  it('singular: DB-form READONLYGUEST on wire → 400 (DB form must not leak into REST)', async () => {
+    const h = makeHarness({
+      members: [{ person: 'p3', role: 'USER' }]
+    })
+    const { ctx, captured } = makeCtx({ role: 'READONLYGUEST' })
+    await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p3')
+    expect(captured.status).toBe(400)
+    expect(h.roleCalls).toHaveLength(0)
+  })
+
+  it('bulk: READONLY_GUEST wire payload → AccountRole.ReadOnlyGuest to AccountDB', async () => {
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p2', role: 'USER' },
+        { person: 'p3', role: 'USER' }
+      ]
+    })
+    const { ctx, captured } = makeCtx({ role: 'READONLY_GUEST', members: ['p2', 'p3'] })
+    await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(h.roleCalls).toHaveLength(2)
+    for (const c of h.roleCalls) {
+      expect(c.role).toBe(AccountRole.ReadOnlyGuest)
+      expect(c.role).toBe('READONLYGUEST')
+    }
+  })
+
+  it('bulk: DOC_GUEST wire payload → AccountRole.DocGuest', async () => {
+    const h = makeHarness({
+      members: [
+        { person: 'p1', role: 'OWNER' },
+        { person: 'p2', role: 'USER' }
+      ]
+    })
+    const { ctx, captured } = makeCtx({ role: 'DOC_GUEST', members: ['p2'] })
+    await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(200)
+    expect(h.roleCalls[0].role).toBe(AccountRole.DocGuest)
+    expect(h.roleCalls[0].role).toBe('DocGuest')
+  })
+
+  it('bulk: bad wire-form role → 400 with no DB writes', async () => {
+    const h = makeHarness({
+      members: [{ person: 'p2', role: 'USER' }]
+    })
+    const { ctx, captured } = makeCtx({ role: 'READONLYGUEST', members: ['p2'] })
+    await h.handlers.handleBulkMemberRole(ctx, 'ws-1', 'caller-1')
+    expect(captured.status).toBe(400)
+    expect(h.roleCalls).toHaveLength(0)
   })
 })
