@@ -102,10 +102,18 @@ export interface WriteAccountDbLike {
   ) => Promise<boolean>
 }
 
-/** Subset of MeasureContext used here (logging only). */
+/**
+ * Subset of MeasureContext used here:
+ *   - `warn` / `error` for breadcrumbs
+ *   - `measure(name, value)` for the orphan counter (M1). The full
+ *     MeasureContext implementation routes `measure` calls through its
+ *     metrics tree; subscribe to `wac_audit_orphan` for alerting.
+ *     Optional so test harnesses don't need to provide it.
+ */
 export interface WriteMeasureCtxLike {
   warn: (msg: string, attrs?: Record<string, unknown>) => void
   error: (msg: string, attrs?: Record<string, unknown>) => void
+  measure?: (name: string, value: number, override?: boolean) => void
 }
 
 /** Structural surface of the WacTxClient (defined in account-service). */
@@ -311,7 +319,9 @@ async function writeAuditPostMutation (
   } catch (err) {
     // Atomicity caveat: mutation goes via WS to transactor, audit goes via pg.
     // We sequence mutation→audit and log loud if audit fails post-mutation.
-    // Use the central observability dashboard "wac_audit_orphan" metric to track.
+    // M1 — increment the wac_audit_orphan counter so dashboards / alerts
+    // can be wired to a numeric signal instead of grepping logs. The
+    // breadcrumb in the error attrs preserves the old grep contract.
     deps.measureCtx.error('wac audit-INSERT failed after successful mutation', {
       breadcrumb: 'wac_audit_orphan',
       workspace,
@@ -321,6 +331,15 @@ async function writeAuditPostMutation (
       target_account: payload.target_account ?? null,
       err: String(err)
     })
+    try {
+      // MeasureContext.measure aggregates into the metrics tree; an
+      // observability sidecar can scrape and alert. Best-effort: a
+      // missing measure function (test harness) is fine.
+      deps.measureCtx.measure?.('wac_audit_orphan', 1)
+    } catch {
+      // Defensive: never let a metrics-side throw mask the original
+      // orphan condition.
+    }
   }
 }
 

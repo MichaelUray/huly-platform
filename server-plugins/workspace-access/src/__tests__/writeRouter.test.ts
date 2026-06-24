@@ -123,6 +123,8 @@ interface Harness {
   findOneCalls: FindOneCall[]
   errors: Array<{ msg: string, attrs: any }>
   warns: Array<{ msg: string, attrs: any }>
+  /** M1 — measureCtx.measure(name, value) call log. */
+  metrics: Array<{ name: string, value: number }>
 }
 
 interface MakeHarnessOpts {
@@ -170,10 +172,12 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
   const findOneCalls: FindOneCall[] = []
   const errors: Array<{ msg: string, attrs: any }> = []
   const warns: Array<{ msg: string, attrs: any }> = []
+  const metrics: Array<{ name: string, value: number }> = []
 
   const measureCtx: WriteMeasureCtxLike = {
     warn (msg, attrs) { warns.push({ msg, attrs: attrs ?? {} }) },
-    error (msg, attrs) { errors.push({ msg, attrs: attrs ?? {} }) }
+    error (msg, attrs) { errors.push({ msg, attrs: attrs ?? {} }) },
+    measure (name, value) { metrics.push({ name, value }) }
   }
 
   const txClient: WacTxClientLike = {
@@ -290,7 +294,8 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
     removeDocCalls,
     findOneCalls,
     errors,
-    warns
+    warns,
+    metrics
   }
 }
 
@@ -359,6 +364,8 @@ describe('writeRouter — handleSpaceMembers', () => {
     expect(captured.status).toBe(200)
     expect(h.txCalls).toHaveLength(1)
     expect(h.errors.some((e) => e.attrs.breadcrumb === 'wac_audit_orphan')).toBe(true)
+    // M1 — orphan counter increment.
+    expect(h.metrics).toContainEqual({ name: 'wac_audit_orphan', value: 1 })
   })
 })
 
