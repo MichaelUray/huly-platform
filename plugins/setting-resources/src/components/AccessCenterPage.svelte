@@ -11,6 +11,7 @@
   import { getMetadata } from '@hcengineering/platform'
   import presentation from '@hcengineering/presentation'
   import { AccessCenter, setDefaultWacClient, WacClient, roleStore } from '@hcengineering/workspace-access-resources'
+  import setting from '../plugin'
 
   let workspace: string = ''
   let workspaceLabel: string = ''
@@ -33,7 +34,13 @@
 </script>
 
 {#if workspace !== ''}
-  <AccessCenter {workspace} {workspaceLabel} retentionDays={365} />
+  <AccessCenter
+    {workspace}
+    {workspaceLabel}
+    retentionDays={365}
+    headerIcon={setting.icon.AccessCenter}
+    headerLabel={setting.string.AccessCenter}
+  />
 {:else}
   <p class="hint">No workspace context.</p>
 {/if}
