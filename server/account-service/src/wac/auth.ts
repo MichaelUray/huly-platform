@@ -10,8 +10,29 @@
 
 import type { Context } from 'koa'
 import type { AccountDB } from '@hcengineering/account'
-import type { AccountUuid, MeasureContext, WorkspaceUuid } from '@hcengineering/core'
+import {
+  systemAccountUuid,
+  readOnlyGuestAccountUuid,
+  type AccountUuid,
+  type MeasureContext,
+  type WorkspaceUuid
+} from '@hcengineering/core'
 import { decodeTokenVerbose } from '@hcengineering/server-token'
+
+// M4 — canonical token-version skip-list. Mirrors the upstream
+// `verifyTokenVersion` helper at server/account/src/utils.ts:209-214.
+// The three special accounts are issued by service code, never have
+// a `disabledAt` and never bump tokenVersion, so the check would
+// always pass — but we still want to short-circuit the DB round-trip
+// AND make sure that an operator who manually tampers with their
+// account row can't accidentally lock the service principals out.
+//
+// `GUEST_ACCOUNT` is declared in `@hcengineering/account/utils` (not
+// in `@hcengineering/core`'s component.ts). We inline the literal to
+// avoid pulling `@hcengineering/account` into this file just for one
+// constant — it has been stable since the Guest invite-link feature
+// shipped (see server/account/src/utils.ts:75).
+const GUEST_ACCOUNT_UUID = 'b6996120-416f-49cd-841e-e4a5d2e49c9b'
 
 // Cookie name carrying the bearer token when the Authorization header is
 // not present. Kept in sync with the constant declared in src/index.ts.
@@ -219,6 +240,18 @@ export async function authenticateWac (
   const extra = (decoded.extra ?? {}) as Record<string, any>
 
   // 3. Verify token-version against account row.
+  // M4 — short-circuit for the three special-account UUIDs that the
+  // canonical `verifyTokenVersion` helper skips (systemAccountUuid,
+  // GUEST_ACCOUNT, readOnlyGuestAccountUuid). These accounts are
+  // issued by service code and never carry a meaningful tokenVersion;
+  // running the check against them was a no-op round-trip pre-fix.
+  if (
+    callerUuid === systemAccountUuid ||
+    callerUuid === GUEST_ACCOUNT_UUID ||
+    callerUuid === readOnlyGuestAccountUuid
+  ) {
+    // Skip 3 entirely — go straight to workspace resolution.
+  } else {
   try {
     const db = await accountDb()
     const tokenVersionClaim = parseInt(String(extra.token_version ?? '0'), 10)
@@ -259,6 +292,7 @@ export async function authenticateWac (
     writeJson(ctx, 401, { error: 'invalid_token' })
     return null
   }
+  } // end M4 skip-list else
 
   // 4. Resolve workspace UUID.
   let workspaceUuid: string | null
