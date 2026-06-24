@@ -67,6 +67,7 @@ import type {
 } from '../types'
 import type { AccountListRow } from '@hcengineering/account-client'
 import { isShallowEqual } from '../utils'
+import { canonicalToDb, dbToCanonical } from '../role/canonical'
 
 interface MongoIndex {
   key: Record<string, any>
@@ -581,7 +582,7 @@ export class MongoAccountDB implements AccountDB {
   }
 
   protected getMigrations (): Migration[] {
-    return [this.getV1Migration(), this.getV2Migration()]
+    return [this.getV1Migration(), this.getV2Migration(), this.getV3CanonicalRoleBackfillMigration()]
   }
 
   // NOTE: NEVER MODIFY EXISTING MIGRATIONS. IF YOU NEED TO DO SOMETHING, ADD A NEW MIGRATION.
@@ -611,6 +612,30 @@ export class MongoAccountDB implements AccountDB {
         } finally {
           await sidCursor.close()
         }
+      }
+    }
+  }
+
+  private getV3CanonicalRoleBackfillMigration (): Migration {
+    // V3 — Wave 3 / Task A2 mongo-side counterpart to postgres V31.
+    // Rewrites any workspace_members documents that still carry the
+    // REST wire form ('READONLY_GUEST', 'DOC_GUEST') into the DB form
+    // ('READONLYGUEST', 'DOCGUEST') so dbToCanonical on read accepts
+    // them. After this migration runs once, all subsequent writes go
+    // through canonicalToDb at the boundary and never produce wire-form
+    // rows. Re-runs are no-ops.
+    return {
+      key: 'account_db_v3_canonicalize_wire_role_residue',
+      op: async () => {
+        const ro = await this.workspaceMembers.update(
+          { role: 'READONLY_GUEST' as any as AccountRole },
+          { role: 'READONLYGUEST' as any as AccountRole }
+        )
+        const doc = await this.workspaceMembers.update(
+          { role: 'DOC_GUEST' as any as AccountRole },
+          { role: 'DOCGUEST' as any as AccountRole }
+        )
+        console.log(`Canonicalized workspace_members.role wire-form residue (read-only-guest, doc-guest fix-up)`, ro, doc)
       }
     }
   }
@@ -647,10 +672,12 @@ export class MongoAccountDB implements AccountDB {
   }
 
   async assignWorkspace (accountId: AccountUuid, workspaceId: WorkspaceUuid, role: AccountRole): Promise<void> {
+    // A2 canonicalization — store DB form so mongo + postgres backends
+    // agree on the persisted shape. dbToCanonical reverses this on read.
     await this.workspaceMembers.insertOne({
       workspaceUuid: workspaceId,
       accountUuid: accountId,
-      role
+      role: canonicalToDb(role) as unknown as AccountRole
     })
   }
 
@@ -659,7 +686,7 @@ export class MongoAccountDB implements AccountDB {
       data.map(([accountId, workspaceId, role]) => ({
         workspaceUuid: workspaceId,
         accountUuid: accountId,
-        role
+        role: canonicalToDb(role) as unknown as AccountRole
       }))
     )
   }
@@ -856,7 +883,7 @@ export class MongoAccountDB implements AccountDB {
         workspaceUuid: workspaceId,
         accountUuid: accountId
       },
-      { role }
+      { role: canonicalToDb(role) as unknown as AccountRole }
     )
   }
 
@@ -866,7 +893,16 @@ export class MongoAccountDB implements AccountDB {
       accountUuid: accountId
     })
 
-    return assignment?.role ?? null
+    const raw = assignment?.role
+    if (raw == null) return null
+    const canonical = dbToCanonical(String(raw))
+    if (canonical === null) {
+      console.warn(
+        `workspace_members.role corrupted; cannot map to AccountRole (account=${accountId}, workspace=${workspaceId}, dbForm=${String(raw)})`
+      )
+      return null
+    }
+    return canonical
   }
 
   async getWorkspaceRoles (accountId: AccountUuid): Promise<Map<WorkspaceUuid, AccountRole>> {
@@ -874,17 +910,34 @@ export class MongoAccountDB implements AccountDB {
       accountUuid: accountId
     })
 
-    return assignment.reduce<Map<WorkspaceUuid, AccountRole>>((acc, it) => {
-      acc.set(it.workspaceUuid, it.role)
-      return acc
-    }, new Map())
+    const out = new Map<WorkspaceUuid, AccountRole>()
+    for (const it of assignment) {
+      const canonical = dbToCanonical(String(it.role))
+      if (canonical === null) {
+        console.warn(
+          `workspace_members.role corrupted; skipping row (account=${accountId}, workspace=${String(it.workspaceUuid)}, dbForm=${String(it.role)})`
+        )
+        continue
+      }
+      out.set(it.workspaceUuid, canonical)
+    }
+    return out
   }
 
   async getWorkspaceMembers (workspaceId: WorkspaceUuid): Promise<WorkspaceMemberInfo[]> {
-    return (await this.workspaceMembers.find({ workspaceUuid: workspaceId })).map((wmi) => ({
-      person: wmi.accountUuid,
-      role: wmi.role
-    }))
+    const rows = await this.workspaceMembers.find({ workspaceUuid: workspaceId })
+    const out: WorkspaceMemberInfo[] = []
+    for (const wmi of rows) {
+      const canonical = dbToCanonical(String(wmi.role))
+      if (canonical === null) {
+        console.warn(
+          `workspace_members.role corrupted; skipping row (account=${String(wmi.accountUuid)}, workspace=${workspaceId}, dbForm=${String(wmi.role)})`
+        )
+        continue
+      }
+      out.push({ person: wmi.accountUuid, role: canonical })
+    }
+    return out
   }
 
   async getAccountWorkspaces (accountId: AccountUuid): Promise<WorkspaceInfoWithStatus[]> {
