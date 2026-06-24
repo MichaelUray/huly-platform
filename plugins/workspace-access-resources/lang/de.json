@@ -78,6 +78,16 @@
     "SpacePickerHint": "Paste the target space ID (UUID). A live space picker will replace this input in v1.5.",
     "SpacePickerInvalidUuid": "Enter a valid space ID (UUID).",
     "SpaceIdLabel": "Space ID",
-    "LoadMore": "Load more"
+    "LoadMore": "Load more",
+    "EmptyAllMembers": "No members yet.",
+    "EmptyByRole": "No members in this role.",
+    "EmptyInactive": "No inactive members (90d+) found.",
+    "EmptyGranted": "No granted-access entries.",
+    "EmptyPending": "No pending invites.",
+    "EmptyAllSpaces": "No spaces in this workspace yet.",
+    "EmptyPrivateSpaces": "No private spaces.",
+    "EmptyPublicSpaces": "No public spaces.",
+    "EmptyArchivedSpaces": "No archived spaces.",
+    "EmptyAutoJoinSpaces": "No auto-join spaces."
   }
 }

@@ -1,12 +1,20 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
+  import { Label } from '@hcengineering/ui'
+  import type { IntlString } from '@hcengineering/platform'
   import { EntityTable, type EntityColumn } from '@hcengineering/access-management-ui'
+  import wac from '../../plugin'
   import { resourcesApi } from '../../api/resourcesApi'
   import SpaceTypeIcon from './SpaceTypeIcon.svelte'
   import type { SpaceRow } from '../../types'
 
   export let workspace: string
   export let preset: Record<string, unknown> = {}
+  // Polish-4 — caller-supplied empty-state label so each Resources
+  // sub-tab can surface a contextually meaningful message even though
+  // the v2-placeholder rows mean items.length is normally non-zero;
+  // archived/private/etc. filtered views can still come up empty.
+  export let emptyLabel: IntlString = wac.string.EmptyAllSpaces
 
   const dispatch = createEventDispatcher<{ rowClick: { spaceId: string } }>()
 
@@ -121,6 +129,9 @@
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
   <EntityTable items={items} {columns} {loading} {sort} idKey="_id"
     on:sort={onSort} on:rowClick={onRowClick}>
+    <svelte:fragment slot="empty">
+      <Label label={emptyLabel} />
+    </svelte:fragment>
     <svelte:fragment slot="cell" let:item let:col>
       {#if String(col.key) === '_class'}
         <SpaceTypeIcon cls={item._class} />

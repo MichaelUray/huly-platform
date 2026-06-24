@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import { createEventDispatcher, onMount } from 'svelte'
-  import { showPopup } from '@hcengineering/ui'
+  import { Label, showPopup } from '@hcengineering/ui'
   import { MessageBox } from '@hcengineering/presentation'
   import { EntityTable, type EntityColumn } from '@hcengineering/access-management-ui'
   import wac from '../../plugin'
@@ -72,6 +72,9 @@
 <div class="granted">
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
   <EntityTable items={items} {columns} {loading} idKey="resourceId">
+    <svelte:fragment slot="empty">
+      <Label label={wac.string.EmptyGranted} />
+    </svelte:fragment>
     <svelte:fragment slot="cell" let:item let:col>
       {#if String(col.key) === 'resourceTitle' && canRevoke && REVOKE_GRANT_ENABLED}
         <span class="row-with-action">
