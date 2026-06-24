@@ -76,6 +76,16 @@ export class AccessCenterPage {
   guestSettingsPanel = (): Locator => this.page.locator('[data-test="wac-guest-settings"]')
   guestSettingsEditor = (): Locator => this.page.locator('[data-test="guest-settings-editor"]')
 
+  /**
+   * People-tab panel — exposes a `data-active-sub` attribute matching
+   * the currently active sub-tab id (`all` / `by-role` / `inactive` /
+   * `granted` / `pending`). Stable signal for sub-tab-landing assertions
+   * (E5 amendment).
+   */
+  peoplePanel = (): Locator => this.page.locator('[data-test-id="wac-panel-people"]')
+  peoplePanelWithSub = (sub: 'all' | 'by-role' | 'inactive' | 'granted' | 'pending'): Locator =>
+    this.page.locator(`[data-test-id="wac-panel-people"][data-active-sub="${sub}"]`)
+
   // ─── Navigation helpers ────────────────────────────────────────────
   async openAccessCenterFromSidebar (): Promise<void> {
     await expect(this.accessCenterSidebarItem()).toBeVisible()

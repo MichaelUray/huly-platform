@@ -149,11 +149,11 @@ test.describe('Access Center (Phase 2.5)', () => {
     await page.goto(ownersLink)
     await expect(accessCenterPage.wacRoot()).toBeVisible()
     await expect(accessCenterPage.tab('people')).toBeVisible()
-    // The People tab is the active surface; we don't assert sub-tab
-    // chrome explicitly because the People-tab page-object doesn't
-    // currently expose a deterministic sub-tab data-test attribute.
-    // The wacRoot + people-tab visibility combination already proves
-    // the shim landed on the right Access Center surface.
+    // E5 amendment — assert the sub-tab landed on `all` (not `by-role`
+    // or any other default), via the `data-active-sub` attribute the
+    // PeopleView root now exposes. This pins the shim's `initialSub`
+    // contract instead of only proving wacRoot + people-tab presence.
+    await expect(accessCenterPage.peoplePanelWithSub('all')).toBeVisible()
   })
 
   test('Legacy /setting/allSpaces deep-link still resolves and renders the legacy Spaces editor (B2 revert)', async ({

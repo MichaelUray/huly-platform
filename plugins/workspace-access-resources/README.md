@@ -37,8 +37,9 @@ entries `Workspace Members` (`/setting/owners`), `Guests`
 (`/setting/guestPermissions`), and `Global Space Admins`
 (`/setting/allSpaces`) no longer appear as separate sidebar entries.
 Their routes are kept registered as compat-shims so existing
-bookmarked deep-links continue to render the appropriate Access Center
-sub-tab:
+bookmarked deep-links continue to render the appropriate destination
+(the Access Center sub-tab for `owners` and `guestPermissions`; the
+original legacy editor for `allSpaces`):
 
 | Legacy route | Lands on |
 |---|---|
