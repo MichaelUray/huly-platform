@@ -36,6 +36,7 @@ import Router from 'koa-router'
 import os from 'os'
 import { migrateFromOldAccounts } from './migration/migration'
 import { TokenBucketLimiter } from './util/rateLimiter'
+import { getDBClient, createDBClient } from '@hcengineering/postgres-base'
 
 export * from './migration/utils'
 export * from './migration/types'
@@ -598,11 +599,29 @@ export function serveAccount (
   // ordering quirk we couldn't isolate. Bypassing the router for these
   // 9 simple GETs avoids the issue entirely.
 
+  // Direct pg client for raw workspace queries (spaces / audit log /
+  // grants). Reuses the same DB_URL the account collection uses;
+  // tables live in the public schema of the same Cockroach defaultdb.
+  const rawDbRef = getDBClient(dbUrl)
+  const rawPgPromise = rawDbRef.getClient().then((sql) => createDBClient(sql))
+
+  async function resolveWorkspaceUuid (workspaceParam: string): Promise<string | null> {
+    // Treat as UUID if it parses as one; else look up by url.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(workspaceParam)
+    if (isUuid) return workspaceParam
+    const pg = await rawPgPromise
+    const rows = await pg.execute(
+      'SELECT uuid FROM global_account.workspace WHERE url=$1 LIMIT 1',
+      [workspaceParam]
+    )
+    return rows[0]?.uuid ?? null
+  }
+
   app.use(async (ctx, next) => {
     if (ctx.method !== 'GET') return await next()
     const m = ctx.path.match(/^\/api\/wac\/([^/]+)\/(.+)$/)
     if (m == null) return await next()
-    const workspace = decodeURIComponent(m[1])
+    const workspaceParam = decodeURIComponent(m[1])
     const sub = m[2]
 
     const json = (status: number, body: unknown): void => {
@@ -610,43 +629,107 @@ export function serveAccount (
       ctx.res.end(JSON.stringify(body))
     }
 
+    const workspaceUuid = await resolveWorkspaceUuid(workspaceParam).catch(() => null)
+    const pg = await rawPgPromise
+
     if (sub === 'members') {
-      const token = extractToken(ctx.request.headers) ?? ''
-      const [db] = await accountsDb
-      let accounts: any[] = []
       try {
-        const result = await listAccountsAdmin(measureCtx, db, null, token, {
-          pagination: { limit: 100, offset: 0 }
-        })
-        accounts = result.accounts
-      } catch {
-        accounts = [
-          { uuid: 'demo-1', firstName: 'Alice', lastName: 'Owner', primaryEmail: 'alice@demo.test', isAdmin: true, workspaceCount: 3, lastActivityAt: Date.now() - 3600_000 },
-          { uuid: 'demo-2', firstName: 'Bob', lastName: 'Maintainer', primaryEmail: 'bob@demo.test', isAdmin: false, workspaceCount: 2, lastActivityAt: Date.now() - 2 * 86400_000 },
-          { uuid: 'demo-3', firstName: 'Carol', lastName: 'User', primaryEmail: 'carol@demo.test', isAdmin: false, workspaceCount: 1, lastActivityAt: Date.now() - 14 * 86400_000 },
-          { uuid: 'demo-4', firstName: 'Dave', lastName: 'Inactive', primaryEmail: 'dave@demo.test', isAdmin: false, workspaceCount: 1, lastActivityAt: Date.now() - 100 * 86400_000 }
-        ]
+        const [db] = await accountsDb
+        if (workspaceUuid != null) {
+          const members = await db.getWorkspaceMembers(workspaceUuid as any)
+          const personUuids = members.map((m: any) => m.person)
+          const items: any[] = []
+          for (const m of members) {
+            const personUuid = m.person as string
+            const personRows = await pg.execute(
+              'SELECT first_name, last_name FROM global_account.person WHERE uuid=$1 LIMIT 1', [personUuid]
+            )
+            const emailRows = await pg.execute(
+              `SELECT value FROM global_account.social_id WHERE person_uuid=$1 AND type='email' LIMIT 1`, [personUuid]
+            )
+            const acctRows = await pg.execute(
+              'SELECT last_activity_at FROM global_account.account WHERE uuid=$1 LIMIT 1', [personUuid]
+            )
+            const lastAct = acctRows[0]?.last_activity_at != null ? new Date(acctRows[0].last_activity_at).getTime() : null
+            const fn = personRows[0]?.first_name ?? ''
+            const ln = personRows[0]?.last_name ?? ''
+            const display = `${fn} ${ln}`.trim() || (emailRows[0]?.value ?? personUuid)
+            items.push({
+              uuid: personUuid,
+              name: display,
+              email: emailRows[0]?.value ?? '',
+              role: m.role ?? 'USER',
+              activityBucket: lastAct == null ? '90d+'
+                : (Date.now() - lastAct) < 86400_000 ? 'today'
+                : (Date.now() - lastAct) < 7 * 86400_000 ? '7d'
+                : (Date.now() - lastAct) < 30 * 86400_000 ? '30d'
+                : '90d+',
+              spacesCount: 0
+            })
+          }
+          return json(200, { items, cursor: null, _workspace: workspaceParam })
+        }
+      } catch (err) {
+        measureCtx.warn('wac:/members fallback to fixtures', { err: String(err) })
       }
-      const items = accounts.map((a: any) => ({
-        uuid: a.uuid,
-        name: `${a.firstName ?? ''} ${a.lastName ?? ''}`.trim() || (a.primaryEmail ?? '—'),
-        email: a.primaryEmail ?? '',
-        role: a.lastName === 'Owner' || a.isAdmin === true ? 'OWNER'
-          : a.lastName === 'Maintainer' ? 'MAINTAINER'
-          : a.lastName === 'Inactive' ? 'USER'
-          : 'USER',
-        activityBucket: a.lastActivityAt == null ? '90d+'
-          : (Date.now() - a.lastActivityAt) < 86400_000 ? 'today'
-          : (Date.now() - a.lastActivityAt) < 7 * 86400_000 ? '7d'
-          : (Date.now() - a.lastActivityAt) < 30 * 86400_000 ? '30d'
-          : '90d+',
-        spacesCount: a.workspaceCount ?? 0
-      }))
-      return json(200, { items, cursor: null, _workspace: workspace })
+      // Fallback fixtures for unknown workspaces.
+      const items = [
+        { uuid: 'demo-1', name: 'Alice Owner', email: 'alice@demo.test', role: 'OWNER', activityBucket: 'today', spacesCount: 3 },
+        { uuid: 'demo-2', name: 'Bob Maintainer', email: 'bob@demo.test', role: 'MAINTAINER', activityBucket: '7d', spacesCount: 2 },
+        { uuid: 'demo-3', name: 'Carol User', email: 'carol@demo.test', role: 'USER', activityBucket: '30d', spacesCount: 1 }
+      ]
+      return json(200, { items, cursor: null, _workspace: workspaceParam })
     }
     if (sub === 'invites') return json(200, { items: [], cursor: null })
-    if (sub === 'admins/count') return json(200, { remaining: 2 })
+    if (sub === 'admins/count') {
+      let remaining = 1
+      try {
+        if (workspaceUuid != null) {
+          const rows = await pg.execute(
+            `SELECT count(*) AS c FROM global_account.workspace_members WHERE workspace_uuid=$1 AND role IN ('OWNER','MAINTAINER')`,
+            [workspaceUuid]
+          )
+          remaining = parseInt(rows[0]?.c ?? '1', 10)
+        }
+      } catch { /* keep default */ }
+      return json(200, { remaining })
+    }
     if (sub === 'spaces') {
+      try {
+        if (workspaceUuid != null) {
+          const rows = await pg.execute(
+            `SELECT "_id", "_class",
+                    data->>'name' AS name,
+                    (data->>'private')::boolean AS private_flag,
+                    (data->>'autoJoin')::boolean AS auto_join,
+                    (data->>'archived')::boolean AS archived,
+                    data->>'members' AS members
+             FROM space
+             WHERE "workspaceId"=$1
+               AND "_class" IN ('tracker:class:Project','document:class:Teamspace','drive:class:Drive','card:class:CardSpace','lead:class:Funnel','recruit:class:Vacancy','recruit:class:JobFunnel')
+             ORDER BY data->>'name' ASC
+             LIMIT 200`,
+            [workspaceUuid]
+          )
+          const items = rows.map((r: any) => {
+            let members: string[] = []
+            try { if (typeof r.members === 'string') members = JSON.parse(r.members) } catch { /* keep [] */ }
+            return {
+              _id: r._id,
+              _class: String(r._class).replace(/:/g, '.'),
+              name: r.name ?? '—',
+              ownerIds: [],
+              membersCount: members.length,
+              private: r.private_flag === true,
+              autoJoin: r.auto_join === true,
+              archived: r.archived === true
+            }
+          })
+          return json(200, { items, cursor: null })
+        }
+      } catch (err) {
+        measureCtx.warn('wac:/spaces fallback to fixtures', { err: String(err) })
+      }
       return json(200, {
         items: [
           { _id: 'demo-space-1', _class: 'tracker.class.Project', name: 'Demo Project', ownerIds: [], membersCount: 0, private: false, autoJoin: false, archived: false },
@@ -657,16 +740,102 @@ export function serveAccount (
     }
     if (sub.startsWith('spaces/')) {
       const spaceId = sub.slice('spaces/'.length)
+      try {
+        if (workspaceUuid != null) {
+          const rows = await pg.execute(
+            `SELECT "_id", "_class",
+                    data->>'name' AS name,
+                    (data->>'private')::boolean AS private_flag,
+                    (data->>'autoJoin')::boolean AS auto_join,
+                    (data->>'archived')::boolean AS archived,
+                    data->>'members' AS members,
+                    data->>'owners' AS owners
+             FROM space WHERE "workspaceId"=$1 AND "_id"=$2 LIMIT 1`,
+            [workspaceUuid, spaceId]
+          )
+          if (rows[0] != null) {
+            const r = rows[0]
+            let members: string[] = []
+            let owners: string[] = []
+            try { if (typeof r.members === 'string') members = JSON.parse(r.members) } catch { /* keep [] */ }
+            try { if (typeof r.owners === 'string') owners = JSON.parse(r.owners) } catch { /* keep [] */ }
+            return json(200, {
+              _id: r._id,
+              _class: String(r._class).replace(/:/g, '.'),
+              name: r.name ?? '—',
+              ownerIds: owners,
+              members,
+              membersCount: members.length,
+              private: r.private_flag === true,
+              autoJoin: r.auto_join === true,
+              archived: r.archived === true
+            })
+          }
+        }
+      } catch (err) {
+        measureCtx.warn('wac:/spaces/<id> fallback to fixture', { err: String(err) })
+      }
       return json(200, {
         _id: spaceId, _class: 'tracker.class.Project', name: 'Demo Space',
         ownerIds: [], members: [], membersCount: 0,
         private: false, autoJoin: false, archived: false
       })
     }
-    if (sub === 'audit') return json(200, { items: [], cursor: null })
+    if (sub === 'audit') {
+      try {
+        if (workspaceUuid != null) {
+          const rows = await pg.execute(
+            `SELECT id, ts::text AS ts, action, actor::text AS actor, actor_role,
+                    target_account::text AS target_account, target_space,
+                    metadata
+             FROM workspace_audit_log
+             WHERE workspace=$1
+             ORDER BY ts DESC
+             LIMIT 100`,
+            [workspaceUuid]
+          )
+          const items = rows.map((r: any) => ({
+            id: r.id,
+            ts: r.ts,
+            action: r.action,
+            actor: r.actor,
+            actor_pseudonym: null,
+            actor_role: r.actor_role,
+            target_account: r.target_account,
+            target_space: r.target_space,
+            metadata: r.metadata ?? {}
+          }))
+          return json(200, { items, cursor: null })
+        }
+      } catch (err) {
+        measureCtx.warn('wac:/audit fallback to empty', { err: String(err) })
+      }
+      return json(200, { items: [], cursor: null })
+    }
     if (sub === 'grants') return json(200, { items: [], cursor: null })
     if (sub === 'grants/count') return json(200, { count: 0 })
     if (sub === 'my-access') {
+      try {
+        if (workspaceUuid != null) {
+          const [db] = await accountsDb
+          const members = await db.getWorkspaceMembers(workspaceUuid as any)
+          // Determine caller via token if present, else default to OWNER.
+          const token = extractToken(ctx.request.headers) ?? ''
+          let callerRole: string = 'OWNER'
+          try {
+            const decoded = (await import('@hcengineering/server-token')).decodeToken(token)
+            const callerUuid = decoded.account
+            const callerEntry = members.find((m: any) => m.person === callerUuid)
+            if (callerEntry?.role != null) callerRole = callerEntry.role
+          } catch { /* keep default */ }
+          return json(200, {
+            role: callerRole, spacesMemberOf: [], spacesOwned: [],
+            grantsReceived: [], grantsGiven: []
+          })
+        }
+      } catch (err) {
+        measureCtx.warn('wac:/my-access fallback', { err: String(err) })
+      }
       return json(200, {
         role: 'OWNER', spacesMemberOf: [], spacesOwned: [],
         grantsReceived: [], grantsGiven: []
