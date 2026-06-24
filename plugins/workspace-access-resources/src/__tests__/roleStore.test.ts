@@ -69,11 +69,61 @@ describe('role gate helpers', () => {
     expect(tabsForRole('GUEST')).toEqual([])
   })
 
-  it('tabsForRole shows the full surface for OWNER', () => {
-    expect(tabsForRole('OWNER')).toEqual(['people', 'resources', 'my-access', 'audit'])
+  it('tabsForRole shows the full surface plus guest-settings for OWNER', () => {
+    // Phase 2.5 — OWNER (and IMPERSONATING_ADMIN) get the 5th
+    // Owner-only `guest-settings` tab that hosts the extracted
+    // GuestPermissionsEditor.
+    expect(tabsForRole('OWNER')).toEqual([
+      'people',
+      'resources',
+      'my-access',
+      'audit',
+      'guest-settings'
+    ])
   })
 
-  it('tabsForRole gives Maintainer read of all surfaces', () => {
+  it('tabsForRole gives IMPERSONATING_ADMIN the same 5-tab Owner surface', () => {
+    // Phase 2.5 — impersonation grants Owner-equivalent privileges
+    // (every action dual-audited); the guest-settings tab MUST be
+    // visible so the impersonator can fix a misconfigured workspace.
+    expect(tabsForRole('IMPERSONATING_ADMIN')).toEqual([
+      'people',
+      'resources',
+      'my-access',
+      'audit',
+      'guest-settings'
+    ])
+  })
+
+  it('tabsForRole gives Maintainer read of all surfaces but NO guest-settings', () => {
+    // Phase 2.5 — MAINTAINER stays at 4 tabs. The underlying
+    // ModulePermissionGroup / allowReadOnlyGuest mutations are
+    // Owner-gated server-side; hiding the tab avoids promising an
+    // editor that would 403 on every click.
     expect(tabsForRole('MAINTAINER')).toEqual(['people', 'resources', 'my-access', 'audit'])
+    expect(tabsForRole('MAINTAINER')).not.toContain('guest-settings')
+  })
+
+  it('tabsForRole gives Maintainer+SpaceOwner same 4-tab surface (no guest-settings)', () => {
+    expect(tabsForRole('MAINTAINER_PLUS_SPACE_OWNER')).toEqual([
+      'people',
+      'resources',
+      'my-access',
+      'audit'
+    ])
+    expect(tabsForRole('MAINTAINER_PLUS_SPACE_OWNER')).not.toContain('guest-settings')
+  })
+
+  it('tabsForRole gives INSTANCE_ADMIN_READONLY 4-tab surface (no guest-settings)', () => {
+    // Drill-down without impersonation is read-only — guest-settings
+    // is an editor, so it stays hidden until the admin starts an
+    // impersonation session.
+    expect(tabsForRole('INSTANCE_ADMIN_READONLY')).toEqual([
+      'people',
+      'resources',
+      'my-access',
+      'audit'
+    ])
+    expect(tabsForRole('INSTANCE_ADMIN_READONLY')).not.toContain('guest-settings')
   })
 })

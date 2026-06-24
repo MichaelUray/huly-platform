@@ -18,6 +18,7 @@
   import ResourcesView from './resources/ResourcesView.svelte'
   import MyAccessView from './my-access/MyAccessView.svelte'
   import AuditView from './audit/AuditView.svelte'
+  import GuestSettingsView from './guestSettings/GuestSettingsView.svelte'
   import ImpersonationBanner from './impersonation/ImpersonationBanner.svelte'
   import AssumeRoleModal from './impersonation/AssumeRoleModal.svelte'
   import ExpiredModal from './impersonation/ExpiredModal.svelte'
@@ -35,6 +36,7 @@
     canReadWorkspaceWide as canReadWWRole
   } from '../stores/roleStore'
   import type { Asset, IntlString } from '@hcengineering/platform'
+  import type { AnyComponent } from '@hcengineering/ui'
 
   export let workspace: string
   export let workspaceLabel: string = workspace
@@ -58,6 +60,14 @@
    */
   export let initialTab: string | undefined = undefined
   export let initialSub: string | undefined = undefined
+  /**
+   * Phase 2.5 — AnyComponent id of the per-application guest-permission
+   * editor (`setting.component.GuestPermissionsEditor`). Passed in from
+   * AccessCenterPage so `workspace-access-resources` does not statically
+   * depend on `@hcengineering/setting`. Forwarded to the
+   * `GuestSettingsView` rendered inside the 5th Owner-only tab.
+   */
+  export let guestSettingsComponent: AnyComponent | undefined = undefined
 
   let assumeOpen: boolean = false
   let active: string = initialTab ?? 'my-access'
@@ -69,7 +79,8 @@
     people: wac.string.People,
     resources: wac.string.Resources,
     'my-access': wac.string.MyAccess,
-    audit: wac.string.Audit
+    audit: wac.string.Audit,
+    'guest-settings': wac.string.GuestSettings
   }
 
   $: tabs = tabsForRole($effectiveRole)
@@ -170,6 +181,8 @@
             <MyAccessView {workspace} />
           {:else if active === 'audit'}
             <AuditView {workspace} canExport={canExportAudit} />
+          {:else if active === 'guest-settings'}
+            <GuestSettingsView editorComponent={guestSettingsComponent} {canEdit} />
           {/if}
         </div>
       </Scroller>

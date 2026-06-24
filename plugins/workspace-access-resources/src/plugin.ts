@@ -33,11 +33,13 @@ export const wacPluginId = 'workspace-access' as Plugin
 
 const wac = plugin(wacPluginId, {
   string: {
-    // Tab labels (4)
+    // Tab labels (5 — Phase 2.5 added GuestSettings as the 5th
+    // Owner-only tab; see tabsForRole().)
     People: '' as IntlString,
     Resources: '' as IntlString,
     MyAccess: '' as IntlString,
     Audit: '' as IntlString,
+    GuestSettings: '' as IntlString,
 
     // Role labels (6)
     Owner: '' as IntlString,
@@ -131,7 +133,13 @@ const wac = plugin(wacPluginId, {
     // recovery is a hard reload because in-memory roleStore consumers
     // may have already painted edit affordances.
     AccessChangedBanner: '' as IntlString,
-    Reload: '' as IntlString
+    Reload: '' as IntlString,
+
+    // Phase 2.5 — placeholder when the GuestSettings tab is mounted
+    // without an editorComponent prop (e.g. someone mounts AccessCenter
+    // directly without going through AccessCenterPage). Should never
+    // surface in production since AccessCenterPage always wires it up.
+    GuestSettingsUnavailable: '' as IntlString
   }
 })
 
