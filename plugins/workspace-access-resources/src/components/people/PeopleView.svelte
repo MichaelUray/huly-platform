@@ -5,6 +5,8 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
+  import { TabList } from '@hcengineering/ui'
+  import { getEmbeddedLabel } from '@hcengineering/platform'
   import AllMembersTab from './AllMembersTab.svelte'
   import ByRoleTab from './ByRoleTab.svelte'
   import InactiveTab from './InactiveTab.svelte'
@@ -28,6 +30,14 @@
   let allMembers: MemberRow[] = []
   let grantsCount: number = 0
   let error: string | null = null
+
+  $: subItems = [
+    { id: 'all', labelIntl: getEmbeddedLabel('All') },
+    { id: 'by-role', labelIntl: getEmbeddedLabel('By role') },
+    { id: 'inactive', labelIntl: getEmbeddedLabel('Inactive (90d+)') },
+    ...(grantsCount > 0 ? [{ id: 'granted', labelIntl: getEmbeddedLabel(`Granted access (${grantsCount})`) }] : []),
+    { id: 'pending', labelIntl: getEmbeddedLabel('Pending invites') }
+  ]
 
   async function loadGrantsCount (): Promise<void> {
     try {
@@ -96,14 +106,14 @@
 </script>
 
 <div class="people-view" id="wac-panel-people" role="tabpanel">
-  <div class="sub-tabs" role="tablist">
-    <button class:active={sub === 'all'} role="tab" aria-selected={sub === 'all'} data-test="people-sub-all" on:click={() => (sub = 'all')}>All</button>
-    <button class:active={sub === 'by-role'} role="tab" aria-selected={sub === 'by-role'} data-test="people-sub-by-role" on:click={() => (sub = 'by-role')}>By role</button>
-    <button class:active={sub === 'inactive'} role="tab" aria-selected={sub === 'inactive'} data-test="people-sub-inactive" on:click={() => (sub = 'inactive')}>Inactive (90d+)</button>
-    {#if grantsCount > 0}
-      <button class:active={sub === 'granted'} role="tab" aria-selected={sub === 'granted'} data-test="people-sub-granted" on:click={() => (sub = 'granted')}>Granted access ({grantsCount})</button>
-    {/if}
-    <button class:active={sub === 'pending'} role="tab" aria-selected={sub === 'pending'} data-test="people-sub-pending" on:click={() => (sub = 'pending')}>Pending invites</button>
+  <div class="sub-tabs">
+    <TabList
+      items={subItems}
+      selected={sub}
+      kind={'separated'}
+      size={'small'}
+      on:select={(e) => { sub = e.detail.id }}
+    />
   </div>
 
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
@@ -141,15 +151,15 @@
 
 <style lang="scss">
   .people-view { display: flex; flex-direction: column; min-height: 100%; }
-  .sub-tabs { display: flex; gap: 0.25rem; padding: 0.5rem 1.25rem; border-bottom: 1px solid var(--theme-divider-color); }
-  .sub-tabs button {
-    background: transparent; border: 0;
-    padding: 0.4rem 0.8rem; cursor: pointer;
-    color: var(--theme-darker-color);
-    border-radius: 0.25rem;
-    font-size: 0.9rem;
-    &:hover { background: var(--theme-bg-accent-color); }
-    &.active { background: var(--theme-bg-accent-color); color: var(--theme-caption-color); font-weight: 500; }
+  .sub-tabs {
+    padding: var(--spacing-1) 0 var(--spacing-2);
+    border-bottom: 1px solid var(--theme-divider-color);
   }
-  .err { margin: 0.75rem 1.25rem; padding: 0.5rem; background: rgba(239,68,68,0.1); color: #b91c1c; border-radius: 0.25rem; }
+  .err {
+    margin: var(--spacing-1_5) 0;
+    padding: var(--spacing-1);
+    background: color-mix(in srgb, #ef4444 12%, transparent);
+    color: #b91c1c;
+    border-radius: 0.25rem;
+  }
 </style>

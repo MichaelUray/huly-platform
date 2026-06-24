@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { TabList } from '@hcengineering/ui'
+  import { getEmbeddedLabel } from '@hcengineering/platform'
   import AllSpacesTab from './AllSpacesTab.svelte'
   import SpaceDrawer from './SpaceDrawer.svelte'
 
@@ -10,6 +12,14 @@
   let sub: Sub = 'all'
   let drawerSpaceId: string | null = null
   let drawerOpen: boolean = false
+
+  const subItems = [
+    { id: 'all', labelIntl: getEmbeddedLabel('All') },
+    { id: 'private', labelIntl: getEmbeddedLabel('Private only') },
+    { id: 'public', labelIntl: getEmbeddedLabel('Public only') },
+    { id: 'archived', labelIntl: getEmbeddedLabel('Archived') },
+    { id: 'auto-join', labelIntl: getEmbeddedLabel('Auto-join') }
+  ]
 
   $: preset = (
     sub === 'private' ? { private: true } :
@@ -26,12 +36,14 @@
 </script>
 
 <div class="resources-view" id="wac-panel-resources" role="tabpanel">
-  <div class="sub-tabs" role="tablist">
-    <button class:active={sub === 'all'} role="tab" aria-selected={sub === 'all'} data-test="res-sub-all" on:click={() => (sub = 'all')}>All</button>
-    <button class:active={sub === 'private'} role="tab" aria-selected={sub === 'private'} data-test="res-sub-private" on:click={() => (sub = 'private')}>Private only</button>
-    <button class:active={sub === 'public'} role="tab" aria-selected={sub === 'public'} data-test="res-sub-public" on:click={() => (sub = 'public')}>Public only</button>
-    <button class:active={sub === 'archived'} role="tab" aria-selected={sub === 'archived'} data-test="res-sub-archived" on:click={() => (sub = 'archived')}>Archived</button>
-    <button class:active={sub === 'auto-join'} role="tab" aria-selected={sub === 'auto-join'} data-test="res-sub-autojoin" on:click={() => (sub = 'auto-join')}>Auto-join</button>
+  <div class="sub-tabs">
+    <TabList
+      items={subItems}
+      selected={sub}
+      kind={'separated'}
+      size={'small'}
+      on:select={(e) => { sub = e.detail.id }}
+    />
   </div>
 
   <AllSpacesTab {workspace} {preset} on:rowClick={onRowClick} />
@@ -48,14 +60,8 @@
 
 <style lang="scss">
   .resources-view { display: flex; flex-direction: column; min-height: 100%; }
-  .sub-tabs { display: flex; gap: 0.25rem; padding: 0.5rem 1.25rem; border-bottom: 1px solid var(--theme-divider-color); }
-  .sub-tabs button {
-    background: transparent; border: 0;
-    padding: 0.4rem 0.8rem; cursor: pointer;
-    color: var(--theme-darker-color);
-    border-radius: 0.25rem;
-    font-size: 0.9rem;
-    &:hover { background: var(--theme-bg-accent-color); }
-    &.active { background: var(--theme-bg-accent-color); color: var(--theme-caption-color); font-weight: 500; }
+  .sub-tabs {
+    padding: var(--spacing-1) 0 var(--spacing-2);
+    border-bottom: 1px solid var(--theme-divider-color);
   }
 </style>

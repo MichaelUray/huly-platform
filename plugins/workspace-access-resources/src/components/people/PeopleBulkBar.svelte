@@ -1,12 +1,12 @@
 <!--
 // Copyright © 2026 Hardcore Engineering Inc.
 //
-// Sticky bulk-action bar for the People view. Visible only when at
-// least one row is selected; dispatches add/remove/role events to the
-// parent which performs the API calls.
+// Sticky bulk-action bar styled with Huly's Button + theme tokens.
 -->
 <script lang="ts">
   import { createEventDispatcher } from 'svelte'
+  import { Button, IconAdd, IconClose, IconDelete } from '@hcengineering/ui'
+  import { getEmbeddedLabel } from '@hcengineering/platform'
   import type { WorkspaceRole } from '../../types'
 
   export let count: number = 0
@@ -24,8 +24,20 @@
 {#if count > 0}
   <div class="bulk-bar" role="region" aria-label="Bulk actions">
     <span class="count">{count} selected</span>
-    <button class="bulk-btn" on:click={() => dispatch('addToSpace')}>Add to space</button>
-    <button class="bulk-btn" on:click={() => dispatch('removeFromSpace')}>Remove from space</button>
+    <Button
+      kind={'regular'}
+      size={'small'}
+      icon={IconAdd}
+      label={getEmbeddedLabel('Add to space')}
+      on:click={() => dispatch('addToSpace')}
+    />
+    <Button
+      kind={'regular'}
+      size={'small'}
+      icon={IconDelete}
+      label={getEmbeddedLabel('Remove from space')}
+      on:click={() => dispatch('removeFromSpace')}
+    />
     <span class="role-changer">
       Change role
       <select bind:value={roleSelect} aria-label="New role">
@@ -34,9 +46,21 @@
         <option value="USER">User</option>
         <option value="GUEST">Guest</option>
       </select>
-      <button class="bulk-btn" on:click={() => dispatch('changeRole', { role: roleSelect })}>Apply</button>
+      <Button
+        kind={'primary'}
+        size={'small'}
+        label={getEmbeddedLabel('Apply')}
+        on:click={() => dispatch('changeRole', { role: roleSelect })}
+      />
     </span>
-    <button class="ghost" on:click={() => dispatch('deselectAll')}>Cancel</button>
+    <span class="spacer"></span>
+    <Button
+      kind={'ghost'}
+      size={'small'}
+      icon={IconClose}
+      label={getEmbeddedLabel('Cancel')}
+      on:click={() => dispatch('deselectAll')}
+    />
   </div>
 {/if}
 
@@ -46,36 +70,33 @@
     bottom: 0;
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1.25rem;
+    gap: var(--spacing-1);
+    padding: var(--spacing-1_5) var(--spacing-2);
     background: var(--theme-bg-accent-color);
     border-top: 1px solid var(--theme-divider-color);
     z-index: 50;
   }
-  .count { font-weight: 600; color: var(--theme-caption-color); }
-  .bulk-btn {
-    padding: 0.3rem 0.7rem;
-    background: var(--theme-bg-color);
-    border: 1px solid var(--theme-divider-color);
-    border-radius: 0.25rem;
-    cursor: pointer;
+  .count {
+    font-weight: 600;
     color: var(--theme-caption-color);
-    &:hover { background: var(--theme-divider-color); }
+    padding-right: var(--spacing-1);
+    border-right: 1px solid var(--theme-divider-color);
+    margin-right: var(--spacing-1);
   }
-  .role-changer { display: inline-flex; align-items: center; gap: 0.4rem; }
-  .role-changer select {
-    background: var(--theme-bg-color);
-    border: 1px solid var(--theme-divider-color);
-    color: var(--theme-caption-color);
-    padding: 0.25rem 0.4rem;
-    border-radius: 0.25rem;
-  }
-  .ghost {
-    margin-left: auto;
-    background: transparent;
-    border: 0;
+  .role-changer {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     color: var(--theme-darker-color);
-    cursor: pointer;
-    &:hover { color: var(--theme-caption-color); }
+    font-size: 0.85rem;
+
+    select {
+      background: var(--theme-bg-color);
+      border: 1px solid var(--theme-divider-color);
+      color: var(--theme-caption-color);
+      padding: 0.25rem 0.4rem;
+      border-radius: 0.25rem;
+    }
   }
+  .spacer { flex: 1; }
 </style>
