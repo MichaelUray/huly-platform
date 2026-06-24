@@ -12,11 +12,14 @@
   import { issuePriorities } from '../../types'
   import { connectedIssueIds } from './lib/dependency-router'
   import { wouldCreateCycle, simulateCascade, addScheduleDays } from './lib/scheduler'
-  import { newCascadeToken } from './lib/cascade-token'
+  // W10-D2 — cascadeToken plumbing now lives inside lib/cascade-commit.ts;
+  // direct import removed (last component-side caller was the inline Tx
+  // orchestration that the seam-extraction collapsed into one lib call).
   import { sendDependencyShiftedNotifications } from './lib/dependency-shift-send'
   import { toggleSelection, selectRange, selectAll, clearSelection } from './lib/bulk-selection'
   import { computeBulkDeltaBounds } from './lib/bulk-boundary'
-  import { fsAnchor, ssAnchor, ffAnchor, sfAnchor } from './lib/working-days'
+  // W10-D2 — relation-anchor math (fsAnchor/ssAnchor/ffAnchor/sfAnchor) moved
+  // into lib/cascade-commit.ts together with relationSatisfied.
   import { computeCriticalPath } from './lib/critical-path'
   import type { CriticalPathResult } from './lib/types'
   import { exportGanttDataToPdf, exportGanttDataToPng } from './lib/exporter'
@@ -67,8 +70,13 @@
   // retained for ad-hoc future use but no longer wired into the Gantt
   // toolbar — the toolbar Filter button + Ctrl+F popup were redundant
   // with the FilterBar and confused users (two state-sets per session).
-  import { UndoManager, type UndoEntry, type UndoResult } from './lib/undo-manager'
+  import { UndoManager, type UndoResult } from './lib/undo-manager'
   import { keyEventToCommand } from './lib/keyboard-commands'
+  import {
+    commitCascadeBatch as libCommitCascadeBatch,
+    commitPrimariesBypass as libCommitPrimariesBypass,
+    countAltBypassViolations
+  } from './lib/cascade-commit'
   import { createFlashStore, flashIssues } from './lib/flash-store'
   import { reduce } from './lib/drag-controller'
   import { buildLayout } from './lib/layout'
@@ -2009,18 +2017,9 @@
     for (const i of allInSpace) allByRef.set(i._id, i)
 
     if (altKey) {
-      // cascadeToken plumbing. Tag every cascade-related
-      // commit with a unique token (scope-string) so  (bulk-
-      // drag) and  (cascade-shift notification) can correlate
-      // every sub-Tx of one user-action to a single batch downstream.
-      const cascadeToken = newCascadeToken(cascadeScope ?? 'gantt-cascade-bypass')
-      const ops = client.apply(undefined, cascadeToken)
-      for (const pe of primaryEdits) {
-        await ops.update(pe.issue, { startDate: pe.newStart, dueDate: pe.newDue })
-      }
-      const undoEntry = buildDateUndoEntry(primaryEdits, [])
-      const result = await ops.commit()
-      if (!result.result) {
+      // W10-D2 — Tx orchestration extracted to lib/cascade-commit.ts.
+      const { ok, undoEntry, cascadeToken } = await libCommitPrimariesBypass(client, primaryEdits, cascadeScope)
+      if (!ok) {
         const t = await translate(tracker.string.GanttDragFailed, {}, undefined)
         addNotification(t, '', undefined as any, undefined, NotificationSeverity.Error)
         activeDrag.set({ kind: 'idle' })
@@ -2033,19 +2032,7 @@
       // shifts (there are none on the bypass branch).
       void emitDependencyShiftBundles(primaryEdits, [], cascadeToken)
       // Count direct violations against full-space relations + full-space issue dates.
-      let violations = 0
-      const primarySet = new Set(primaryEdits.map((p) => String(p.issue._id)))
-      for (const pe of primaryEdits) {
-        for (const r of relations) {
-          const involvesPrimary = String(r.attachedTo) === String(pe.issue._id) || String(r.target) === String(pe.issue._id)
-          if (!involvesPrimary) continue
-          const otherRef = String(r.attachedTo) === String(pe.issue._id) ? r.target : r.attachedTo
-          if (primarySet.has(String(otherRef))) continue
-          const otherIssue = allByRef.get(otherRef as Ref<Issue>)
-          if (otherIssue === undefined || otherIssue.startDate == null || otherIssue.dueDate == null) continue
-          if (!relationSatisfied(r, pe, otherIssue)) violations++
-        }
-      }
+      const violations = countAltBypassViolations(primaryEdits, relations, allByRef, workingDaysCfg)
       if (violations > 0) {
         const t = await translate(tracker.string.CascadeBannerBypass, { count: violations }, undefined)
         addNotification(t, '', undefined as any, undefined, NotificationSeverity.Warning)
@@ -2130,14 +2117,14 @@
             return
           }
         }
-        const cascadeToken = newCascadeToken(cascadeScope ?? 'gantt-no-cascade')
-        const ops = client.apply(undefined, cascadeToken)
-        for (const pe of result.primary) {
-          await ops.update(pe.issue, { startDate: pe.newStart, dueDate: pe.newDue })
-        }
-        const undoEntry = buildDateUndoEntry(result.primary, [])
-        const r = await ops.commit()
-        if (!r.result) {
+        // W10-D2 — Tx orchestration extracted to lib/cascade-commit.ts.
+        const { ok, undoEntry, cascadeToken } = await libCommitCascadeBatch(
+          client,
+          result.primary,
+          [],
+          cascadeScope ?? 'gantt-no-cascade'
+        )
+        if (!ok) {
           const t = await translate(tracker.string.GanttDragFailed, {}, undefined)
           addNotification(t, '', undefined as any, undefined, NotificationSeverity.Error)
         } else {
@@ -2205,68 +2192,22 @@
   }
 
   /**
-   * Phase 3c — build a single undo-entry for a primary+shifts batch.
-   * Returns null when there is nothing to record (zero-issue commit).
+   * Component-side wrapper around lib/cascade-commit.ts. Owns the
+   * UX-side-effects (toast on failure, undo-stack push, dependency-
+   * shift notifications). The Tx orchestration itself is the lib call.
    */
-  function buildDateUndoEntry (primary: PrimaryEdit[], shifts: CascadeShift[]): UndoEntry | null {
-    const changes: Array<{ issueId: Ref<Issue>, issueSpace: Ref<Space>, before: { startDate: number | null, dueDate: number | null }, after: { startDate: number | null, dueDate: number | null } }> = []
-    for (const pe of primary) {
-      changes.push({
-        issueId: pe.issue._id,
-        issueSpace: pe.issue.space,
-        before: { startDate: pe.issue.startDate ?? null, dueDate: pe.issue.dueDate ?? null },
-        after: { startDate: pe.newStart, dueDate: pe.newDue }
-      })
-    }
-    for (const sh of shifts) {
-      changes.push({
-        issueId: sh.issue._id,
-        issueSpace: sh.issue.space,
-        before: { startDate: sh.oldStart, dueDate: sh.oldDue },
-        after: { startDate: sh.newStart, dueDate: sh.newDue }
-      })
-    }
-    if (changes.length === 0) return null
-    if (changes.length === 1) {
-      const c = changes[0]
-      return {
-        kind: 'date-change',
-        issueId: c.issueId,
-        issueSpace: c.issueSpace,
-        before: c.before,
-        after: c.after,
-        description: `Move ${String(c.issueId)}`
-      }
-    }
-    return {
-      kind: 'date-batch',
-      changes,
-      description: `Cascade: ${changes.length} issues shifted`
-    }
-  }
-
   async function commitCascadeBatch (
     primary: PrimaryEdit[],
     shifts: CascadeShift[],
-    /**
-     * cascadeToken scope override. Bulk-drag passes
-     * `'gantt-bulk-cascade'` so the entire batch (primaries + cascade
-     * fanout) shares one scope-prefix downstream.
-     */
     cascadeScope: string = 'gantt-cascade-commit'
   ): Promise<void> {
-    const client = getClient()
-    const cascadeToken = newCascadeToken(cascadeScope)
-    const ops = client.apply(undefined, cascadeToken)
-    for (const pe of primary) {
-      await ops.update(pe.issue, { startDate: pe.newStart, dueDate: pe.newDue })
-    }
-    for (const sh of shifts) {
-      await ops.update(sh.issue, { startDate: sh.newStart, dueDate: sh.newDue })
-    }
-    const undoEntry = buildDateUndoEntry(primary, shifts)
-    const r = await ops.commit()
-    if (!r.result) {
+    const { ok, undoEntry, cascadeToken } = await libCommitCascadeBatch(
+      getClient(),
+      primary,
+      shifts,
+      cascadeScope
+    )
+    if (!ok) {
       const t = await translate(tracker.string.GanttDragFailed, {}, undefined)
       addNotification(t, '', undefined as any, undefined, NotificationSeverity.Error)
       return
@@ -2301,32 +2242,6 @@
         console.warn('gantt: dependency-shift notification dispatch failed', err)
       }
     )
-  }
-
-  /**
-   * Returns true iff the relation `r` is satisfied given the proposed
-   * primary edit `pe` and the current dates of the other side. Used for
-   * the Alt-bypass violation count only. Routes through the same anchor
-   * helpers as the scheduler so violation counts agree with cascade
-   * decisions in both legacy and working-days mode.
-   */
-  function relationSatisfied (
-    r: IssueRelation,
-    pe: PrimaryEdit,
-    otherIssue: Issue
-  ): boolean {
-    const isOutgoing = String(r.attachedTo) === String(pe.issue._id)
-    const predStart = isOutgoing ? pe.newStart : (otherIssue.startDate as number)
-    const predDue = isOutgoing ? pe.newDue : (otherIssue.dueDate as number)
-    const succStart = isOutgoing ? (otherIssue.startDate as number) : pe.newStart
-    const succDue = isOutgoing ? (otherIssue.dueDate as number) : pe.newDue
-    const lag = r.lag ?? 0
-    switch (r.kind) {
-      case 'finish-to-start': return fsAnchor(predDue, lag, workingDaysCfg) <= succStart
-      case 'start-to-start': return ssAnchor(predStart, lag, workingDaysCfg) <= succStart
-      case 'finish-to-finish': return ffAnchor(predDue, lag, workingDaysCfg) <= succDue
-      case 'start-to-finish': return sfAnchor(predStart, lag, workingDaysCfg) <= succDue
-    }
   }
 
   async function commitDrag (state: DragState, event?: PointerEvent | MouseEvent): Promise<void> {
