@@ -147,6 +147,21 @@
 
   {#if error != null}<div class="err" role="alert">{error}</div>{/if}
 
+  <!-- Bulk-bar is rendered ABOVE the list and ALWAYS visible (disabled
+       when nothing is selected) so the table does not shift down when
+       the first row gets ticked. Only mounted for editors; viewers keep
+       the legacy layout. -->
+  {#if canEdit}
+    <PeopleBulkBar count={selectedIds.size}
+      {lastBulkRoleResult}
+      on:deselectAll={() => (selectedIds = new Set())}
+      on:addToSpace={bulkAdd}
+      on:removeFromSpace={bulkRemove}
+      on:changeRole={bulkRole}
+      on:dismissBulkResult={() => (lastBulkRoleResult = null)}
+    />
+  {/if}
+
   {#if sub === 'all'}
     <AllMembersTab {workspace} {selectedIds} on:rowClick={onRowClick} on:selectionChange={onSelection} />
   {:else if sub === 'by-role'}
@@ -157,17 +172,6 @@
     <GrantedAccessTab {workspace} canRevoke={canEdit} on:revoked={loadGrantsCount} />
   {:else if sub === 'pending'}
     <PendingInvitesTab {workspace} />
-  {/if}
-
-  {#if canEdit}
-    <PeopleBulkBar count={selectedIds.size}
-      {lastBulkRoleResult}
-      on:deselectAll={() => (selectedIds = new Set())}
-      on:addToSpace={bulkAdd}
-      on:removeFromSpace={bulkRemove}
-      on:changeRole={bulkRole}
-      on:dismissBulkResult={() => (lastBulkRoleResult = null)}
-    />
   {/if}
 
   <PersonDrawer
