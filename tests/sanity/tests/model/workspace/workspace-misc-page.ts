@@ -1,24 +1,24 @@
+//
+// Copyright © 2026 Hardcore Engineering Inc.
+//
+// Phase 2.5 — slim page-object for Settings → General / Templates /
+// Enums helpers that previously lived in `owner-pages.ts`. The legacy
+// page-object also targeted the pre-Phase-2 `Members.svelte` ("owner
+// link") and `Spaces.svelte` ("Admin Members") UIs; those surfaces have
+// been consolidated into the Access Center (see `access-center.spec.ts`)
+// so the legacy locators no longer apply and this file does NOT carry
+// them forward.
+//
+
 import { expect, type Locator, type Page } from '@playwright/test'
 
-export class OwnersPage {
+export class WorkspaceMiscPage {
   readonly page: Page
 
   constructor (page: Page) {
     this.page = page
   }
 
-  owner = (ownerName: string): Locator => this.page.getByRole('link', { name: ownerName })
-  spacesAdminText = (): Locator => this.page.getByText('Admin Members')
-  // Sidebar "Members" nav item clashes with Spaces role pickers (label "Members"). Scope to settings content
-  // and the "Admin" role row — Spaces.svelte renders one AccountArrayEditor per role.
-  addMemberButton = (): Locator =>
-    this.page
-      .locator('.antiPanel-component.filledNav')
-      .locator('.antiGrid-row')
-      .filter({ has: this.page.locator('.antiGrid-row__header', { hasText: /^Admin$/ }) })
-      .getByRole('button', { name: 'Members' })
-
-  selectMember = (memberName: string): Locator => this.page.getByRole('button', { name: memberName })
   workspaceLogo = (): Locator => this.page.locator('.hulyComponent .hulyAvatar-container')
   publicTemplate = (): Locator => this.page.getByText('Public templates')
   createTemplate = (): Locator => this.page.getByRole('button', { name: 'CREATE TEMPLATE' })
@@ -31,26 +31,21 @@ export class OwnersPage {
   enterEnumName = (): Locator => this.page.getByPlaceholder('Enter option title')
   saveButton = (): Locator => this.page.getByRole('button', { name: 'Save' })
   createdEnum = (name: string): Locator => this.page.getByRole('button', { name: `${name} 1 option` })
-  enum = (name: string): Locator => this.page.getByRole('button', { name })
-  linkValidFor = (): Locator => this.page.getByRole('spinbutton')
-  emailMask = (): Locator => this.page.getByRole('textbox', { name: 'Type text...' })
-  noLimitToggleButton = (): Locator => this.page.locator('label span')
+  enumOption = (name: string): Locator => this.page.getByRole('button', { name })
   avatarLarge = (): Locator => this.page.locator('.hulyAvatarSize-medium.ava-image')
-
-  async addMember (memberName: string): Promise<void> {
-    await expect(this.spacesAdminText()).toBeVisible()
-    await this.addMemberButton().click()
-    await this.selectMember(memberName).click()
-    await this.page.keyboard.press('Escape')
-    await expect(this.selectMember(memberName)).toBeVisible()
-  }
 
   async clickOnWorkspaceLogo (): Promise<void> {
     await this.workspaceLogo().click()
   }
 
-  async checkIfOwnerExists (ownerName: string): Promise<void> {
-    await expect(this.owner(ownerName)).toBeVisible()
+  async saveUploadedLogo (): Promise<void> {
+    await this.saveButton().nth(1).click()
+    await this.saveButton().nth(0).click()
+  }
+
+  async checkIfPictureIsUploaded (): Promise<void> {
+    await expect(this.avatarLarge()).toBeVisible()
+    await expect(this.avatarLarge()).toHaveAttribute('src')
   }
 
   async createTemplateWithName (templateName: string): Promise<void> {
@@ -70,16 +65,6 @@ export class OwnersPage {
     await this.saveButton().click()
     await expect(this.createdEnum(enumTitle)).toBeVisible()
     await this.createdEnum(enumTitle).click()
-    await expect(this.enum(enumName)).toBeVisible()
-  }
-
-  async saveUploadedLogo (): Promise<void> {
-    await this.saveButton().nth(1).click()
-    await this.saveButton().nth(0).click()
-  }
-
-  async checkIfPictureIsUploaded (): Promise<void> {
-    await expect(this.avatarLarge()).toBeVisible()
-    await expect(this.avatarLarge()).toHaveAttribute('src')
+    await expect(this.enumOption(enumName)).toBeVisible()
   }
 }
