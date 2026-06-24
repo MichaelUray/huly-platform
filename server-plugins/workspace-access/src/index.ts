@@ -134,3 +134,51 @@ export type {
   AuditInsertPgClient,
   WorkspaceAuditPayload
 } from './audit/insert'
+
+// Outbound webhook infrastructure (Wave 6 / new): CRUD + dispatcher +
+// SSRF guard. Wired by the account-service host through CRUD endpoints;
+// audit-side fan-out is opt-in via the dispatcher.
+export {
+  listWebhooks,
+  createWebhook,
+  updateWebhook,
+  deleteWebhook,
+  testWebhook,
+  dispatchActiveWebhooksAsync,
+  ValidationError as WebhookValidationError,
+  ALLOWED_WEBHOOK_EVENT_TYPES,
+  MAX_WEBHOOKS_PER_WORKSPACE
+} from './endpoints/webhookEndpoints'
+export type {
+  WebhookBackend,
+  WebhookCtx,
+  WebhookCreateInput,
+  WebhookUpdateInput,
+  WebhookRow,
+  WebhookSubscription,
+  DataFilter,
+  TestFireDeps
+} from './endpoints/webhookEndpoints'
+
+export {
+  dispatchWebhook,
+  buildPayload,
+  signPayload,
+  DEFAULT_TIMEOUT_MS,
+  DEFAULT_RETRY_DELAYS_MS
+} from './webhooks/dispatcher'
+export type {
+  WebhookAction,
+  AuditEvent,
+  DispatchResult,
+  DispatchAttempt,
+  DispatcherDeps
+} from './webhooks/dispatcher'
+
+export {
+  validateWebhookUrl,
+  assertResolvedHostSafe,
+  isBlockedIp,
+  WebhookUrlError
+} from './webhooks/ssrf'
+export type { LookupFn, UrlValidationResult } from './webhooks/ssrf'
