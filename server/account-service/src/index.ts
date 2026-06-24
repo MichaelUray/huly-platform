@@ -612,20 +612,22 @@ export function serveAccount (
 
   // ── End CSV Export routes ────────────────────────────────────────────────
 
-  // ── WAC (Workspace Access Center) stub routes ───────────────────────────
-  // First-cut endpoints for the WAC frontend running on huly.uray.io. They
-  // return shape-correct fixtures pulled from the existing account/admin
-  // surface so the UI is fully clickable end-to-end. Real backing of
-  // members/spaces/audit/grants from the workspace transactor is the
-  // next session's wiring job; tonight's deploy is about getting the
-  // surface live so flows can be exercised.
+  // ── WAC (Workspace Access Center) routes ────────────────────────────────
+  // HTTP host for the WAC surface. Each request is first authenticated via
+  // `authenticateWac` (Phase 1 Task 2 — server/account-service/src/wac/auth.ts)
+  // and then dispatched to either `wacReadHandlers` (GET) or
+  // `wacWriteHandlers` (PUT/POST/DELETE) from
+  // `@hcengineering/server-workspace-access`. All policy, last-owner gating,
+  // TxOperations mutations, audit-row sequencing and CSV emission live in
+  // the plugin; this file owns route-matching, auth-gating, body-parsing
+  // and the 500-wrap around unexpected throws.
   //
-  // Implemented as raw app.use middleware that matches GET requests
-  // against /api/wac/<ws>/<endpoint> patterns. koa-router exhibited
+  // Implemented as raw `app.use` middleware that matches by regex on
+  // `/api/wac/<ws>/<endpoint>` patterns. koa-router exhibited
   // deterministic-but-alternating 200/404 responses on consecutive WAC
   // routes when registered conventionally — likely a path-to-regexp
   // ordering quirk we couldn't isolate. Bypassing the router for these
-  // 9 simple GETs avoids the issue entirely.
+  // endpoints avoids the issue entirely.
 
   // Direct pg client for raw workspace queries (spaces / audit log /
   // grants). Reuses the same DB_URL the account collection uses;
