@@ -2,6 +2,13 @@
   import type { SpaceClass } from '../../types'
   export let cls: SpaceClass
 
+  // C5 — per-space-type brand colors. These are genuine category-accent
+  // colors (one per Huly app) that map to each app's own design language
+  // (e.g. tracker-blue, document-purple, drive-green). They are NOT
+  // candidates for a theme token because they identify the *kind* of
+  // space, not a UI state. They are applied via inline CSS custom
+  // property below — never embedded in a CSS style block — and the
+  // no-hardcoded-colors guard's allowlist exempts this file accordingly.
   const map: Record<SpaceClass, { label: string; emoji: string; color: string }> = {
     'tracker.class.Project': { label: 'Project', emoji: '📌', color: '#3b82f6' },
     'document.class.Teamspace': { label: 'Teamspace', emoji: '📄', color: '#8b5cf6' },

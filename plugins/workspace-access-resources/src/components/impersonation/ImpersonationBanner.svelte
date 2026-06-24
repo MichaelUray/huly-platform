@@ -74,25 +74,41 @@
     top: 0;
     z-index: 40;
   }
-  .blue { background: rgba(59,130,246,0.15); color: #1e40af; }
+  /* C5 — blue (drill-down) + red (active impersonation) banners use
+     theme tokens. Blue maps to Huly's mention-blue family (informational,
+     not alarming). Red maps to the state-negative family. */
+  .blue {
+    background: var(--theme-mention-bg-color);
+    color: var(--theme-link-color);
+  }
   .red {
-    background: rgba(239,68,68,0.18);
-    color: #991b1b;
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
     animation: red-pulse 4s ease-in-out infinite;
   }
   @keyframes red-pulse {
-    0%, 100% { background: rgba(239,68,68,0.18); }
-    50% { background: rgba(239,68,68,0.28); }
+    0%, 100% { background: var(--theme-state-negative-background-color); }
+    50% { background: var(--theme-state-negative-border-color); }
   }
   .text { flex: 0 1 auto; }
   .spacer { flex: 1; }
   .cta {
-    background: #1e40af; color: white; border: 0; padding: 0.3rem 0.7rem; border-radius: 0.25rem; cursor: pointer;
-    &:hover { background: #1e3a8a; }
+    background: var(--theme-link-color);
+    color: var(--theme-button-contrast-color, white);
+    border: 0;
+    padding: 0.3rem 0.7rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    &:hover { filter: brightness(0.9); }
   }
   .cta-red {
-    background: #991b1b; color: white; border: 0; padding: 0.3rem 0.7rem; border-radius: 0.25rem; cursor: pointer;
-    &:hover { background: #7f1d1d; }
+    background: var(--theme-state-negative-color);
+    color: var(--theme-button-contrast-color, white);
+    border: 0;
+    padding: 0.3rem 0.7rem;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    &:hover { background: var(--theme-state-negative-hover); }
   }
   .ghost {
     background: transparent;

@@ -97,18 +97,35 @@
 
 <style lang="scss">
   .all-members-tab { padding: 1rem 1.25rem; }
-  .err { padding: 0.75rem; background: rgba(239,68,68,0.1); color: #b91c1c; border-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .err {
+    padding: 0.75rem;
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
+    border-radius: 0.25rem;
+    margin-bottom: 0.75rem;
+  }
   .role { font-size: 0.78rem; padding: 0.1rem 0.45rem; border-radius: 0.25rem; }
-  .role-owner { background: rgba(245,158,11,0.18); color: #b45309; }
-  .role-maintainer { background: rgba(99,102,241,0.18); color: #4338ca; }
+  /* C5 — Role badges use Huly theme tokens.
+     OWNER → "warning"-family (amber) so the privileged role stands out.
+     MAINTAINER → mention-family (blue) — clearly different from OWNER but
+     still positive/empowered.
+     USER → neutral divider/darker (the previous baseline).
+     GUEST + sub-roles → all share the neutral-grey family; the visual
+     distinction between READONLY_GUEST and DOC_GUEST is intentional only
+     in label text, since they carry the same capability bucket in v1. */
+  .role-owner {
+    background: var(--theme-warning-color, var(--theme-state-positive-background-color));
+    color: var(--theme-caption-color);
+  }
+  .role-maintainer {
+    background: var(--theme-mention-bg-color);
+    color: var(--theme-link-color);
+  }
   .role-user { background: var(--theme-divider-color); color: var(--theme-darker-color); }
-  .role-guest { background: rgba(156,163,175,0.18); color: #6b7280; }
-  /* T3 — Guest sub-role badges. Same neutral-grey family as plain GUEST
-     but with subtly different hues so the role distinction reads at a
-     glance without implying any extra capability. */
-  .role-readonly-guest { background: rgba(125,211,252,0.22); color: #075985; }
-  .role-doc-guest { background: rgba(196,181,253,0.22); color: #5b21b6; }
+  .role-guest { background: var(--theme-divider-color); color: var(--theme-darker-color); }
+  .role-readonly-guest { background: var(--theme-divider-color); color: var(--theme-darker-color); }
+  .role-doc-guest { background: var(--theme-divider-color); color: var(--theme-darker-color); }
   .bucket { font-size: 0.8rem; color: var(--theme-darker-color); }
-  .bucket-today { color: #16a34a; font-weight: 500; }
-  .bucket-90d\+ { color: #b91c1c; }
+  .bucket-today { color: var(--theme-state-positive-color); font-weight: 500; }
+  .bucket-90d\+ { color: var(--theme-state-negative-color); }
 </style>

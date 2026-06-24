@@ -149,7 +149,13 @@
 
 <style lang="scss">
   .all-spaces { padding: 1rem 1.25rem; }
-  .err { padding: 0.75rem; background: rgba(239,68,68,0.1); color: #b91c1c; border-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .err {
+    padding: 0.75rem;
+    background: var(--theme-state-negative-background-color);
+    color: var(--theme-state-negative-color);
+    border-radius: 0.25rem;
+    margin-bottom: 0.75rem;
+  }
   .badge {
     display: inline-block;
     font-size: 0.72rem;
@@ -158,14 +164,16 @@
     font-weight: 500;
     letter-spacing: 0.02em;
   }
+  /* C5 — "v2 coming soon" badge uses Huly's mention-blue family so it
+     reads as informational, not warning. */
   .badge-v2 {
-    background: color-mix(in srgb, #6366f1 16%, transparent);
-    color: #4338ca;
-    border: 1px solid color-mix(in srgb, #6366f1 25%, transparent);
+    background: var(--theme-mention-bg-color);
+    color: var(--theme-link-color);
+    border: 1px solid var(--theme-divider-color);
   }
   .open-in-app {
     font-size: 0.78rem;
-    color: var(--theme-link-color, #2563eb);
+    color: var(--theme-link-color);
     text-decoration: none;
     &:hover { text-decoration: underline; }
   }
