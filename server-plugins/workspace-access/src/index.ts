@@ -64,6 +64,21 @@ export type {
 export { listGrants, countGrants, revokeGrant } from './endpoints/grantEndpoints'
 export type { GrantRow, GrantBackend, GrantCtx } from './endpoints/grantEndpoints'
 
+export { effectivePermissions } from './endpoints/effectivePermissions'
+export type {
+  EffectivePermissionsBackend,
+  EffectivePermissionsCtx,
+  EffectivePermissionsParams,
+  EffectivePermissionsResult,
+  EffectivePermissionsUser,
+  EffectivePermissionsResource,
+  EffectivePermissionsResourceFull,
+  EffectivePermissionsPathStep,
+  EffectivePermissionsDecision,
+  EffectivePermissionsRole,
+  EffectivePermissionsAuditEntry
+} from './endpoints/effectivePermissions'
+
 export { v33BackfillWorkspace, MAX_RETRIES } from './backfill/v33Orchestrator'
 export type {
   BackfillState,
