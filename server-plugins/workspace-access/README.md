@@ -169,6 +169,19 @@ the audit trail is missing the row. The handlers log the failure via
 reconstruct from the transactor's own tx log + the model's `modifiedOn`,
 but the loss is **not automatically backfilled**.
 
+### CSV-export rate limit (M3)
+
+`GET /api/wac/<ws>/audit/export.csv` is rate-limited at 5 requests per
+minute per bearer-token via a `TokenBucketLimiter` instance separate
+from the admin export limiter. Exceeding the limit returns
+`HTTP 429` with `Retry-After: 60`.
+
+**Known D7 violation:** the limiter is process-local. account-service
+is load-balanced, so the cap is per-pod, not per-user cluster-wide.
+The same limitation applies to the admin export route. v2 plan is to
+move both limiters behind a shared backend (Redis token-bucket or
+equivalent) — out of scope for this hardening pass.
+
 ### Observability — `wac_audit_orphan` (M1)
 
 Every audit-INSERT failure post-successful-mutation now increments a
