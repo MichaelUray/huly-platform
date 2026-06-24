@@ -39,6 +39,45 @@ Each file has a focused unit test under `../__tests__/`:
 | `wacTxClient.test.ts` | Per-workspace memoization, refresh on transactor 401, the `close()` cleanup path, and a 500→propagate path. |
 | `wacCacheInvalidator.test.ts` | The fire-and-forget contract (errors logged not thrown), the no-op stub, and the env opt-out. |
 
+## Rate-limiting (CSV exports)
+
+The admin and WAC CSV-export routes share a single rate-limiter
+(`../util/redisRateLimiter.ts`). Keys are namespaced so the two routes
+do not starve each other:
+
+- `csv:admin:<sha256(token)>` — admin `GET /api/admin/accounts/export.csv`
+- `csv:wac:<sha256(token)>` — WAC `GET /api/wac/<ws>/audit/export.csv`
+
+Both buckets are sized 5 requests / 60 s / token.
+
+### Backend selection
+
+| `REDIS_URL` | Backend | Behaviour |
+|-------------|---------|-----------|
+| set | Redis (atomic `INCR` + `PEXPIRE` via Lua) | Cluster-wide cap. Production. |
+| unset / empty | Process-local `Map` | Per-pod cap (D7 violation, dev/test only). A `warn` breadcrumb is emitted at boot. |
+
+### Fixed-window semantics (deliberate)
+
+The Lua script is `INCR` + conditional `PEXPIRE` (only on the
+counter-creating call). The TTL is anchored to the first request in a
+window, not refreshed on every hit — that is fixed-window, not
+sliding-window. We picked it intentionally so sustained abuse cannot
+walk the bucket forward indefinitely.
+
+### Fail-open on Redis errors
+
+Any error from `EVAL` (connection refused, timeout, MOVED in cluster
+mode, …) is caught and the request is **allowed** with an `error`-level
+breadcrumb. Rationale: a transient infra blip should not block a real
+admin from running a one-off export. Sustained failures are visible in
+logs / alerts.
+
+### Token hashing
+
+The bucket key is `sha256(token)` — never the raw token — so neither
+log lines nor Redis keys leak credential material.
+
 ## What this directory does NOT do
 
 - Audit-row writes — those live inline in `serveAccount(...)` via
