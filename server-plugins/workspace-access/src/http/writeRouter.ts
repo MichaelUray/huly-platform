@@ -342,6 +342,7 @@ async function loadSpaceRow (
     [workspaceUuid, spaceId]
   )
   if (rows[0] == null) return null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- raw pg row shape; columns enumerated below
   const r = rows[0] as any
   return {
     _id: String(r._id),
