@@ -731,14 +731,22 @@ export function serveAccount (
         const jti = `${now}-${Math.random().toString(16).slice(2, 12)}`
         const impersonationRefId = `${now}-${Math.random().toString(16).slice(2, 12)}`
         // Issue token with workspace audience so transactor accepts it.
-        const impersonationToken = generateToken(adminUuid, workspaceUuid as any, {
-          extra: {
+        // Pass extra as a flat Record<string,string> (not nested under .extra)
+        // and set options.exp so the documented 30-minute expiry actually
+        // applies to the JWT and aligns with revokedJtis bookkeeping.
+        const impersonationToken = generateToken(
+          adminUuid,
+          workspaceUuid as any,
+          {
             impersonation: 'true',
             impersonation_ref: impersonationRefId,
             actor_admin: adminUuid,
-            jti
-          }
-        } as any)
+            jti,
+            admin: 'true'
+          },
+          undefined,
+          { exp }
+        )
         // Audit start in workspace_audit_log
         await writeWacAudit(workspaceUuid, 'impersonation_started', adminUuid, 'instance_admin', {
           new_value: { impersonation_ref: impersonationRefId, jti, reason, started_at: now }
