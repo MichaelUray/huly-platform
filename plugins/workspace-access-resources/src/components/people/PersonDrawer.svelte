@@ -16,12 +16,22 @@
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import { peopleApi } from '../../api/peopleApi'
   import { effectivePermissionsApi, type EffectivePermissionsResponse } from '../../api/effectivePermissionsApi'
-  import type { WorkspaceRole } from '../../types'
+  import { grantedAccessApi } from '../../api/grantedAccessApi'
+  import type { GrantRow, WorkspaceRole } from '../../types'
+  import { wacStrings, formatGrantExpiryStatus } from '../../i18n'
 
   export let workspace: string
   export let person: { uuid: string, name: string, role: WorkspaceRole } | null = null
   export let open: boolean = false
   export let canEdit: boolean = false
+  /**
+   * Optional concrete grant the drawer is editing. When provided AND
+   * the person's role is one of the GUEST / READONLY_GUEST / DOC_GUEST
+   * variants, an Expires section is shown so the Owner can set or
+   * clear a time-bounded expiry on this specific grant.
+   * DSGVO Art. 5 Abs. 1 lit. e (Datensparsamkeit).
+   */
+  export let grant: GrantRow | null = null
 
   const dispatch = createEventDispatcher<{ close: void, changed: void }>()
 
@@ -84,6 +94,71 @@
     } finally {
       epLoading = false
     }
+  }
+
+  // Expiry sub-state. `expiryInput` is the <input type="datetime-local">
+  // value (browser-local, no offset); we serialise to ISO-with-offset
+  // before sending to the server so the wire format matches what
+  // server-workspace-access' ISO_RE expects.
+  let expiryInput: string = ''
+  let expiryBusy: boolean = false
+  let expiryError: string | null = null
+
+  // GUEST-style roles are the only ones that may carry an expiry
+  // today. WorkspaceRole only declares 'GUEST' but the server
+  // recognises READONLY_GUEST / DOC_GUEST as well; we compare on the
+  // string substring so both legacy and future guest variants surface.
+  $: showExpiry =
+    grant !== null &&
+    person !== null &&
+    canEdit &&
+    typeof person.role === 'string' &&
+    person.role.toUpperCase().includes('GUEST')
+
+  $: if (grant !== null) {
+    expiryInput = grant.expiresAt !== null ? isoToLocalInput(grant.expiresAt) : ''
+    expiryError = null
+  }
+
+  $: expiryStatus = grant !== null ? formatGrantExpiryStatus(grant.expiresAt, Date.now()) : null
+
+  function isoToLocalInput (iso: string): string {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return ''
+    const pad = (n: number): string => n.toString().padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  function localInputToIso (local: string): string | null {
+    if (local === '') return null
+    const d = new Date(local)
+    if (Number.isNaN(d.getTime())) return null
+    return d.toISOString()
+  }
+
+  async function applyExpiry (): Promise<void> {
+    if (grant === null || person === null) return
+    expiryError = null
+    const iso = localInputToIso(expiryInput)
+    if (iso !== null && Date.parse(iso) <= Date.now()) {
+      expiryError = wacStrings.grantExpiryInPast
+      return
+    }
+    expiryBusy = true
+    try {
+      await grantedAccessApi.setExpiry(workspace, grant.recipientUuid, grant.resourceId, iso)
+      dispatch('changed')
+    } catch (e) {
+      expiryError = e instanceof Error ? e.message : String(e)
+    } finally {
+      expiryBusy = false
+    }
+  }
+
+  async function clearExpiry (): Promise<void> {
+    if (grant === null) return
+    expiryInput = ''
+    await applyExpiry()
   }
 
   $: if (person != null) {
@@ -243,6 +318,37 @@
           </div>
         {/if}
       </section>
+
+      {#if showExpiry && grant !== null}
+        <section class="section">
+          <h3>{wacStrings.grantExpiryLabel}</h3>
+          {#if expiryStatus !== null}
+            <p class="status {expiryStatus.kind}">{expiryStatus.text}</p>
+          {/if}
+          <div class="row">
+            <label for="expiry-input">{wacStrings.grantExpiryLabel}</label>
+            <input
+              id="expiry-input"
+              type="datetime-local"
+              bind:value={expiryInput}
+              disabled={expiryBusy}
+            />
+          </div>
+          {#if expiryError !== null}
+            <p class="err" role="alert">{expiryError}</p>
+          {/if}
+          <div class="row">
+            <button class="primary" on:click={applyExpiry} disabled={expiryBusy}>
+              {expiryBusy ? 'Saving…' : 'Save expiry'}
+            </button>
+            {#if expiryInput !== ''}
+              <button class="ghost" on:click={clearExpiry} disabled={expiryBusy}>
+                Clear (make permanent)
+              </button>
+            {/if}
+          </div>
+        </section>
+      {/if}
     {/if}
   </svelte:fragment>
 </EntityDrawer>
@@ -355,4 +461,34 @@
     margin-right: 0.4rem;
   }
   .step-detail { color: var(--theme-darker-color); }
+
+  /* Time-bounded grants — expiry section. Hardcoded rgba() colors come
+     from the sub-agent's original commit; a follow-up rework swaps to
+     theme tokens (the no-hardcoded-colors guard test enforces this). */
+  .row input[type='datetime-local'] {
+    background: var(--theme-bg-color);
+    border: 1px solid var(--theme-divider-color);
+    color: var(--theme-caption-color);
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.25rem;
+  }
+  .ghost {
+    margin-top: 1rem;
+    padding: 0.45rem 0.9rem;
+    background: transparent;
+    color: var(--theme-caption-color);
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 0.25rem;
+    cursor: pointer;
+    &:disabled { opacity: 0.5; cursor: not-allowed; }
+  }
+  .status {
+    font-size: 0.85rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 0.25rem;
+    margin: 0;
+    &.never { background: var(--theme-bg-accent-color); color: var(--theme-darker-color); }
+    &.expiring { background: var(--theme-state-warning-background-color); color: var(--theme-state-warning-color); }
+    &.expired { background: var(--theme-state-negative-background-color); color: var(--theme-state-negative-color); }
+  }
 </style>

@@ -183,11 +183,11 @@
   .file-row { display: flex; align-items: center; gap: 0.75rem; cursor: pointer; }
   .btn { padding: 0.4rem 0.8rem; border: 1px solid var(--theme-divider-color); border-radius: 0.25rem; }
   .filename { font-family: var(--font-mono, monospace); font-size: 0.85rem; }
-  .err { color: var(--theme-error-color, #c33); margin-top: 0.6rem; }
-  .ok { color: #2a8; margin-top: 0.6rem; }
+  .err { color: var(--theme-state-negative-color); margin-top: 0.6rem; }
+  .ok { color: var(--theme-state-positive-color); margin-top: 0.6rem; }
   .summary { margin-top: 1rem; font-size: 0.9rem; }
   .grid { width: 100%; border-collapse: collapse; margin-top: 0.5rem; font-size: 0.85rem; }
   .grid th, .grid td { padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--theme-divider-color); text-align: left; }
-  .grid tr.bad td { color: var(--theme-error-color, #c33); }
-  button.primary { background: var(--theme-button-primary-bg, #2a6df4); color: #fff; border: 0; padding: 0.45rem 1rem; border-radius: 0.25rem; }
+  .grid tr.bad td { color: var(--theme-state-negative-color); }
+  button.primary { background: var(--theme-button-primary-color); color: var(--theme-button-contrast-color); border: 0; padding: 0.45rem 1rem; border-radius: 0.25rem; }
 </style>

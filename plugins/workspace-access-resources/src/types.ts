@@ -125,6 +125,14 @@ export interface GrantRow {
   resourceClass: string
   resourceTitle: string
   grantedAt: string
+  /**
+   * Time-bounded grants (DSGVO Art. 5 Abs. 1 lit. e). Mirrors the
+   * server-side `GrantRow.expiresAt` in server-workspace-access:
+   *   null → permanent grant (current default)
+   *   ISO  → auto-expires at that instant; the account-service prune
+   *          loop removes the row + emits a `grant_expired` audit row.
+   */
+  expiresAt: string | null
 }
 
 export interface PendingInvite {
