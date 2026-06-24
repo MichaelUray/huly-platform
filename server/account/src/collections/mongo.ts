@@ -1039,4 +1039,32 @@ export class MongoAccountDB implements AccountDB {
     })
     return results.map((r) => r.accountUuid)
   }
+
+  // A3 — Authoritative instance-admin check.
+  //
+  // Mongo mirror of `PostgresAccountDB.isInstanceAdmin`. Looks up the
+  // account's verified `email`-type social_ids and compares them (case-
+  // insensitive, trimmed) against `process.env.ADMIN_EMAILS`.
+  //
+  // Mongo backend exists for legacy/dev only — v7 prod runs CockroachDB —
+  // but parity matters because the AccountDB interface is shared.
+  async isInstanceAdmin (accountUuid: AccountUuid): Promise<boolean> {
+    const adminEmails = new Set(
+      (process.env.ADMIN_EMAILS ?? '')
+        .split(',')
+        .map((e) => e.trim().toLowerCase())
+        .filter((e) => e.length > 0)
+    )
+    if (adminEmails.size === 0) return false
+    const socialIds = await this.socialId.find({
+      personUuid: accountUuid as unknown as PersonUuid,
+      verifiedOn: { $gt: 0 } as any
+    } as any)
+    for (const s of socialIds) {
+      if ((s.type as unknown as string) !== 'email') continue
+      const v = (s.value ?? '').trim().toLowerCase()
+      if (v !== '' && adminEmails.has(v)) return true
+    }
+    return false
+  }
 }
