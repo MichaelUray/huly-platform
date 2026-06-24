@@ -963,7 +963,19 @@ export function serveAccount (
       return
     }
     try {
-      await wacReadHandlers.handleAuditCsvExport(ctx, auth.workspaceUuid)
+      // A1 — decode optional ?filter= (base64-JSON {from?,to?,action?})
+      // here at the host so the handler stays decoupled from the URL
+      // encoding; the handler only sees a typed object.
+      let rawFilter: Record<string, any> | undefined
+      try {
+        const decoded = decodeFilterParam(ctx.query.filter)
+        rawFilter = Object.keys(decoded).length > 0 ? decoded : undefined
+      } catch (err) {
+        ctx.res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' })
+        ctx.res.end(err instanceof FilterDecodeError ? err.message : 'Bad filter')
+        return
+      }
+      await wacReadHandlers.handleAuditCsvExport(ctx, auth.workspaceUuid, rawFilter)
     } catch (err) {
       measureCtx.error('wac:/audit/export.csv read failed', { err: String(err) })
       ctx.res.writeHead(500, { 'Content-Type': 'application/json' })
@@ -1034,7 +1046,18 @@ export function serveAccount (
         return
       }
       if (sub === 'audit') {
-        await wacReadHandlers.handleAudit(ctx, workspaceUuid)
+        // A1 — same decode-once pattern as the CSV export handler.
+        let rawFilter: Record<string, any> | undefined
+        try {
+          const decoded = decodeFilterParam(ctx.query.filter)
+          rawFilter = Object.keys(decoded).length > 0 ? decoded : undefined
+        } catch (err) {
+          return json(400, {
+            error: 'bad_filter',
+            detail: err instanceof FilterDecodeError ? err.message : 'Bad filter'
+          })
+        }
+        await wacReadHandlers.handleAudit(ctx, workspaceUuid, rawFilter)
         return
       }
       if (sub === 'grants') {
