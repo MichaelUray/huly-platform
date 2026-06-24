@@ -907,7 +907,7 @@ export function serveAccount (
         await wacWriteHandlers.handleBulkMemberRole(ctx as any, workspaceUuid, callerUuid)
         return
       }
-      // DELETE /grants/<recipient>/<resource>  — 501 stub until P2B-T6.
+      // DELETE /grants/<recipient>/<resource>
       if (sub.startsWith('grants/') && ctx.method === 'DELETE') {
         const parts = sub.split('/')
         const recipient = parts[1] ?? ''
