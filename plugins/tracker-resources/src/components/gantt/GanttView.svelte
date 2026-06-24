@@ -119,6 +119,7 @@
   } from './lib/pinch-zoom'
   import { type DragState, type DragTarget, type LayoutRow, type MilestoneMarker, type SummaryRange, type ZoomLevel } from './lib/types'
   import { computeAdaptivePxPerDay, computeCanvasRenderWidth, computeCanvasViewportWidth } from './lib/viewport'
+  import { computeThumbGeometry } from './lib/scrollbar-geometry'
   import { DropdownLabelsIntl, EditBox, Icon, IconChevronDown, IconChevronRight, IconMoreV, Label, SelectPopup, eventToHTMLElement, showPanel, showPopup, tooltip } from '@hcengineering/ui'
   import type { DropdownIntlItem, SelectPopupValueType } from '@hcengineering/ui'
   import CreateIssue from '../CreateIssue.svelte'
@@ -2849,28 +2850,29 @@
   // formatRangeLabel; was only used inside the (now extracted) PNG/PDF
   // exporters.
 
-  // Custom horizontal scrollbar thumb geometry (proxy for hScrollEl).
+  // W10-D2 seam 7 — H + V thumb geometry math moved to
+  // lib/scrollbar-geometry.ts. Each axis collapses to one derivation
+  // call; the inline {thumbLength, thumbStart, scrollMax, hasOverflow,
+  // thumbMax} fields keep the original variable names so the template
+  // + drag handlers below need no edits.
   $: hTrackWidth = canvasViewportWidth > 0 ? canvasViewportWidth : 1
-  $: hThumbWidth = totalCanvasWidth > 0
-    ? Math.max(40, (hTrackWidth * hTrackWidth) / totalCanvasWidth)
-    : hTrackWidth
-  $: hThumbMax = Math.max(0, hTrackWidth - hThumbWidth)
-  $: hScrollMax = Math.max(1, totalCanvasWidth - hTrackWidth)
-  $: hThumbLeft = canvasViewportLeft <= 0 ? 0 : (canvasViewportLeft / hScrollMax) * hThumbMax
-  $: hHasOverflow = totalCanvasWidth > hTrackWidth + 1
+  $: hGeom = computeThumbGeometry(canvasViewportWidth, totalCanvasWidth, canvasViewportLeft)
+  $: hThumbWidth = hGeom.thumbLength
+  $: hThumbMax = hGeom.thumbMax
+  $: hScrollMax = hGeom.scrollMax
+  $: hThumbLeft = hGeom.thumbStart
+  $: hHasOverflow = hGeom.hasOverflow
 
   // Custom vertical scrollbar thumb geometry (proxy for the existing
   // gantt-scroller native scrollTop — Huly globally hides native bars
   // so we render our own in DOM and let the native bar drive scrollTop).
-  $: vTrackHeight = viewportHeight > 0 ? viewportHeight : 1
   $: vTotalHeight = ROW_HEIGHT * rows.length + HEADER_HEIGHT
-  $: vThumbHeight = vTotalHeight > 0
-    ? Math.max(40, (vTrackHeight * vTrackHeight) / vTotalHeight)
-    : vTrackHeight
-  $: vThumbMax = Math.max(0, vTrackHeight - vThumbHeight)
-  $: vScrollMax = Math.max(1, vTotalHeight - vTrackHeight)
-  $: vThumbTop = scrollTop <= 0 ? 0 : (scrollTop / vScrollMax) * vThumbMax
-  $: vHasOverflow = vTotalHeight > vTrackHeight + 1
+  $: vGeom = computeThumbGeometry(viewportHeight, vTotalHeight, scrollTop)
+  $: vThumbHeight = vGeom.thumbLength
+  $: vThumbMax = vGeom.thumbMax
+  $: vScrollMax = vGeom.scrollMax
+  $: vThumbTop = vGeom.thumbStart
+  $: vHasOverflow = vGeom.hasOverflow
 
   let dragVThumb = false
   let dragVThumbStartY = 0
