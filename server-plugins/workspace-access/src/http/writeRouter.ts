@@ -84,7 +84,8 @@ export interface WriteAccountDbLike {
    * Contract:
    *   - Returns `true` when the row was updated.
    *   - Returns `false` when the predicate refused the update (i.e. the
-   *     target was the last OWNER and a non-OWNER role was requested).
+   *     target was the last OWNER and a non-OWNER role was requested) OR
+   *     when the row is missing (parity with Postgres "0 rows matched").
    *
    * The reference SQL is:
    *   UPDATE workspace_members SET role=$role
@@ -100,15 +101,13 @@ export interface WriteAccountDbLike {
    *       )
    *   RETURNING 1
    *
-   * Implementations that don't have a Postgres backend can fall back to
-   * a transactional read+update, but MUST keep the gate atomic.
-   *
-   * Optional: hosts running an older `@hcengineering/account` build may
-   * not expose this method. The handler then falls back to the legacy
-   * non-atomic read+update path and logs a `wac_owner_race_fallback`
-   * breadcrumb so an operator can grep for it.
+   * REQUIRED — Codex Code-Re-Review Blocker [WAC/H3]: AccountDB Postgres
+   * + Mongo backends MUST implement this. The previous optional fallback
+   * to a plain `updateWorkspaceRole` was non-atomic (TOCTOU race between
+   * two concurrent demotes could leave the workspace with zero owners)
+   * and has been removed.
    */
-  updateWorkspaceRoleIfNotLastOwner?: (
+  updateWorkspaceRoleIfNotLastOwner: (
     accountId: any,
     workspaceId: any,
     role: AccountRole
@@ -687,9 +686,11 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
       }
 
       try {
-        if (db.updateWorkspaceRoleIfNotLastOwner !== undefined) {
-          // Authoritative atomic path. The compound SQL refuses the
-          // update if the same workspace's other OWNERs would drop to 0.
+        if (oldRole === AccountRole.Owner && canonicalRole !== AccountRole.Owner) {
+          // OWNER demote — go through the atomic compound update. The
+          // SQL gate refuses the update if the same workspace's other
+          // OWNERs would drop to 0 (catches the TOCTOU race the snapshot
+          // read above cannot).
           const ok = await db.updateWorkspaceRoleIfNotLastOwner(
             memberUuid as any,
             workspaceUuid as any,
@@ -704,14 +705,8 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
             return
           }
         } else {
-          // Legacy fallback: AccountDB build without the atomic helper.
-          // Log a breadcrumb so the operator can grep `wac_owner_race_fallback`
-          // and upgrade.
-          deps.measureCtx.warn('wac owner-race protection degraded to TOCTOU read+update', {
-            breadcrumb: 'wac_owner_race_fallback',
-            workspace: workspaceUuid,
-            target: memberUuid
-          })
+          // Non-OWNER demote (or OWNER promote / sideways change between
+          // non-OWNER roles): no last-owner risk; plain update is correct.
           await db.updateWorkspaceRole(memberUuid as any, workspaceUuid as any, canonicalRole)
         }
       } catch (err) {
@@ -821,18 +816,38 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
           results.push({ memberUuid: t, status: 'not_found' })
           continue
         }
-        if (canonicalRole !== AccountRole.Owner && memberIndex.get(t) === AccountRole.Owner) {
-          if (ownerSet.size <= 1) {
-            results.push({ memberUuid: t, status: 'last_owner_refused' })
-            continue
-          }
-          // After this demote there is one fewer owner in the live set;
-          // subsequent iterations see the smaller pool.
-          ownerSet.delete(t)
+        const oldRole = memberIndex.get(t)
+        const isOwnerDemote = oldRole === AccountRole.Owner && canonicalRole !== AccountRole.Owner
+        if (isOwnerDemote && ownerSet.size <= 1) {
+          // Snapshot guard: we are the last owner remaining in the live
+          // batch view. Skip the round-trip; the atomic helper below would
+          // refuse anyway.
+          results.push({ memberUuid: t, status: 'last_owner_refused' })
+          continue
         }
 
         try {
-          await db.updateWorkspaceRole(t as any, workspaceUuid as any, canonicalRole)
+          if (isOwnerDemote) {
+            // Codex [WAC/C1/H3]: route OWNER demotes through the atomic
+            // helper so two concurrent bulk requests demoting *different*
+            // owners cannot both pass their snapshot checks and leave zero
+            // OWNERs. The helper returns false iff the SQL gate refused.
+            const ok = await db.updateWorkspaceRoleIfNotLastOwner(
+              t as any,
+              workspaceUuid as any,
+              canonicalRole
+            )
+            if (!ok) {
+              results.push({ memberUuid: t, status: 'last_owner_refused' })
+              continue
+            }
+            // After this demote there is one fewer owner in the live set;
+            // subsequent iterations see the smaller pool.
+            ownerSet.delete(t)
+          } else {
+            // Non-OWNER demote / promote / sideways: no last-owner risk.
+            await db.updateWorkspaceRole(t as any, workspaceUuid as any, canonicalRole)
+          }
         } catch (err) {
           deps.measureCtx.error('wac bulk role update failed', {
             workspace: workspaceUuid,
