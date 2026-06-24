@@ -1,7 +1,8 @@
 //
 // Copyright © 2026 Hardcore Engineering Inc.
 //
-// E7 — WAC route-contract matrix test (Codex E6 recommendation).
+// E7 — WAC route-contract matrix test (Codex E6 recommendation; FIX 3
+// expansion to cover every client API URL).
 //
 // Codex pointed out that grep-based "every plugin export must have a
 // host route" rules are brittle (plugin packages also export pure
@@ -15,6 +16,15 @@
 // We assert the contract by source-grepping account-service/src/index.ts
 // for the route patterns we care about, plus the client API modules for
 // the URL-builder strings, then cross-referencing the two sides.
+//
+// FIX 3 expanded the matrix from 10 to a per-route inventory of every
+// `getDefaultWacClient().get/post/put/delete(...)` URL found across
+// `plugins/workspace-access-resources/src/api/*.ts`. The five webhook
+// shapes each have their own contract row (no more single regex that
+// "matches one shape" by accident), and audit/export.csv / owners-count
+// / invites / grants writes are pinned. `my-access` POST mutations are
+// added in FIX 4 alongside their honest-501 routes (CONTRACTS row is
+// added in that same commit so the matrix stays green per-commit).
 //
 
 import fs from 'fs'
@@ -60,6 +70,7 @@ interface Contract {
 }
 
 const CONTRACTS: Contract[] = [
+  // ── Capabilities + presets ────────────────────────────────────────────
   {
     name: 'capabilities (E7)',
     clientUrl: /\/capabilities/,
@@ -68,59 +79,229 @@ const CONTRACTS: Contract[] = [
   },
   {
     name: 'presets list',
-    clientUrl: /\/\$\{workspace\}\/presets/,
+    clientUrl: /\/\$\{workspace\}\/presets`/,
     expect: 'mounted',
     hostMatch: /sub === 'presets'[\s\S]{0,200}wacPresetsHandlers\.handleList/
   },
   {
     name: 'presets create',
-    clientUrl: /\/\$\{workspace\}\/presets/,
+    clientUrl: /\/\$\{workspace\}\/presets`/,
     expect: 'mounted',
     hostMatch: /sub === 'presets'[\s\S]{0,300}wacPresetsHandlers\.handleCreate/
   },
   {
-    name: 'webhooks (preview)',
-    clientUrl: /\/\$\{workspace\}\/webhooks/,
-    expect: 'preview-501',
-    // Auth via authenticateWac + return _webhookNotWired
-    hostMatch: /\/api\/wac\/:workspace\/webhooks['\s\S]{0,400}authenticateWac\([\s\S]{0,200}_webhookNotWired/
+    name: 'presets update',
+    clientUrl: /\/\$\{workspace\}\/presets\/\$\{id\}`/,
+    expect: 'mounted',
+    hostMatch: /sub\.startsWith\('presets\/'\)[\s\S]{0,300}wacPresetsHandlers\.handleUpdate/
   },
+  {
+    name: 'presets delete',
+    clientUrl: /\/\$\{workspace\}\/presets\/\$\{id\}`/,
+    expect: 'mounted',
+    hostMatch: /sub\.startsWith\('presets\/'\)[\s\S]{0,400}wacPresetsHandlers\.handleDelete/
+  },
+  {
+    name: 'presets apply',
+    clientUrl: /\/\$\{workspace\}\/presets\/\$\{id\}\/apply`/,
+    expect: 'mounted',
+    hostMatch: /presets\/'\)[\s\S]{0,300}\/apply[\s\S]{0,300}wacPresetsHandlers\.handleApply/
+  },
+  // ── Webhooks (5 routes, all preview-501) ──────────────────────────────
+  // Each shape gets its own contract row so a single overly-broad regex
+  // can't satisfy the matrix by accident.
+  {
+    name: 'webhooks list (GET)',
+    clientUrl: /c\.get<\{ items: Webhook\[\] \}>\(`\/\$\{workspace\}\/webhooks`\)/,
+    expect: 'preview-501',
+    hostMatch: /router\.get\('\/api\/wac\/:workspace\/webhooks'[\s\S]{0,200}authenticateWac[\s\S]{0,200}_webhookNotWired/
+  },
+  {
+    name: 'webhooks create (POST)',
+    clientUrl: /c\.post<Webhook>\(`\/\$\{workspace\}\/webhooks`/,
+    expect: 'preview-501',
+    hostMatch: /router\.post\('\/api\/wac\/:workspace\/webhooks'[\s\S]{0,200}authenticateWac[\s\S]{0,200}_webhookNotWired/
+  },
+  {
+    name: 'webhooks update (PUT)',
+    clientUrl: /c\.put<Webhook>\(`\/\$\{workspace\}\/webhooks\/\$\{id\}`/,
+    expect: 'preview-501',
+    hostMatch: /router\.put\('\/api\/wac\/:workspace\/webhooks\/:id'[\s\S]{0,200}authenticateWac[\s\S]{0,200}_webhookNotWired/
+  },
+  {
+    name: 'webhooks delete (DELETE)',
+    clientUrl: /c\.delete<void>\(`\/\$\{workspace\}\/webhooks\/\$\{id\}`/,
+    expect: 'preview-501',
+    hostMatch: /router\.delete\('\/api\/wac\/:workspace\/webhooks\/:id'[\s\S]{0,200}authenticateWac[\s\S]{0,200}_webhookNotWired/
+  },
+  {
+    name: 'webhooks test (POST .../test)',
+    clientUrl: /c\.post<WebhookTestResult>\(`\/\$\{workspace\}\/webhooks\/\$\{id\}\/test`/,
+    expect: 'preview-501',
+    hostMatch: /router\.post\('\/api\/wac\/:workspace\/webhooks\/:id\/test'[\s\S]{0,200}authenticateWac[\s\S]{0,200}_webhookNotWired/
+  },
+  // ── Grant-expiry (preview-501) ────────────────────────────────────────
   {
     name: 'grant-expiry (preview)',
     clientUrl: /\/expiry/,
     expect: 'preview-501',
     hostMatch: /\/grants\/:grantId\/expiry[\s\S]{0,1500}authenticateWac\([\s\S]{0,1500}grant_expiry_not_wired/
   },
+  // ── Effective-permissions (preview-501) ───────────────────────────────
   {
     name: 'effective-permissions (preview)',
     clientUrl: /\/effective-permissions/,
     expect: 'preview-501',
     hostMatch: /sub === 'effective-permissions'[\s\S]{0,1500}effective_permissions_not_wired/
   },
+  // ── CSV bulk-invite (dry-run mounted; send is preview-501) ────────────
   {
     name: 'csv bulk-invite (dry-run real, send preview)',
     clientUrl: /\/invites\/bulk-csv/,
     expect: 'preview-501',
-    // dry_run=true is real validate; dry_run=false returns 501
-    hostMatch: /\/invites\/bulk-csv['\s\S]{0,800}csv_dispatch_not_wired/
+    // dry_run=false returns 501 csv_dispatch_not_wired; dry_run=true
+    // uses the plugin's previewBulkInviteCsv (header-aware parser).
+    hostMatch: /\/invites\/bulk-csv['\s\S]{0,1500}csv_dispatch_not_wired[\s\S]{0,1500}previewBulkInviteCsv/
   },
+  // ── Audit list + CSV export ───────────────────────────────────────────
   {
     name: 'audit list',
-    clientUrl: /\/audit/,
+    clientUrl: /\/\$\{workspace\}\/audit\$\{buildQuery\(opts\)\}/,
     expect: 'mounted',
     hostMatch: /sub === 'audit'[\s\S]{0,800}handleAudit/
   },
   {
+    name: 'audit CSV export (GET .../audit/export.csv)',
+    // wacClient.exportAudit composes the export.csv URL inside the
+    // helper module, so the client search hits the helper name rather
+    // than an inline template literal.
+    clientUrl: /audit\/export\.csv|exportAudit/,
+    expect: 'mounted',
+    hostMatch: /\/audit\\\/export\\\.csv\$\/[\s\S]{0,1500}handleAuditCsvExport/
+  },
+  // ── People reads ──────────────────────────────────────────────────────
+  {
     name: 'members list',
-    clientUrl: /\/members/,
+    clientUrl: /\/\$\{workspace\}\/members\$\{buildQuery\(opts\)\}/,
     expect: 'mounted',
     hostMatch: /sub === 'members'[\s\S]{0,300}handleMembers/
   },
   {
+    name: 'invites list',
+    clientUrl: /\/\$\{workspace\}\/invites\$\{buildQuery\(opts\)\}/,
+    expect: 'mounted',
+    hostMatch: /sub === 'invites'[\s\S]{0,300}handleInvites/
+  },
+  {
+    name: 'owners count',
+    clientUrl: /\/\$\{workspace\}\/owners\/count/,
+    expect: 'mounted',
+    hostMatch: /sub === 'owners\/count'[\s\S]{0,300}handleOwnersCount/
+  },
+  // ── People writes (POST) ──────────────────────────────────────────────
+  {
+    name: 'member role (POST)',
+    clientUrl: /\/\$\{workspace\}\/members\/\$\{targetUuid\}\/role/,
+    expect: 'mounted',
+    // Host source: `sub.match(/^members\/([^/]+)\/role$/)` — note the
+    // unescaped `[^/]` since the regex literal lives in a forward-slash
+    // delimiter (escaping the slash is unnecessary inside a class).
+    hostMatch: /\^members\\\/\(\[\^\/\]\+\)\\\/role\$[\s\S]{0,500}handleMemberRole/
+  },
+  {
+    name: 'member bulk role (POST)',
+    clientUrl: /\/\$\{workspace\}\/members\/bulk\/role/,
+    expect: 'mounted',
+    hostMatch: /sub === 'members\/bulk\/role'[\s\S]{0,300}handleBulkMemberRole/
+  },
+  // ── Resources (spaces) reads ──────────────────────────────────────────
+  {
     name: 'spaces list',
-    clientUrl: /\/spaces/,
+    clientUrl: /\/\$\{workspace\}\/spaces\$\{buildQuery\(opts\)\}/,
     expect: 'mounted',
     hostMatch: /sub === 'spaces'[\s\S]{0,300}handleSpaces/
+  },
+  {
+    name: 'space detail',
+    clientUrl: /\/\$\{workspace\}\/spaces\/\$\{spaceId\}`/,
+    expect: 'mounted',
+    hostMatch: /sub\.startsWith\('spaces\/'\)[\s\S]{0,300}handleSpaceDetail/
+  },
+  // ── Resources (spaces) writes ─────────────────────────────────────────
+  {
+    name: 'space members (PUT)',
+    clientUrl: /\/\$\{workspace\}\/spaces\/\$\{spaceId\}\/members/,
+    expect: 'mounted',
+    hostMatch: /spaces\\\/\(\[\^\/\]\+\)\\\/members[\s\S]{0,400}handleSpaceMembers/
+  },
+  {
+    name: 'space owners (PUT)',
+    clientUrl: /\/\$\{workspace\}\/spaces\/\$\{spaceId\}\/owners/,
+    expect: 'mounted',
+    hostMatch: /spaces\\\/\(\[\^\/\]\+\)\\\/owners[\s\S]{0,400}handleSpaceOwners/
+  },
+  {
+    name: 'space privacy (PUT)',
+    clientUrl: /\/\$\{workspace\}\/spaces\/\$\{spaceId\}\/privacy/,
+    expect: 'mounted',
+    hostMatch: /spaces\\\/\(\[\^\/\]\+\)\\\/privacy[\s\S]{0,400}handleSpacePrivacy/
+  },
+  {
+    name: 'space auto-join (PUT)',
+    clientUrl: /\/\$\{workspace\}\/spaces\/\$\{spaceId\}\/auto-join/,
+    expect: 'mounted',
+    hostMatch: /spaces\\\/\(\[\^\/\]\+\)\\\/auto-join[\s\S]{0,400}handleSpaceAutoJoin/
+  },
+  {
+    name: 'space archived (PUT)',
+    clientUrl: /\/\$\{workspace\}\/spaces\/\$\{spaceId\}\/archived/,
+    expect: 'mounted',
+    hostMatch: /spaces\\\/\(\[\^\/\]\+\)\\\/archived[\s\S]{0,400}handleSpaceArchived/
+  },
+  // ── Resources bulk-bar ────────────────────────────────────────────────
+  {
+    name: 'bulk archive (POST)',
+    clientUrl: /\/\$\{workspace\}\/spaces\/bulk-archive/,
+    expect: 'mounted',
+    hostMatch: /sub === 'spaces\/bulk-archive'[\s\S]{0,300}handleBulkSpaceArchive/
+  },
+  {
+    name: 'bulk set-private (POST)',
+    clientUrl: /\/\$\{workspace\}\/spaces\/bulk-set-private/,
+    expect: 'mounted',
+    hostMatch: /sub === 'spaces\/bulk-set-private'[\s\S]{0,300}handleBulkSpacePrivacy/
+  },
+  {
+    name: 'bulk add-owner (POST)',
+    clientUrl: /\/\$\{workspace\}\/spaces\/bulk-add-owner/,
+    expect: 'mounted',
+    hostMatch: /sub === 'spaces\/bulk-add-owner'[\s\S]{0,300}handleBulkSpaceAddOwner/
+  },
+  // ── Granted-access (grants) reads + writes ────────────────────────────
+  {
+    name: 'grants list',
+    clientUrl: /\/\$\{workspace\}\/grants\$\{buildQuery\(opts\)\}/,
+    expect: 'mounted',
+    hostMatch: /sub === 'grants'[\s\S]{0,300}handleGrants/
+  },
+  {
+    name: 'grants count',
+    clientUrl: /\/\$\{workspace\}\/grants\/count/,
+    expect: 'mounted',
+    hostMatch: /sub === 'grants\/count'[\s\S]{0,300}handleGrantsCount/
+  },
+  {
+    name: 'grant revoke (DELETE)',
+    clientUrl: /\/\$\{workspace\}\/grants\/\$\{recipientUuid\}\/\$\{resourceId\}/,
+    expect: 'mounted',
+    hostMatch: /sub\.startsWith\('grants\/'\)[\s\S]{0,400}handleGrantRevoke/
+  },
+  // ── My Access (FIX 4 adds the leave/decline POST rows here) ───────────
+  {
+    name: 'my-access summary (GET)',
+    clientUrl: /\/\$\{workspace\}\/my-access`/,
+    expect: 'mounted',
+    hostMatch: /sub === 'my-access'[\s\S]{0,300}handleMyAccess/
   }
 ]
 
@@ -167,5 +348,29 @@ describe('WAC route contract matrix (E7)', () => {
   it('CSV bulk-invite does NOT use spaceExists always-true callback', () => {
     const noComments = hostSrc.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '')
     expect(noComments).not.toMatch(/spaceExists:\s*async/)
+  })
+
+  // 7. CSV bulk-invite dry-run goes through the plugin parser, not the
+  //    pre-E7 inline `for (let i = 0; i < rawLines.length; i++)` loop
+  //    that fed the header row into per-row validation.
+  it('CSV bulk-invite uses previewBulkInviteCsv (plugin parser, not inline loop)', () => {
+    expect(hostSrc).toMatch(/previewBulkInviteCsv\(/)
+    expect(hostSrc).not.toMatch(/for \(let i = 0; i < rawLines\.length; i\+\+\)/)
+  })
+
+  // 8. Each individual webhook shape (GET, POST, PUT, DELETE, POST :id/test)
+  //    appears in the host as a distinct router.<method> declaration. A
+  //    pre-E7 contract that matched all 5 via a single regex would have
+  //    let an accidental "DELETE missing" regression slip through.
+  it('webhook host declares 5 distinct router methods (get/post/put/delete + test)', () => {
+    const webhookBlock = hostSrc.slice(
+      hostSrc.indexOf('// ── WAC outbound webhooks'),
+      hostSrc.indexOf('// ── End WAC outbound webhooks')
+    )
+    expect(webhookBlock).toMatch(/router\.get\('\/api\/wac\/:workspace\/webhooks'/)
+    expect(webhookBlock).toMatch(/router\.post\('\/api\/wac\/:workspace\/webhooks'/)
+    expect(webhookBlock).toMatch(/router\.put\('\/api\/wac\/:workspace\/webhooks\/:id'/)
+    expect(webhookBlock).toMatch(/router\.delete\('\/api\/wac\/:workspace\/webhooks\/:id'/)
+    expect(webhookBlock).toMatch(/router\.post\('\/api\/wac\/:workspace\/webhooks\/:id\/test'/)
   })
 })
