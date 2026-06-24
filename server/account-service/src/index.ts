@@ -673,12 +673,23 @@ export function serveAccount (
   // This file is now a thin HTTP host: route dispatch + auth gate only.
   // The lazy accessors are intentional — they let the plugin's tests run
   // without forcing pg + AccountDB to be constructed up-front.
+  // Phase 4 T3 — WAC_EXTRA_SPACE_CLASSES (comma-separated) extends the
+  // hardcoded v1 whitelist in handleSpaces so plugins adding their own
+  // `core.class.Space` subclass can be exposed in the WAC Resources view
+  // without a code change. Tokens are validated downstream
+  // (mergeSpaceClassWhitelist) so a misconfigured value just gets dropped.
+  const extraSpaceClasses = (process.env.WAC_EXTRA_SPACE_CLASSES ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+
   const wacReadDeps: WacReadDeps = {
     measureCtx,
     accountDb: async () => (await accountsDb)[0] as any,
     pgClient: async () => (await rawPgPromise) as any,
     resolveWorkspaceUuid,
-    jsonHeaders: KEEP_ALIVE_HEADERS
+    jsonHeaders: KEEP_ALIVE_HEADERS,
+    extraSpaceClasses
   }
   const wacReadHandlers = createWacReadHandlers(wacReadDeps)
 

@@ -337,6 +337,109 @@ describe('readRouter — handleSpaces', () => {
     const handlers = buildHandlers({ pgClient: async () => pg })
     await expect(handlers.handleSpaces(ctx, 'ws-1', 'ws-1')).rejects.toThrow(/boom/)
   })
+
+  // Phase 4 T3 — WAC_EXTRA_SPACE_CLASSES wiring.
+  //
+  // The host parses the env into `extraSpaceClasses` and passes it as a
+  // dep. handleSpaces must (a) thread it into the IN-list of the SQL, (b)
+  // preserve the 7-entry v1 baseline, (c) drop malformed entries silently.
+  describe('extraSpaceClasses (WAC_EXTRA_SPACE_CLASSES)', () => {
+    function makeRecordingPg (rows: any[]): {
+      pg: PgClientLike
+      lastQuery: () => string
+      lastParams: () => any[] | undefined
+    } {
+      let q = ''
+      let p: any[] | undefined
+      return {
+        pg: {
+          async execute (query, params) {
+            q = query
+            p = params
+            return rows
+          }
+        },
+        lastQuery: () => q,
+        lastParams: () => p
+      }
+    }
+
+    it('appends extra class to the IN-list and binds it via $-placeholders', async () => {
+      const { ctx } = makeCtx()
+      const rec = makeRecordingPg([])
+      const handlers = createWacReadHandlers(
+        makeDeps({ pgClient: async () => rec.pg, extraSpaceClasses: ['myplugin:class:Foo'] })
+      )
+      await handlers.handleSpaces(ctx, 'ws-1', 'wpa')
+      const params = rec.lastParams() ?? []
+      // $1 = workspaceUuid, $2..$N = class list. v1 baseline is 7 entries
+      // plus the extra → 8 class params + workspace = 9 total.
+      expect(params).toHaveLength(1 + 7 + 1)
+      expect(params[0]).toBe('ws-1')
+      expect(params).toContain('myplugin:class:Foo')
+      // Baseline classes still present.
+      expect(params).toContain('tracker:class:Project')
+      expect(params).toContain('document:class:Teamspace')
+      // SQL must use placeholder list, not the old inline string literal.
+      const sql = rec.lastQuery()
+      expect(sql).not.toContain("'tracker:class:Project'")
+      expect(sql).toMatch(/_class"\s+IN\s+\(\$2,\$3,\$4,\$5,\$6,\$7,\$8,\$9\)/)
+    })
+
+    it('is a no-op when extraSpaceClasses is undefined or empty', async () => {
+      const { ctx } = makeCtx()
+      for (const extras of [undefined, []]) {
+        const rec = makeRecordingPg([])
+        const handlers = createWacReadHandlers(
+          makeDeps({ pgClient: async () => rec.pg, extraSpaceClasses: extras })
+        )
+        await handlers.handleSpaces(ctx, 'ws-1', 'wpa')
+        const params = rec.lastParams() ?? []
+        // 7 baseline class params + workspace
+        expect(params).toHaveLength(1 + 7)
+      }
+    })
+
+    it('silently drops malformed entries (no colon-form, wildcard, empty)', async () => {
+      const { ctx } = makeCtx()
+      const rec = makeRecordingPg([])
+      const handlers = createWacReadHandlers(
+        makeDeps({
+          pgClient: async () => rec.pg,
+          extraSpaceClasses: ['', '   ', '*', 'no_colons', 'bad:format', 'good:class:Bar']
+        })
+      )
+      await handlers.handleSpaces(ctx, 'ws-1', 'wpa')
+      const params = rec.lastParams() ?? []
+      // Only `good:class:Bar` is valid.
+      expect(params).toContain('good:class:Bar')
+      expect(params).not.toContain('*')
+      expect(params).not.toContain('no_colons')
+      expect(params).not.toContain('bad:format')
+      expect(params).toHaveLength(1 + 7 + 1)
+    })
+
+    it('de-duplicates extras against the baseline and against each other', async () => {
+      const { ctx } = makeCtx()
+      const rec = makeRecordingPg([])
+      const handlers = createWacReadHandlers(
+        makeDeps({
+          pgClient: async () => rec.pg,
+          extraSpaceClasses: [
+            'tracker:class:Project', // already in baseline
+            'my:class:Foo',
+            'my:class:Foo' // dup of previous extra
+          ]
+        })
+      )
+      await handlers.handleSpaces(ctx, 'ws-1', 'wpa')
+      const params = rec.lastParams() ?? []
+      // baseline (7) + 1 unique extra + workspace
+      expect(params).toHaveLength(1 + 7 + 1)
+      expect(params.filter((p: string) => p === 'tracker:class:Project')).toHaveLength(1)
+      expect(params.filter((p: string) => p === 'my:class:Foo')).toHaveLength(1)
+    })
+  })
 })
 
 describe('readRouter — handleSpaceDetail', () => {
