@@ -86,7 +86,6 @@
   import { descendantsWithDates } from './lib/scheduler'
   import { createTimeScale } from './lib/time-scale'
   import {
-    applyWheelZoom,
     cursorAnchoredScrollLeft,
     pxPerDayToTickZoom,
     ZOOM_PX_PER_DAY,
@@ -95,11 +94,16 @@
   import {
     dropdownSelectionForPxPerDay,
     visibleDaysFromPxPerDay,
-    pxPerDayFromVisibleDays,
-    MIN_VISIBLE_DAYS,
     MAX_VISIBLE_DAYS,
     type DropdownSelection
   } from './lib/zoom-dropdown'
+  import {
+    nextStateForSetZoom,
+    nextStateForVisibleDaysInput,
+    nextStateForCycleZoom,
+    nextStateForWheelZoom,
+    reclampUserPpdToFloor
+  } from './lib/zoom-controls'
   // Mobile-Friendly Gantt.
   import { detectLayoutMode, type LayoutMode } from './lib/breakpoint'
   import {
@@ -451,12 +455,12 @@
   $: void scheduleCpRecompute(issues, relations, showCriticalPath, workingDaysCfg)
 
   function setZoom (z: ZoomLevel): void {
-    zoom = z
-    // C — preset button clears any wheel-zoom override so the
-    // canonical preset px/day takes over again.
-    userPxPerDay = null
-    if (hScrollEl != null) {
-      hScrollEl.scrollLeft = 0
+    // W10-D2 seam 4 — transition computed in lib/zoom-controls.ts.
+    const t = nextStateForSetZoom(z)
+    zoom = t.zoom!
+    userPxPerDay = t.userPxPerDay!
+    if (hScrollEl != null && t.scrollLeft !== undefined) {
+      hScrollEl.scrollLeft = t.scrollLeft
     }
     queueMicrotask(syncViewport)
   }
@@ -515,22 +519,21 @@
   }
 
   function applyVisibleDaysInput (): void {
+    // W10-D2 seam 4 — clamp + days->ppd math in lib/zoom-controls.ts.
     const days = Number(visibleDaysInput)
-    if (!Number.isFinite(days) || days < MIN_VISIBLE_DAYS) {
+    const t = nextStateForVisibleDaysInput(
+      { zoom, userPxPerDay, canvasViewportWidth, dynamicMinPpd, scrollLeft: hScrollEl?.scrollLeft ?? 0 },
+      days
+    )
+    if (t === null) {
+      // Invalid input or non-positive viewport: re-sync the input from
+      // the derived `visibleDays` so the user sees the snap-back.
       visibleDaysInput = visibleDays
       return
     }
-    if (canvasViewportWidth <= 0) return
-    const rawPpd = pxPerDayFromVisibleDays(canvasViewportWidth, days)
-    // Honour the dynamic zoom-out floor (5% pad each side); if the user
-    // typed a day-count that would zoom out beyond it, clamp + re-sync
-    // the input on the next reactive pass.
-    const nextPpd = Math.max(rawPpd, dynamicMinPpd)
-    // Editing the day count puts the toolbar into Custom-state by design —
-    // we set `userPxPerDay` directly, which the reactive block above maps
-    // back to a Custom selection unless the value happens to round to a
-    // preset (in which case the dropdown re-snaps automatically).
-    userPxPerDay = nextPpd
+    if (t.userPxPerDay !== undefined) {
+      userPxPerDay = t.userPxPerDay
+    }
     queueMicrotask(syncViewport)
   }
 
@@ -978,9 +981,8 @@
     : MIN_PPD
   // Re-clamp the wheel-zoom override if the dataset or viewport shrinks
   // so an already-overridden value never sits below the new floor.
-  $: if (userPxPerDay !== null && userPxPerDay < dynamicMinPpd) {
-    userPxPerDay = dynamicMinPpd
-  }
+  // W10-D2 seam 4 — pure clamp in lib/zoom-controls.ts.
+  $: userPxPerDay = reclampUserPpdToFloor(userPxPerDay, dynamicMinPpd)
 
   // PR3.3: lookup so GanttCanvas can build a `DragTarget` for a milestone
   // bar without having to thread the full Milestone[] down.
@@ -2603,10 +2605,12 @@
   }
 
   function cycleZoom (delta: number): void {
-    const levels: ZoomLevel[] = ['day', 'week', 'month', 'quarter']
-    const idx = levels.indexOf(zoom)
-    const next = levels[Math.min(levels.length - 1, Math.max(0, idx + delta))]
-    if (next !== zoom) setZoom(next)
+    // W10-D2 seam 4 — preset cycle now in lib/zoom-controls.ts.
+    const t = nextStateForCycleZoom(
+      { zoom, userPxPerDay, canvasViewportWidth, dynamicMinPpd, scrollLeft: hScrollEl?.scrollLeft ?? 0 },
+      delta
+    )
+    if (t?.zoom !== undefined) setZoom(t.zoom)
   }
 
   // C — Ctrl+Wheel (Cmd+Wheel on Mac) over the scroller: continuous
@@ -2629,23 +2633,22 @@
     if (anchor == null) return
     const rect = anchor.getBoundingClientRect()
     const cursorX = Math.max(0, e.clientX - rect.left)
-    const oldPpd = effectivePxPerDay
-    const oldScrollLeft = hScrollEl?.scrollLeft ?? 0
-    // factor=undefined lets adaptiveWheelFactor pick a per-density value:
-    // 0.012 for ppd<4 (month/quarter), 0.006 for ppd>=4 (week/day). Math is
-    // already multiplicatively adaptive, but in the low-density bands the
-    // absolute pixel-delta per notch is small enough that users perceive
-    // the same exp() step as slower than at high density.
-    const rawPpd = applyWheelZoom(oldPpd, e.deltaY)
-    // Honour the dynamic zoom-out floor: bars must stay at least
-    // BAR_COVERAGE_MIN of the viewport. Without this clamp the user can
-    // wheel out into an empty void where the issues collapse to a tiny
-    // island in the middle of the canvas.
-    const newPpd = Math.max(rawPpd, dynamicMinPpd)
-    if (newPpd === oldPpd) return
-    userPxPerDay = newPpd
-    if (hScrollEl != null) {
-      const nextScroll = cursorAnchoredScrollLeft(cursorX, oldScrollLeft, oldPpd, newPpd)
+    // W10-D2 seam 4 — math + cursor-anchored scroll computation in
+    // lib/zoom-controls.ts.
+    const t = nextStateForWheelZoom(
+      {
+        zoom,
+        userPxPerDay,
+        canvasViewportWidth,
+        dynamicMinPpd,
+        scrollLeft: hScrollEl?.scrollLeft ?? 0
+      },
+      { deltaY: e.deltaY, cursorX, hasHScroller: hScrollEl != null }
+    )
+    if (t === null) return
+    if (t.userPxPerDay !== undefined) userPxPerDay = t.userPxPerDay
+    if (hScrollEl != null && t.scrollLeft !== undefined) {
+      const nextScroll = t.scrollLeft
       queueMicrotask(() => {
         if (hScrollEl == null) return
         hScrollEl.scrollLeft = nextScroll
