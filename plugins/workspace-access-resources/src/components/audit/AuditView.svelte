@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Button, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload } from '@hcengineering/ui'
+  import { Button, DropdownLabelsIntl, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload, type DropdownIntlItem } from '@hcengineering/ui'
   import wac from '../../plugin'
   import { AuditLogView, AuditLogExportButton } from '@hcengineering/access-management-ui'
   import { auditApi } from '../../api/auditApi'
@@ -15,9 +15,52 @@
   let cursor: string | null = null
   let loading: boolean = true
   let error: string | null = null
+  // Polish-5 — `actionFilter` is now a fixed enum picked from the
+  // closed list below (empty string = "any action"). The actor filter
+  // is unchanged. The action list mirrors the literals emitted in
+  // server-plugins/workspace-access (writeRouter.ts +
+  // audit/insert.ts + impersonation/index.ts) — keep in sync when a
+  // new action is added.
+  // NOTE: the readRouter currently ignores the `filter` query param
+  // (see server-plugins/workspace-access/src/http/readRouter.ts
+  // handleAudit). The dropdown still ships now because (a) the UX
+  // surface is strictly better than a freeform text input and (b) the
+  // server change is mechanical once we have a polish window — the
+  // values sent are already the canonical action strings.
   let actionFilter: string = ''
   let actorFilter: string = ''
   let showDsgvoBanner: boolean = false
+
+  // The dropdown's "all actions" sentinel needs a non-empty id (the
+  // DropdownIntlItem.id is `string | number`). Use a Symbol-like marker
+  // and translate back to '' on the wire.
+  const ANY_ACTION = '__any__'
+
+  const actionItems: DropdownIntlItem[] = [
+    { id: ANY_ACTION, label: wac.string.AuditFilterActionAny },
+    { id: 'role_changed', label: wac.string.AuditActionRoleChanged },
+    { id: 'member_added', label: wac.string.AuditActionMemberAdded },
+    { id: 'space_archived', label: wac.string.AuditActionSpaceArchived },
+    { id: 'space_unarchived', label: wac.string.AuditActionSpaceUnarchived },
+    { id: 'space_autojoin_changed', label: wac.string.AuditActionSpaceAutojoinChanged },
+    { id: 'space_privacy_changed', label: wac.string.AuditActionSpacePrivacyChanged },
+    { id: 'space_members_changed', label: wac.string.AuditActionSpaceMembersChanged },
+    { id: 'space_owners_changed', label: wac.string.AuditActionSpaceOwnersChanged },
+    { id: 'impersonation_started', label: wac.string.AuditActionImpersonationStarted },
+    { id: 'impersonation_ended', label: wac.string.AuditActionImpersonationEnded },
+    { id: 'impersonation_idor_attempt', label: wac.string.AuditActionImpersonationIdorAttempt },
+    { id: 'impersonation_replay_attempt', label: wac.string.AuditActionImpersonationReplayAttempt },
+    { id: 'grant_revoked', label: wac.string.AuditActionGrantRevoked },
+    { id: 'token_revoked', label: wac.string.AuditActionTokenRevoked }
+  ]
+
+  let selectedAction: string | number = ANY_ACTION
+
+  function onActionChange (e: CustomEvent<string | number>): void {
+    selectedAction = e.detail
+    actionFilter = selectedAction === ANY_ACTION ? '' : String(selectedAction)
+    void refresh(true)
+  }
 
   async function refresh (reset: boolean = true): Promise<void> {
     loading = true
@@ -54,12 +97,14 @@
 
 <div class="audit-view" id="wac-panel-audit" role="tabpanel">
   <div class="toolbar">
-    <div class="filter-input">
-      <EditBox
-        bind:value={actionFilter}
-        placeholder={wac.string.AuditFilterAction}
-        kind={'search-style'}
-        on:input={() => refresh(true)}
+    <div class="filter-dropdown">
+      <DropdownLabelsIntl
+        items={actionItems}
+        selected={selectedAction}
+        label={wac.string.AuditFilterActionAny}
+        kind={'regular'}
+        size={'small'}
+        on:selected={onActionChange}
       />
     </div>
     <div class="filter-input">
@@ -75,7 +120,7 @@
       size={'small'}
       icon={IconClose}
       label={wac.string.AuditClear}
-      on:click={() => { actionFilter = ''; actorFilter = ''; void refresh(true) }}
+      on:click={() => { actionFilter = ''; actorFilter = ''; selectedAction = ANY_ACTION; void refresh(true) }}
     />
     <span class="spacer"></span>
     {#if canExport}
@@ -136,6 +181,7 @@
     border: 1px solid var(--theme-divider-color);
     border-radius: 0.25rem;
   }
+  .filter-dropdown { flex: 0 0 14rem; }
   .spacer { flex: 1; }
   .err { background: var(--theme-state-negative-background-color); color: var(--theme-state-negative-color); padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
   .dsgvo-modal {
