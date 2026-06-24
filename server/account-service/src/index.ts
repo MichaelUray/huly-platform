@@ -1023,9 +1023,17 @@ export function serveAccount (
               `SELECT value FROM global_account.social_id WHERE person_uuid=$1 AND type='email' LIMIT 1`, [personUuid]
             )
             const acctRows = await pg.execute(
-              'SELECT last_activity_at FROM global_account.account WHERE uuid=$1 LIMIT 1', [personUuid]
+              `SELECT last_activity_at FROM global_account.account WHERE uuid=$1::uuid LIMIT 1`, [personUuid]
             )
-            const lastAct = acctRows[0]?.last_activity_at != null ? new Date(acctRows[0].last_activity_at).getTime() : null
+            const rawAct = acctRows[0]?.last_activity_at
+            const lastAct = rawAct == null ? null : Number(rawAct)
+            const spacesRows = await pg.execute(
+              `SELECT count(*)::int AS n FROM public.space
+                 WHERE "workspaceId" = $1
+                   AND ((data->'members') ? $2 OR (data->'owners') ? $2)`,
+              [workspaceUuid as any, personUuid]
+            )
+            const spacesCount = Number(spacesRows[0]?.n ?? 0)
             const fn = personRows[0]?.first_name ?? ''
             const ln = personRows[0]?.last_name ?? ''
             const display = `${fn} ${ln}`.trim() || (emailRows[0]?.value ?? personUuid)
@@ -1034,12 +1042,12 @@ export function serveAccount (
               name: display,
               email: emailRows[0]?.value ?? '',
               role: m.role ?? 'USER',
-              activityBucket: lastAct == null ? '90d+'
+              activityBucket: lastAct == null || !Number.isFinite(lastAct) ? '90d+'
                 : (Date.now() - lastAct) < 86400_000 ? 'today'
                 : (Date.now() - lastAct) < 7 * 86400_000 ? '7d'
                 : (Date.now() - lastAct) < 30 * 86400_000 ? '30d'
                 : '90d+',
-              spacesCount: 0
+              spacesCount
             })
           }
           return json(200, { items, cursor: null, _workspace: workspaceParam })
@@ -1096,28 +1104,34 @@ export function serveAccount (
       try {
         if (workspaceUuid != null) {
           const rows = await pg.execute(
-            `SELECT "_id", "_class",
-                    data->>'name' AS name,
-                    (data->>'private')::boolean AS private_flag,
-                    (data->>'autoJoin')::boolean AS auto_join,
-                    (data->>'archived')::boolean AS archived,
-                    data->>'members' AS members
-             FROM space
-             WHERE "workspaceId"=$1
-               AND "_class" IN ('tracker:class:Project','document:class:Teamspace','drive:class:Drive','card:class:CardSpace','lead:class:Funnel','recruit:class:Vacancy','recruit:class:JobFunnel')
-             ORDER BY data->>'name' ASC
+            `SELECT s."_id", s."_class",
+                    s.data->>'name' AS name,
+                    (s.data->>'private')::boolean AS private_flag,
+                    (s.data->>'autoJoin')::boolean AS auto_join,
+                    (s.data->>'archived')::boolean AS archived,
+                    s.data->'owners' AS owners,
+                    (SELECT count(*)::int FROM collaborator c
+                       WHERE c."workspaceId" = s."workspaceId"
+                         AND c."attachedTo" = s."_id") AS members_count
+             FROM space s
+             WHERE s."workspaceId"=$1
+               AND s."_class" IN ('tracker:class:Project','document:class:Teamspace','drive:class:Drive','card:class:CardSpace','lead:class:Funnel','recruit:class:Vacancy','recruit:class:JobFunnel')
+             ORDER BY s.data->>'name' ASC
              LIMIT 200`,
             [workspaceUuid]
           )
           const items = rows.map((r: any) => {
-            let members: string[] = []
-            try { if (typeof r.members === 'string') members = JSON.parse(r.members) } catch { /* keep [] */ }
+            let owners: string[] = []
+            try {
+              if (Array.isArray(r.owners)) owners = r.owners
+              else if (typeof r.owners === 'string') owners = JSON.parse(r.owners)
+            } catch { /* keep [] */ }
             return {
               _id: r._id,
               _class: String(r._class).replace(/:/g, '.'),
               name: r.name ?? '—',
-              ownerIds: [],
-              membersCount: members.length,
+              ownerIds: owners,
+              membersCount: Number(r.members_count ?? 0),
               private: r.private_flag === true,
               autoJoin: r.auto_join === true,
               archived: r.archived === true
