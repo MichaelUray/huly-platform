@@ -44,6 +44,15 @@
   import type { WorkspaceRole } from '@hcengineering/workspace-access-resources'
   import setting from '../plugin'
 
+  // Phase 2 T1 — the legacy `/setting/owners`, `/setting/guestPermissions`
+  // and `/setting/allSpaces` deep-links mount this page indirectly via
+  // thin shim components (Members.svelte, GuestPermissionsSettings.svelte,
+  // Spaces.svelte). Each shim passes the appropriate `initialTab` (and
+  // optionally `initialSub`) so the right Access Center surface is
+  // selected on first paint.
+  export let initialTab: string | undefined = undefined
+  export let initialSub: string | undefined = undefined
+
   let workspace: string = ''
   let workspaceLabel: string = ''
   let loading: boolean = true
@@ -224,6 +233,8 @@
     retentionDays={365}
     headerIcon={setting.icon.AccessCenter}
     headerLabel={setting.string.AccessCenter}
+    {initialTab}
+    {initialSub}
   />
 {/if}
 
