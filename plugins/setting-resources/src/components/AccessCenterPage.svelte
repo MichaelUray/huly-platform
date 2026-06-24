@@ -13,7 +13,9 @@
   import {
     AccessCenter,
     setDefaultWacClient,
+    setRegularTokenGetter,
     WacClient,
+    getEffectiveBearerToken,
     roleStore,
     myAccessApi,
     wac
@@ -29,10 +31,23 @@
     const loc = getCurrentLocation()
     workspace = loc.path[1] ?? ''
     workspaceLabel = workspace
-    // Wire the WAC client to use the user's existing Huly token.
+    // A3 — Register the regular workspace-token source ONCE so
+    // `getEffectiveBearerToken` (called by the default WacClient's
+    // `getToken` hook + by the CSV export button) can fall back to
+    // `presentation.metadata.Token` when no impersonation session is
+    // active. Importing presentation here (not from wacClient.ts)
+    // keeps the resources-package jest tests free of Svelte module
+    // deps.
+    setRegularTokenGetter(() => (getMetadata(presentation.metadata.Token) as string | undefined) ?? null)
+    // Wire the default WAC client. `getEffectiveBearerToken` reads
+    // `sessionStorage['wac:imp:token']` first (A3 impersonation flow)
+    // and falls back to the registered regular-token getter. This
+    // single hook covers every WAC API client (myAccess/people/
+    // resources/audit/grantedAccess) because they all route through
+    // the default WacClient.
     setDefaultWacClient(
       new WacClient({
-        getToken: () => (getMetadata(presentation.metadata.Token) as string | undefined) ?? null
+        getToken: () => getEffectiveBearerToken() ?? null
       })
     )
     if (workspace !== '') {

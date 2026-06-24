@@ -34,7 +34,14 @@ export { default as ExpiredModal } from './components/impersonation/ExpiredModal
 export { default as DsgvoFirstOpenBanner } from './components/shared/DsgvoFirstOpenBanner.svelte'
 
 // API surface (so admin/workbench code can prime the client)
-export { setDefaultWacClient, getDefaultWacClient, WacClient, WacError, getEffectiveBearerToken } from './api/wacClient'
+export {
+  setDefaultWacClient,
+  getDefaultWacClient,
+  WacClient,
+  WacError,
+  getEffectiveBearerToken,
+  setRegularTokenGetter
+} from './api/wacClient'
 export { peopleApi } from './api/peopleApi'
 export { resourcesApi } from './api/resourcesApi'
 export { myAccessApi } from './api/myAccessApi'
