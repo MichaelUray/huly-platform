@@ -106,7 +106,7 @@
     "AccountDisabledTitle": "Konto deaktiviert",
     "AccountDisabledBody": "Ihr Konto wurde von einem Administrator deaktiviert. Bitte wenden Sie sich an Ihren Administrator, falls Sie dies fuer fehlerhaft halten.",
     "SignOut": "Abmelden",
-    "AdminPanel": "Admin-Bereich",
+    "AdminPanel": "Globales Admin-Panel",
     "AdminUsers": "Benutzer",
     "AdminWorkspaces": "Workspaces",
     "BackToWorkbench": "Zurueck zum Workbench"
