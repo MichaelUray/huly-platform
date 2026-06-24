@@ -1,0 +1,36 @@
+{
+  "string": {
+    "People": "People",
+    "Resources": "Resources",
+    "MyAccess": "My Access",
+    "Audit": "Audit",
+
+    "Owner": "Owner",
+    "Maintainer": "Maintainer",
+    "User": "User",
+    "Guest": "Guest",
+    "ReadOnlyGuest": "Read-Only Guest",
+    "DocGuest": "Document Guest",
+
+    "SaveMembers": "Save Members",
+    "SaveOwners": "Save Owners",
+    "SaveRole": "Save Role",
+    "ExportCsv": "Export CSV",
+    "Revoke": "Revoke",
+    "Cancel": "Cancel",
+    "Save": "Save",
+    "Close": "Close",
+    "Refresh": "Refresh",
+
+    "Loading": "Loading…",
+    "Error": "Error",
+    "NoData": "No data",
+    "NoGrantsReceived": "No grants received",
+    "NoGrantsGiven": "No grants given",
+    "WorkspaceAuditRetention": "Workspace audit retention: {days} days",
+
+    "AccessCenter": "Access Center",
+    "OpenInApp": "Open in App",
+    "ComingInV2": "v2 coming soon"
+  }
+}

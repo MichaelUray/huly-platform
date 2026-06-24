@@ -11,6 +11,7 @@
   import { get } from 'svelte/store'
   import { Breadcrumb, Header, Scroller, TabList } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../plugin'
   import PeopleView from './people/PeopleView.svelte'
   import ResourcesView from './resources/ResourcesView.svelte'
   import MyAccessView from './my-access/MyAccessView.svelte'
@@ -48,11 +49,14 @@
   let assumeOpen: boolean = false
   let active: string = 'my-access'
 
-  const tabLabels: Record<string, string> = {
-    people: 'People',
-    resources: 'Resources',
-    'my-access': 'My Access',
-    audit: 'Audit'
+  // H4 — tab labels via IntlString (registered in plugin.ts, translated
+  // in lang/<locale>.json). Fallback to embedded label if a future tab id
+  // is added without a corresponding string.
+  const tabLabelIntl: Record<string, IntlString> = {
+    people: wac.string.People,
+    resources: wac.string.Resources,
+    'my-access': wac.string.MyAccess,
+    audit: wac.string.Audit
   }
 
   $: tabs = tabsForRole($effectiveRole)
@@ -66,7 +70,10 @@
   // UI does not promise something the server will 403.
   $: canExportAudit = canEdit
   $: { if (tabs.length > 0 && !tabs.includes(active)) active = tabs[0] }
-  $: tabItems = tabs.map((t) => ({ id: t, labelIntl: getEmbeddedLabel(tabLabels[t] ?? t) }))
+  $: tabItems = tabs.map((t) => ({
+    id: t,
+    labelIntl: tabLabelIntl[t] ?? getEmbeddedLabel(t)
+  }))
 
   onMount(() => {
     if (typeof window === 'undefined') return
@@ -93,7 +100,7 @@
   <Header adaptive={'disabled'}>
     <Breadcrumb
       icon={headerIcon}
-      label={headerLabel ?? getEmbeddedLabel('Workspace Access Center')}
+      label={headerLabel ?? wac.string.AccessCenter}
       size={'large'}
       isCurrent
     />

@@ -1,0 +1,36 @@
+{
+  "string": {
+    "People": "Personen",
+    "Resources": "Ressourcen",
+    "MyAccess": "Mein Zugriff",
+    "Audit": "Audit",
+
+    "Owner": "Inhaber",
+    "Maintainer": "Verwalter",
+    "User": "Benutzer",
+    "Guest": "Gast",
+    "ReadOnlyGuest": "Nur-Lesen-Gast",
+    "DocGuest": "Dokument-Gast",
+
+    "SaveMembers": "Mitglieder speichern",
+    "SaveOwners": "Inhaber speichern",
+    "SaveRole": "Rolle speichern",
+    "ExportCsv": "Als CSV exportieren",
+    "Revoke": "Widerrufen",
+    "Cancel": "Abbrechen",
+    "Save": "Speichern",
+    "Close": "Schliessen",
+    "Refresh": "Aktualisieren",
+
+    "Loading": "Wird geladen…",
+    "Error": "Fehler",
+    "NoData": "Keine Daten",
+    "NoGrantsReceived": "Keine Berechtigungen erhalten",
+    "NoGrantsGiven": "Keine Berechtigungen vergeben",
+    "WorkspaceAuditRetention": "Workspace-Audit-Aufbewahrung: {days} Tage",
+
+    "AccessCenter": "Zugriffszentrum",
+    "OpenInApp": "In der App öffnen",
+    "ComingInV2": "Kommt in v2"
+  }
+}

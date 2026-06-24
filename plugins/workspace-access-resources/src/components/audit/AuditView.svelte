@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { Button, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
+  import wac from '../../plugin'
   import { AuditLogView, AuditLogExportButton } from '@hcengineering/access-management-ui'
   import { auditApi } from '../../api/auditApi'
   import { getEffectiveBearerToken } from '../../api/wacClient'
@@ -83,7 +84,7 @@
         kind={'primary'}
         size={'small'}
         icon={IconDownload}
-        label={getEmbeddedLabel('Export CSV…')}
+        label={wac.string.ExportCsv}
         on:click={() => (showDsgvoBanner = true)}
         dataId={'audit-export-trigger'}
       />
@@ -108,7 +109,7 @@
           <Button
             kind={'ghost'}
             size={'small'}
-            label={getEmbeddedLabel('Cancel')}
+            label={wac.string.Cancel}
             on:click={() => (showDsgvoBanner = false)}
           />
           <AuditLogExportButton

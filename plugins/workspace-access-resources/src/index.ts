@@ -4,6 +4,18 @@
 // Workspace Access Center frontend plugin.
 //
 
+import { addStringsLoader } from '@hcengineering/platform'
+import wac, { wacPluginId } from './plugin'
+
+// H4 — Register lazy locale loaders. The platform invokes the loader once
+// per language on first reference. Coverage is partial in this pass
+// (~30 strings); the rest of the surface still uses getEmbeddedLabel —
+// see README "i18n status".
+addStringsLoader(wacPluginId, async (lang: string) => await import(`../lang/${lang}.json`))
+
+export { wac, wacPluginId }
+export default wac
+
 export { default as AccessCenter } from './components/AccessCenter.svelte'
 export { default as TabBar } from './components/TabBar.svelte'
 
