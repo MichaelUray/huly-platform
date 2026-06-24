@@ -971,7 +971,7 @@ export function serveAccount (
         return
       }
       if (sub === 'spaces') {
-        await wacReadHandlers.handleSpaces(ctx, workspaceUuid)
+        await wacReadHandlers.handleSpaces(ctx, workspaceUuid, workspaceParam)
         return
       }
       if (sub.startsWith('spaces/')) {
