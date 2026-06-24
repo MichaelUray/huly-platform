@@ -61,6 +61,45 @@ export interface WritePgClientLike {
 export interface WriteAccountDbLike {
   getWorkspaceMembers: (workspaceId: any) => Promise<Array<{ person: string, role?: string | null }>>
   updateWorkspaceRole: (accountId: any, workspaceId: any, role: any) => Promise<void>
+  /**
+   * H3 — atomic compound update that refuses the role change if it would
+   * leave the workspace with zero OWNERs. The predicate is enforced inside
+   * the SQL `UPDATE … WHERE …` so two concurrent demote requests cannot
+   * both observe `ownerCount=2` and both succeed (the classic
+   * Time-of-Check / Time-of-Use race in the read-then-update path).
+   *
+   * Contract:
+   *   - Returns `true` when the row was updated.
+   *   - Returns `false` when the predicate refused the update (i.e. the
+   *     target was the last OWNER and a non-OWNER role was requested).
+   *
+   * The reference SQL is:
+   *   UPDATE workspace_members SET role=$role
+   *     WHERE person=$account AND workspace=$workspace
+   *       AND (
+   *         $role = 'OWNER'
+   *         OR EXISTS (
+   *           SELECT 1 FROM workspace_members o
+   *           WHERE o.workspace=$workspace
+   *             AND o.role='OWNER'
+   *             AND o.person <> $account
+   *         )
+   *       )
+   *   RETURNING 1
+   *
+   * Implementations that don't have a Postgres backend can fall back to
+   * a transactional read+update, but MUST keep the gate atomic.
+   *
+   * Optional: hosts running an older `@hcengineering/account` build may
+   * not expose this method. The handler then falls back to the legacy
+   * non-atomic read+update path and logs a `wac_owner_race_fallback`
+   * breadcrumb so an operator can grep for it.
+   */
+  updateWorkspaceRoleIfNotLastOwner?: (
+    accountId: any,
+    workspaceId: any,
+    role: any
+  ) => Promise<boolean>
 }
 
 /** Subset of MeasureContext used here (logging only). */
@@ -517,7 +556,19 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
       const target = members.find((m) => m.person === memberUuid)
       const oldRole = target?.role ?? null
 
-      // E3 — last-owner check for role demote
+      // H3 — atomic last-owner gate.
+      //
+      // The pre-fix code did a read-then-update sequence:
+      //   1. count OWNERs from the workspace_members snapshot
+      //   2. UPDATE workspace_members SET role=…
+      // Two concurrent demote-from-OWNER requests could both observe
+      // ownerCount=2 in step 1 and both succeed in step 2, leaving zero
+      // OWNERs.  See `updateWorkspaceRoleIfNotLastOwner` for the SQL.
+      //
+      // We still do the cheap snapshot read so we can return the precise
+      // 409 body (and pre-empt the round-trip when the caller is clearly
+      // wrong), but the *authoritative* check is the atomic SQL gate
+      // below.
       if (oldRole === 'OWNER' && role !== 'OWNER') {
         const ownerCount = members.filter((m) => m.role === 'OWNER').length
         if (ownerCount <= 1) {
@@ -527,7 +578,33 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
       }
 
       try {
-        await db.updateWorkspaceRole(memberUuid as any, workspaceUuid as any, role as any)
+        if (db.updateWorkspaceRoleIfNotLastOwner !== undefined) {
+          // Authoritative atomic path. The compound SQL refuses the
+          // update if the same workspace's other OWNERs would drop to 0.
+          const ok = await db.updateWorkspaceRoleIfNotLastOwner(
+            memberUuid as any,
+            workspaceUuid as any,
+            role as any
+          )
+          if (!ok) {
+            // The race was caught at the SQL boundary — the snapshot
+            // above looked safe (ownerCount > 1) but a concurrent
+            // request raced us. Return the same 409 the snapshot check
+            // would have, so the caller gets a single contract.
+            json(ctx, 409, { error: 'last_owner', detail: 'workspace_must_have_at_least_one_owner' })
+            return
+          }
+        } else {
+          // Legacy fallback: AccountDB build without the atomic helper.
+          // Log a breadcrumb so the operator can grep `wac_owner_race_fallback`
+          // and upgrade.
+          deps.measureCtx.warn('wac owner-race protection degraded to TOCTOU read+update', {
+            breadcrumb: 'wac_owner_race_fallback',
+            workspace: workspaceUuid,
+            target: memberUuid
+          })
+          await db.updateWorkspaceRole(memberUuid as any, workspaceUuid as any, role as any)
+        }
       } catch (err) {
         deps.measureCtx.error('wac role update failed', {
           workspace: workspaceUuid,

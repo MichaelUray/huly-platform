@@ -140,6 +140,12 @@ interface MakeHarnessOpts {
   findOneImpl?: (call: FindOneCall) => Promise<any>
   /** P2B-T6 — throw from txClient.removeDoc. */
   removeDocImpl?: (call: RemoveDocCall) => Promise<void>
+  /**
+   * H3 — install the atomic `updateWorkspaceRoleIfNotLastOwner` accountDb
+   * method. Returning false simulates the SQL gate refusing the demote
+   * because a concurrent request would have left zero OWNERs.
+   */
+  atomicRoleUpdateImpl?: (call: RoleUpdateCall) => Promise<boolean>
 }
 
 function defaultSpaceRow (id = 'space-1', _class = 'tracker:class:Project'): Record<string, any> {
@@ -238,6 +244,22 @@ function makeHarness (opts: MakeHarnessOpts = {}): Harness {
       }
       roleCalls.push(call)
       if (opts.updateRoleImpl != null) await opts.updateRoleImpl(call)
+    }) as any
+  }
+  if (opts.atomicRoleUpdateImpl != null) {
+    accountDb.updateWorkspaceRoleIfNotLastOwner = (async (
+      account: any,
+      workspace: any,
+      role: any
+    ) => {
+      const call: RoleUpdateCall = {
+        account: String(account),
+        workspace: String(workspace),
+        role: String(role)
+      }
+      roleCalls.push(call)
+      // call back to record + decide outcome
+      return await opts.atomicRoleUpdateImpl!(call)
     }) as any
   }
 
@@ -565,6 +587,68 @@ describe('writeRouter — handleMemberRole', () => {
     await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p1')
     expect(captured.status).toBe(200)
     expect(h.errors.some((e) => e.attrs.breadcrumb === 'wac_audit_orphan')).toBe(true)
+  })
+
+  // H3 — atomic owner-race protection. The reference SQL is documented in
+  // WriteAccountDbLike.updateWorkspaceRoleIfNotLastOwner. We can't write a
+  // deterministic concurrency test in jest, but we CAN pin two contracts:
+  //   1. When the accountDb exposes the atomic helper, the handler routes
+  //      through it instead of the legacy update.
+  //   2. When the atomic helper returns false (= the SQL gate refused the
+  //      demote because a concurrent request raced us), the handler
+  //      returns 409 last_owner — even though the snapshot read above
+  //      saw a safe ownerCount.
+  describe('H3: atomic owner-race protection', () => {
+    it('routes through updateWorkspaceRoleIfNotLastOwner when available', async () => {
+      const h = makeHarness({
+        members: [
+          { person: 'p1', role: 'OWNER' },
+          { person: 'p2', role: 'OWNER' }
+        ],
+        atomicRoleUpdateImpl: async () => true
+      })
+      const { ctx, captured } = makeCtx({ role: 'USER' })
+      await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p1')
+      expect(captured.status).toBe(200)
+      expect(h.roleCalls).toHaveLength(1)
+      // No fallback warn breadcrumb when the atomic path is taken.
+      expect(h.warns.some((w) => w.attrs.breadcrumb === 'wac_owner_race_fallback')).toBe(false)
+    })
+
+    it('returns 409 when the SQL gate refuses the demote (race lost)', async () => {
+      // Snapshot read sees ownerCount=2 (safe), but the atomic SQL gate
+      // returns false — a concurrent demote already landed before our
+      // UPDATE, leaving only one OWNER. We must still return 409.
+      const h = makeHarness({
+        members: [
+          { person: 'p1', role: 'OWNER' },
+          { person: 'p2', role: 'OWNER' }
+        ],
+        atomicRoleUpdateImpl: async () => false
+      })
+      const { ctx, captured } = makeCtx({ role: 'USER' })
+      await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p1')
+      expect(captured.status).toBe(409)
+      expect(captured.body.error).toBe('last_owner')
+      // The atomic helper was called, but no legacy fallback.
+      expect(h.roleCalls).toHaveLength(1)
+      expect(auditCalls(h)).toHaveLength(0)
+    })
+
+    it('legacy fallback path (no atomic helper) still works and logs the breadcrumb', async () => {
+      const h = makeHarness({
+        members: [
+          { person: 'p1', role: 'OWNER' },
+          { person: 'p2', role: 'OWNER' }
+        ]
+        // No atomicRoleUpdateImpl — the handler falls back to the
+        // legacy non-atomic updateWorkspaceRole.
+      })
+      const { ctx, captured } = makeCtx({ role: 'USER' })
+      await h.handlers.handleMemberRole(ctx, 'ws-1', 'caller-1', 'p1')
+      expect(captured.status).toBe(200)
+      expect(h.warns.some((w) => w.attrs.breadcrumb === 'wac_owner_race_fallback')).toBe(true)
+    })
   })
 })
 
