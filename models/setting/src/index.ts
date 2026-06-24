@@ -74,6 +74,7 @@ export class TSettingsCategory extends TDoc implements SettingsCategory {
   component!: AnyComponent
   role!: AccountRole
   adminOnly?: boolean
+  hidden?: boolean
 }
 
 @Model(setting.class.WorkspaceSettingCategory, core.class.Doc, DOMAIN_MODEL)
@@ -83,6 +84,7 @@ export class TWorkspaceSettingCategory extends TDoc implements SettingsCategory 
   icon!: Asset
   component!: AnyComponent
   role!: AccountRole
+  hidden?: boolean
 }
 
 @Model(setting.class.IntegrationType, core.class.Doc, DOMAIN_MODEL)
@@ -299,6 +301,10 @@ export function createModel (builder: Builder): void {
     },
     setting.ids.Backup
   )
+  // Phase 2 T1 — Legacy Workspace Members entry. Hidden from the sidebar
+  // (consolidated into Access Center → People). Registration retained so
+  // existing deep-links (/setting/owners) continue to resolve to a thin
+  // shim that mounts AccessCenter on the People sub-tab.
   builder.createDoc(
     setting.class.WorkspaceSettingCategory,
     core.space.Model,
@@ -308,7 +314,8 @@ export function createModel (builder: Builder): void {
       icon: setting.icon.Members,
       component: setting.component.Members,
       order: 1000,
-      role: AccountRole.Maintainer
+      role: AccountRole.Maintainer,
+      hidden: true
     },
     setting.ids.Members
   )
@@ -328,6 +335,9 @@ export function createModel (builder: Builder): void {
     },
     setting.ids.AccessCenter
   )
+  // Phase 2 T1 — Legacy Guests entry. Hidden from the sidebar
+  // (consolidated into Access Center → People sub-tab with guest filter).
+  // Registration retained for deep-link compatibility.
   builder.createDoc(
     setting.class.WorkspaceSettingCategory,
     core.space.Model,
@@ -337,10 +347,14 @@ export function createModel (builder: Builder): void {
       icon: setting.icon.GuestPermissions,
       component: setting.component.GuestPermissionsSettings,
       role: AccountRole.Owner,
-      order: 1050
+      order: 1050,
+      hidden: true
     },
     'setting:ids:AccountPermissionsSettings' as Ref<any>
   )
+  // Phase 2 T1 — Legacy Global Space Admins entry. Hidden from the sidebar
+  // (consolidated into Access Center → Resources). Registration retained
+  // so /setting/allSpaces deep-links continue to resolve.
   builder.createDoc(
     setting.class.WorkspaceSettingCategory,
     core.space.Model,
@@ -350,7 +364,8 @@ export function createModel (builder: Builder): void {
       icon: setting.icon.Views,
       component: setting.component.Spaces,
       order: 1100,
-      role: AccountRole.Maintainer
+      role: AccountRole.Maintainer,
+      hidden: true
     },
     setting.ids.Spaces
   )
