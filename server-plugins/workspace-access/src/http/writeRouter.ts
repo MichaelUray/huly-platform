@@ -208,6 +208,22 @@ export interface WacWriteHandlers {
   handleSpaceArchived: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, spaceId: string, actorAdmin?: string) => Promise<void>
   handleMemberRole: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, memberUuid: string, actorAdmin?: string) => Promise<void>
   handleBulkMemberRole: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, actorAdmin?: string) => Promise<void>
+  // ------------------------------------------------------------------------
+  // Resources bulk-bar — POST /spaces/bulk-archive | bulk-set-private |
+  // bulk-add-owner. Same per-target outcome contract as handleBulkMemberRole:
+  // always 200 with `{ batch_id, applied, results: [{ spaceId, status, detail? }] }`.
+  // The status enum is one of:
+  //   - 'ok'         — domain mutation + audit row landed
+  //   - 'forbidden'  — reserved for future per-space gating (e.g. SPACE_OWNER
+  //                    side-channel that does not extend to flags); v1 is
+  //                    Workspace-Owner-only and never emits 'forbidden'
+  //   - 'not_found'  — space row missing in pg.space for the workspace
+  //   - 'internal'   — TxOperations.updateDoc threw; detail = 'write_failed'
+  // 400 (bad body) and 401/403 (auth) still surface as top-level HTTP errors.
+  // ------------------------------------------------------------------------
+  handleBulkSpaceArchive: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, actorAdmin?: string) => Promise<void>
+  handleBulkSpacePrivacy: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, actorAdmin?: string) => Promise<void>
+  handleBulkSpaceAddOwner: (ctx: KoaWriteCtxLike, workspaceUuid: string, callerUuid: string, actorAdmin?: string) => Promise<void>
   handleGrantRevoke: (
     ctx: KoaWriteCtxLike,
     workspaceUuid: string,
@@ -885,6 +901,228 @@ export function createWacWriteHandlers (deps: WacWriteDeps): WacWriteHandlers {
         results.push({ memberUuid: t, status: 'ok' })
       }
       json(ctx, 200, { batch_id: batchId, appliedCount, results })
+    },
+
+    // -----------------------------------------------------------------------
+    // Resources bulk-bar (Wave 5 D — bulk-archive / bulk-set-private /
+    // bulk-add-owner). Same per-target outcome shape as handleBulkMemberRole.
+    //
+    // Each handler iterates `body.spaceIds` and reuses the SAME pg
+    // loadSpaceRow + txClient.updateDoc + writeAuditPostMutation seam as
+    // the single-row counterparts so the gating / mutation / audit
+    // semantics stay identical row-by-row. Errors on one row never
+    // abort the batch; the row's status records what happened.
+    //
+    // Last-owner: archive only flips `archived=true` on each row — the
+    // members[] and owners[] sets are preserved (the archived flag hides
+    // the space from regular members but does NOT change membership), so
+    // bulk-archive is NOT owner-impacting and the workspace-level
+    // last-owner check (only relevant for workspace.space.Workspace owner
+    // removals) does not apply.
+    // -----------------------------------------------------------------------
+    async handleBulkSpaceArchive (ctx, workspaceUuid, callerUuid, actorAdmin) {
+      const body = readBody(ctx)
+      if (body == null || !Array.isArray(body.spaceIds)) {
+        json(ctx, 400, { error: 'bad_request' })
+        return
+      }
+      const spaceIds: string[] = body.spaceIds.filter((s: any) => typeof s === 'string')
+      const pg = await deps.pgClient()
+      const batchId = `b${Date.now()}`
+      const results: Array<{
+        spaceId: string
+        status: 'ok' | 'forbidden' | 'not_found' | 'internal'
+        detail?: string
+      }> = []
+      let applied = 0
+      for (const spaceId of spaceIds) {
+        const spaceRow = await loadSpaceRow(pg, workspaceUuid, spaceId)
+        if (spaceRow == null) {
+          results.push({ spaceId, status: 'not_found' })
+          continue
+        }
+        try {
+          await deps.txClient.updateDoc(
+            workspaceUuid as WorkspaceUuid,
+            callerUuid,
+            spaceRow._class as Ref<Class<Doc>>,
+            spaceRow.space as Ref<Space>,
+            spaceRow._id as Ref<Doc>,
+            { archived: true } as unknown as DocumentUpdate<Doc>
+          )
+        } catch (err) {
+          deps.measureCtx.error('wac bulk archive mutation failed', {
+            workspace: workspaceUuid,
+            space: spaceId,
+            err: String(err)
+          })
+          results.push({ spaceId, status: 'internal', detail: 'write_failed' })
+          continue
+        }
+        applied++
+        await writeAuditPostMutation(
+          deps,
+          pg,
+          workspaceUuid,
+          'space_archived',
+          callerUuid,
+          CALLER_ROLE_LABEL,
+          {
+            target_space: spaceId,
+            target_space_class: spaceRow._class,
+            old_value: spaceRow.archived,
+            new_value: true,
+            // Bulk batch_id rides on new_value (same channel handleBulkMemberRole
+            // uses) so audit consumers can group rows produced by one call.
+            impersonationActorAdmin: actorAdmin ?? null
+          }
+        )
+        results.push({ spaceId, status: 'ok' })
+      }
+      json(ctx, 200, { batch_id: batchId, applied, results })
+    },
+
+    async handleBulkSpacePrivacy (ctx, workspaceUuid, callerUuid, actorAdmin) {
+      const body = readBody(ctx)
+      if (
+        body == null ||
+        !Array.isArray(body.spaceIds) ||
+        typeof body.private !== 'boolean'
+      ) {
+        json(ctx, 400, { error: 'bad_request' })
+        return
+      }
+      const spaceIds: string[] = body.spaceIds.filter((s: any) => typeof s === 'string')
+      const newPrivate: boolean = body.private
+      const pg = await deps.pgClient()
+      const batchId = `b${Date.now()}`
+      const results: Array<{
+        spaceId: string
+        status: 'ok' | 'forbidden' | 'not_found' | 'internal'
+        detail?: string
+      }> = []
+      let applied = 0
+      for (const spaceId of spaceIds) {
+        const spaceRow = await loadSpaceRow(pg, workspaceUuid, spaceId)
+        if (spaceRow == null) {
+          results.push({ spaceId, status: 'not_found' })
+          continue
+        }
+        try {
+          await deps.txClient.updateDoc(
+            workspaceUuid as WorkspaceUuid,
+            callerUuid,
+            spaceRow._class as Ref<Class<Doc>>,
+            spaceRow.space as Ref<Space>,
+            spaceRow._id as Ref<Doc>,
+            { private: newPrivate } as unknown as DocumentUpdate<Doc>
+          )
+        } catch (err) {
+          deps.measureCtx.error('wac bulk privacy mutation failed', {
+            workspace: workspaceUuid,
+            space: spaceId,
+            err: String(err)
+          })
+          results.push({ spaceId, status: 'internal', detail: 'write_failed' })
+          continue
+        }
+        applied++
+        await writeAuditPostMutation(
+          deps,
+          pg,
+          workspaceUuid,
+          'space_privacy_changed',
+          callerUuid,
+          CALLER_ROLE_LABEL,
+          {
+            target_space: spaceId,
+            target_space_class: spaceRow._class,
+            old_value: spaceRow.private,
+            new_value: newPrivate,
+            impersonationActorAdmin: actorAdmin ?? null
+          }
+        )
+        results.push({ spaceId, status: 'ok' })
+      }
+      json(ctx, 200, { batch_id: batchId, applied, results })
+    },
+
+    async handleBulkSpaceAddOwner (ctx, workspaceUuid, callerUuid, actorAdmin) {
+      // ADD-ONLY transfer: append `ownerUuid` to each space's owners[]
+      // without removing the existing Owner-set. The "full transfer"
+      // (replace-with-this-single-owner) flavour is deferred to v2 so
+      // the operator can never accidentally orphan a space.
+      const body = readBody(ctx)
+      if (
+        body == null ||
+        !Array.isArray(body.spaceIds) ||
+        typeof body.ownerUuid !== 'string' ||
+        body.ownerUuid === ''
+      ) {
+        json(ctx, 400, { error: 'bad_request' })
+        return
+      }
+      const spaceIds: string[] = body.spaceIds.filter((s: any) => typeof s === 'string')
+      const ownerUuid: string = body.ownerUuid
+      const pg = await deps.pgClient()
+      const batchId = `b${Date.now()}`
+      const results: Array<{
+        spaceId: string
+        status: 'ok' | 'forbidden' | 'not_found' | 'internal'
+        detail?: string
+      }> = []
+      let applied = 0
+      for (const spaceId of spaceIds) {
+        const spaceRow = await loadSpaceRow(pg, workspaceUuid, spaceId)
+        if (spaceRow == null) {
+          results.push({ spaceId, status: 'not_found' })
+          continue
+        }
+        // Idempotent: ownerUuid already present → no-op, still 'ok'.
+        if (spaceRow.owners.includes(ownerUuid)) {
+          applied++
+          results.push({ spaceId, status: 'ok' })
+          continue
+        }
+        const nextOwners = [...spaceRow.owners, ownerUuid]
+        try {
+          await deps.txClient.updateDoc(
+            workspaceUuid as WorkspaceUuid,
+            callerUuid,
+            spaceRow._class as Ref<Class<Doc>>,
+            spaceRow.space as Ref<Space>,
+            spaceRow._id as Ref<Doc>,
+            { owners: nextOwners } as unknown as DocumentUpdate<Doc>
+          )
+        } catch (err) {
+          deps.measureCtx.error('wac bulk add-owner mutation failed', {
+            workspace: workspaceUuid,
+            space: spaceId,
+            err: String(err)
+          })
+          results.push({ spaceId, status: 'internal', detail: 'write_failed' })
+          continue
+        }
+        applied++
+        await writeAuditPostMutation(
+          deps,
+          pg,
+          workspaceUuid,
+          'space_owners_changed',
+          callerUuid,
+          CALLER_ROLE_LABEL,
+          {
+            target_account: ownerUuid,
+            target_space: spaceId,
+            target_space_class: spaceRow._class,
+            old_value: spaceRow.owners,
+            new_value: nextOwners,
+            impersonationActorAdmin: actorAdmin ?? null
+          }
+        )
+        results.push({ spaceId, status: 'ok' })
+      }
+      json(ctx, 200, { batch_id: batchId, applied, results })
     },
 
     async handleGrantRevoke (ctx, workspaceUuid, callerUuid, recipient, resource, actorAdmin) {

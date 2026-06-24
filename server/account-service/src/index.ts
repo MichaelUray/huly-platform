@@ -925,6 +925,24 @@ export function serveAccount (
         await wacWriteHandlers.handleBulkMemberRole(ctx as any, workspaceUuid, callerUuid, actorAdmin)
         return
       }
+      // Wave 5 D — Resources bulk-bar endpoints. Same OWNER-gated auth
+      // path as the single-row /spaces/<id>/{archived,privacy,owners}
+      // routes; the per-row outcome envelope lives in writeRouter.ts.
+      // POST /spaces/bulk-archive
+      if (sub === 'spaces/bulk-archive' && ctx.method === 'POST') {
+        await wacWriteHandlers.handleBulkSpaceArchive(ctx as any, workspaceUuid, callerUuid, actorAdmin)
+        return
+      }
+      // POST /spaces/bulk-set-private
+      if (sub === 'spaces/bulk-set-private' && ctx.method === 'POST') {
+        await wacWriteHandlers.handleBulkSpacePrivacy(ctx as any, workspaceUuid, callerUuid, actorAdmin)
+        return
+      }
+      // POST /spaces/bulk-add-owner
+      if (sub === 'spaces/bulk-add-owner' && ctx.method === 'POST') {
+        await wacWriteHandlers.handleBulkSpaceAddOwner(ctx as any, workspaceUuid, callerUuid, actorAdmin)
+        return
+      }
       // DELETE /grants/<recipient>/<resource>
       if (sub.startsWith('grants/') && ctx.method === 'DELETE') {
         const parts = sub.split('/')
