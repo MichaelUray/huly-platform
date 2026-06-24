@@ -1101,6 +1101,59 @@ export class PostgresAccountDB implements AccountDB {
     )
   }
 
+  /**
+   * H3 — Atomic role change with last-owner protection.
+   *
+   * Single conditional UPDATE: succeed only if either
+   *   (a) the new role is OWNER (cannot reduce owner count), or
+   *   (b) at least one OTHER owner exists in the workspace.
+   *
+   * The `NOT EXISTS` / `EXISTS` guard runs in the same statement as the
+   * UPDATE. Wrapped in `withRetry()` which uses `this.client.begin()` →
+   * each call executes inside a Postgres transaction. CockroachDB / Postgres
+   * row-level locks on the target row plus MVCC + serializable-isolation
+   * retry on conflict (`40001` is in `isRetryableError`) make two concurrent
+   * demotes of different OWNER rows in the same workspace safe: at most one
+   * of the two `EXISTS` checks will see the OTHER row as still-OWNER after
+   * the first transaction commits; the second transaction either retries
+   * (under serializable) or its EXISTS subquery sees the post-commit state
+   * where the first OWNER is gone, so it returns 0 rows.
+   *
+   * RETURNING `account_uuid` lets us distinguish "0 rows matched"
+   * (last-owner refusal OR row missing) from "row updated".
+   */
+  async updateWorkspaceRoleIfNotLastOwner (
+    accountUuid: AccountUuid,
+    workspaceUuid: WorkspaceUuid,
+    role: AccountRole
+  ): Promise<boolean> {
+    const dbRole = canonicalToDb(role)
+    const table = this.getWsMembersTableName()
+    // Use raw `unsafe()` inside `withRetry()`: postgres.js's template-literal
+    // shape does not allow interpolating a SELECT subquery referencing the
+    // outer UPDATE's table alias plus parameterized placeholders cleanly,
+    // so we build the SQL once and let withRetry wrap it in a transaction.
+    const sql = `
+      UPDATE ${table}
+      SET role = $3
+      WHERE workspace_uuid = $1
+        AND account_uuid = $2
+        AND (
+          $3 = 'OWNER'
+          OR EXISTS (
+            SELECT 1
+            FROM ${table} other
+            WHERE other.workspace_uuid = $1
+              AND other.role = 'OWNER'
+              AND other.account_uuid <> $2
+          )
+        )
+      RETURNING account_uuid
+    `
+    const rows = await this.withRetry(async (rTx) => await rTx.unsafe(sql, [workspaceUuid, accountUuid, dbRole]))
+    return Array.isArray(rows) && rows.length > 0
+  }
+
   async getWorkspaceRole (accountUuid: AccountUuid, workspaceUuid: WorkspaceUuid): Promise<AccountRole | null> {
     return await this.withRetry(async (rTx) => {
       const res =

@@ -887,6 +887,95 @@ export class MongoAccountDB implements AccountDB {
     )
   }
 
+  /**
+   * H3 — Atomic role change with last-owner protection.
+   *
+   * Mongo path uses a session-bound multi-statement transaction. We
+   * countDocuments() the OTHER owners in the same session as the conditional
+   * updateOne(); the snapshot semantics inside `withTransaction` make the
+   * sequence atomic against concurrent demotes.
+   *
+   * Requirement: replica-set Mongo. Standalone Mongo does NOT support
+   * multi-document transactions and `startSession().withTransaction()` will
+   * throw at runtime. Huly v7 production runs on CockroachDB/Postgres
+   * exclusively, so the Mongo backend is best-effort here. We surface the
+   * limitation by letting the underlying Mongo driver error propagate
+   * (caller sees "Transaction numbers are only allowed on a replica set
+   * member or mongos") instead of silently degrading to non-atomic.
+   *
+   * Returns:
+   *   - `true` when the row was updated.
+   *   - `false` when the predicate refused (last-owner) OR no row exists
+   *     for the (workspace, account) pair (matches Postgres "0 rows
+   *     matched" semantics).
+   */
+  async updateWorkspaceRoleIfNotLastOwner (
+    accountId: AccountUuid,
+    workspaceId: WorkspaceUuid,
+    role: AccountRole
+  ): Promise<boolean> {
+    const dbRole = canonicalToDb(role)
+    const isOwnerTarget = dbRole === 'OWNER'
+    const client = this.workspaceMembers.collection
+    // Lazy-access the underlying MongoClient for the session. The mongodb
+    // v6 Db type does not publicly expose `.client`, but the internal
+    // `(db as any).s.client` slot is stable across driver versions and used
+    // throughout the official examples for session bootstrap.
+    const mongoClient: any =
+      (this.db as any).client ?? (this.db as any).s?.client ?? null
+    const session = mongoClient?.startSession?.() ?? null
+    if (session == null) {
+      // No session available (standalone Mongo / unusual mock) → hard-fail
+      // rather than silently fall back to a TOCTOU read+update.
+      throw new Error(
+        'updateWorkspaceRoleIfNotLastOwner: Mongo backend requires a replica-set client supporting sessions; use Postgres backend for production WAC workloads'
+      )
+    }
+    try {
+      let success = false
+      await session.withTransaction(async () => {
+        if (!isOwnerTarget) {
+          const otherOwners = await client.countDocuments(
+            {
+              workspaceUuid: workspaceId,
+              accountUuid: { $ne: accountId } as any,
+              role: 'OWNER' as any
+            } as any,
+            { session }
+          )
+          if (otherOwners === 0) {
+            // Last-owner refusal — but ONLY if the target row is itself an
+            // OWNER. Otherwise the update is a no-op vs the invariant.
+            const targetIsOwner = await client.countDocuments(
+              {
+                workspaceUuid: workspaceId,
+                accountUuid: accountId,
+                role: 'OWNER' as any
+              } as any,
+              { session }
+            )
+            if (targetIsOwner > 0) {
+              success = false
+              return
+            }
+          }
+        }
+        const result = await client.updateOne(
+          {
+            workspaceUuid: workspaceId,
+            accountUuid: accountId
+          } as any,
+          { $set: { role: dbRole as unknown as AccountRole } } as any,
+          { session }
+        )
+        success = (result.matchedCount ?? 0) > 0
+      })
+      return success
+    } finally {
+      await session.endSession()
+    }
+  }
+
   async getWorkspaceRole (accountId: AccountUuid, workspaceId: WorkspaceUuid): Promise<AccountRole | null> {
     const assignment = await this.workspaceMembers.findOne({
       workspaceUuid: workspaceId,

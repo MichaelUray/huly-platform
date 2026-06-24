@@ -439,6 +439,38 @@ export interface AccountDB {
   assignWorkspace: (accountId: AccountUuid, workspaceId: WorkspaceUuid, role: AccountRole) => Promise<void>
   batchAssignWorkspace: (data: [AccountUuid, WorkspaceUuid, AccountRole][]) => Promise<void>
   updateWorkspaceRole: (accountId: AccountUuid, workspaceId: WorkspaceUuid, role: AccountRole) => Promise<void>
+  /**
+   * H3 — Atomic role change with last-owner protection.
+   *
+   * Updates the workspace role for `accountId` in `workspaceId` IF AND ONLY IF
+   * the operation does NOT reduce the workspace OWNER count to zero.
+   *
+   * Returns `true` if the update succeeded, `false` if the update was refused
+   * because it would have removed the last OWNER. Returns `false` if the row
+   * is missing (no `workspace_members` entry for the pair). Throws on any
+   * other DB error.
+   *
+   * Implementations MUST be atomic: the check-and-update happens in a single
+   * DB transaction (or a single conditional WHERE clause). A TOCTOU race
+   * between two concurrent demotes MUST NOT be able to leave the workspace
+   * with zero owners.
+   *
+   * Note: callers should still validate the role against AccountRole canonical
+   * form before invoking (use `wireToCanonical()`). Implementations convert
+   * canonical → DB enum form internally.
+   *
+   * Postgres backend: single conditional `UPDATE ... AND (newRole='OWNER' OR
+   * EXISTS other OWNER) RETURNING ...` inside `withRetry()` (transactional).
+   *
+   * Mongo backend: requires replica-set transactions (`session.withTransaction`).
+   * Standalone Mongo deployments will throw a clear unsupported-error since
+   * Huly v7 production runs on CockroachDB/Postgres exclusively.
+   */
+  updateWorkspaceRoleIfNotLastOwner: (
+    accountId: AccountUuid,
+    workspaceId: WorkspaceUuid,
+    role: AccountRole
+  ) => Promise<boolean>
   unassignWorkspace: (accountId: AccountUuid, workspaceId: WorkspaceUuid) => Promise<void>
   getWorkspaceRole: (accountId: AccountUuid, workspaceId: WorkspaceUuid) => Promise<AccountRole | null>
   getWorkspaceRoles: (accountId: AccountUuid) => Promise<Map<WorkspaceUuid, AccountRole>>
