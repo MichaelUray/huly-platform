@@ -44,7 +44,8 @@ import {
   createWacReadHandlers,
   type WacReadDeps,
   createWacWriteHandlers,
-  type WacWriteDeps
+  type WacWriteDeps,
+  executeWorkspaceAuditInsert
 } from '@hcengineering/server-workspace-access'
 
 export * from './migration/utils'
@@ -706,24 +707,20 @@ export function serveAccount (
     }
   ): Promise<void> {
     try {
+      // M2 — delegate to the shared helper. Same SQL + column list as
+      // the plugin's writeRouter (single source of truth).
       const pg = await rawPgPromise
-      await pg.execute(
-        `INSERT INTO workspace_audit_log
-         (workspace, action, actor, actor_role, target_account, target_space, target_space_class, old_value, new_value, metadata)
-         VALUES ($1, $2, $3::uuid, $4, $5::uuid, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb)`,
-        [
-          workspace,
-          action,
-          actor,
-          actorRole,
-          payload.target_account ?? null,
-          payload.target_space ?? null,
-          payload.target_space_class ?? null,
-          payload.old_value != null ? JSON.stringify(payload.old_value) : null,
-          payload.new_value != null ? JSON.stringify(payload.new_value) : null,
-          JSON.stringify({})
-        ]
-      )
+      await executeWorkspaceAuditInsert(pg, {
+        workspace,
+        action,
+        actor,
+        actorRole,
+        target_account: payload.target_account,
+        target_space: payload.target_space,
+        target_space_class: payload.target_space_class,
+        old_value: payload.old_value,
+        new_value: payload.new_value
+      })
     } catch (err) {
       measureCtx.warn('WAC audit write failed', { action, err: String(err) })
     }

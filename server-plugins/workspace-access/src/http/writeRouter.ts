@@ -34,6 +34,7 @@ import type {
   WorkspaceUuid
 } from '@hcengineering/core'
 import core from '@hcengineering/core'
+import { executeWorkspaceAuditInsert } from '../audit/insert'
 
 // ---------------------------------------------------------------------------
 // Minimal structural surfaces (zero new package deps)
@@ -299,23 +300,19 @@ async function writeAuditPostMutation (
   }
 ): Promise<void> {
   try {
-    await pg.execute(
-      `INSERT INTO workspace_audit_log
-       (workspace, action, actor, actor_role, target_account, target_space, target_space_class, old_value, new_value, metadata)
-       VALUES ($1, $2, $3::uuid, $4, $5::uuid, $6, $7, $8::jsonb, $9::jsonb, $10::jsonb)`,
-      [
-        workspace,
-        action,
-        actor,
-        actorRole,
-        payload.target_account ?? null,
-        payload.target_space ?? null,
-        payload.target_space_class ?? null,
-        payload.old_value != null ? JSON.stringify(payload.old_value) : null,
-        payload.new_value != null ? JSON.stringify(payload.new_value) : null,
-        JSON.stringify({})
-      ]
-    )
+    // M2 — delegates to the shared helper. SQL + column list are the
+    // single source of truth in `audit/insert.ts`.
+    await executeWorkspaceAuditInsert(pg, {
+      workspace,
+      action,
+      actor,
+      actorRole,
+      target_account: payload.target_account,
+      target_space: payload.target_space,
+      target_space_class: payload.target_space_class,
+      old_value: payload.old_value,
+      new_value: payload.new_value
+    })
   } catch (err) {
     // Atomicity caveat: mutation goes via WS to transactor, audit goes via pg.
     // We sequence mutation→audit and log loud if audit fails post-mutation.
