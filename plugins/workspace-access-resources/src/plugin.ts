@@ -161,7 +161,11 @@ const wac = plugin(wacPluginId, {
     SpacePickerRemoveTitle: '' as IntlString,
     SpacePickerHint: '' as IntlString,
     SpacePickerInvalidUuid: '' as IntlString,
-    SpaceIdLabel: '' as IntlString
+    SpaceIdLabel: '' as IntlString,
+
+    // Polish-3: Load-more button under paginated tables (peopleApi +
+    // resourcesApi pagination via opaque `cursor`).
+    LoadMore: '' as IntlString
   }
 })
 
