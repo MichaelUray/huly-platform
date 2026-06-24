@@ -24,12 +24,65 @@
     { key: 'archived', label: 'State' as any, width: 100 }
   ]
 
+  // M7 — v2-placeholder rows are synthesized client-side. Pre-fix, the
+  // backend pushed these into every /api/wac/<ws>/spaces response which
+  // polluted the API contract for any non-UI consumer (CLI tools,
+  // dashboards, future admin surfaces). The UI was the only consumer
+  // that knew how to render the `v2NotYet=true` rows, so we keep the
+  // synthesis local to it.
+  const v2Placeholders: SpaceRow[] = [
+    {
+      _id: 'wac:placeholder:chat-channels',
+      _class: 'chunter.placeholder.v2',
+      name: 'Chat Channels',
+      ownerIds: [],
+      membersCount: 0,
+      private: false,
+      autoJoin: false,
+      archived: false,
+      capabilities: {
+        editableHere: false,
+        openInApp: `/workbench/${workspace}/chunter`,
+        v2NotYet: true
+      }
+    } as SpaceRow,
+    {
+      _id: 'wac:placeholder:office-rooms',
+      _class: 'love.placeholder.v2',
+      name: 'Office Rooms',
+      ownerIds: [],
+      membersCount: 0,
+      private: false,
+      autoJoin: false,
+      archived: false,
+      capabilities: {
+        editableHere: false,
+        openInApp: `/workbench/${workspace}/love`,
+        v2NotYet: true
+      }
+    } as SpaceRow,
+    {
+      _id: 'wac:placeholder:guest-links',
+      _class: 'guest.placeholder.v2',
+      name: 'Guest Links',
+      ownerIds: [],
+      membersCount: 0,
+      private: false,
+      autoJoin: false,
+      archived: false,
+      capabilities: { editableHere: false, openInApp: null, v2NotYet: true }
+    } as SpaceRow
+  ]
+
   async function refresh (): Promise<void> {
     loading = true
     error = null
     try {
       const res = await resourcesApi.listSpaces(workspace, { filter: preset, sort: sort?.field })
-      items = res.items
+      // Append the v2 "coming soon" placeholders after the real rows so
+      // users see a single combined list — the rendered styling already
+      // distinguishes them via `capabilities.v2NotYet`.
+      items = [...res.items, ...v2Placeholders]
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
     } finally {
