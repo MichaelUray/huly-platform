@@ -101,6 +101,13 @@
     "SendSetupLink": "セットアップリンクを送信",
     "SSOPasswordEmailSent": "パスワードを設定するためのリンクが記載されたメールを確認してください。",
     "SSONoEmailLinked": "アカウントにメールアドレスがリンクされていません。まず、アカウント設定 → IDの管理 で追加してください。",
-    "CreateSampleProjects": "サンプルプロジェクトとデモコンテンツを作成"
+    "CreateSampleProjects": "サンプルプロジェクトとデモコンテンツを作成",
+    "AccountDisabledTitle": "Account disabled",
+    "AccountDisabledBody": "Your account has been disabled by an administrator. Please contact your administrator if you believe this is in error.",
+    "SignOut": "Sign out",
+    "AdminPanel": "Admin panel",
+    "AdminUsers": "Users",
+    "AdminWorkspaces": "Workspaces",
+    "BackToWorkbench": "Back to workbench"
   }
 }

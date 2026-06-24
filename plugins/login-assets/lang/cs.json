@@ -102,6 +102,14 @@
     "SendSetupLink": "Odeslat odkaz na nastavení",
     "SSOPasswordEmailSent": "Zkontrolujte svůj e-mail, zda neobsahuje odkaz pro nastavení hesla.",
     "SSONoEmailLinked": "K vašemu účtu není přidružena žádná e-mailová adresa. Nejprve ji přidejte v Nastavení účtu → Spravovat identity.",
-    "CreateSampleProjects": "Vytvořit ukázkové projekty a demo obsah"
+    "CreateSampleProjects": "Vytvořit ukázkové projekty a demo obsah",
+    "WorkspaceArchivedDesc": "Workspace is archived because of being unused.",
+    "AccountDisabledTitle": "Account disabled",
+    "AccountDisabledBody": "Your account has been disabled by an administrator. Please contact your administrator if you believe this is in error.",
+    "SignOut": "Sign out",
+    "AdminPanel": "Admin panel",
+    "AdminUsers": "Users",
+    "AdminWorkspaces": "Workspaces",
+    "BackToWorkbench": "Back to workbench"
   }
 }
