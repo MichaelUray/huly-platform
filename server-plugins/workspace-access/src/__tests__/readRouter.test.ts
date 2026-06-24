@@ -15,6 +15,8 @@
 
 import {
   createWacReadHandlers,
+  parseAuditQuery,
+  buildAuditWhere,
   type WacReadDeps,
   type WacReadHandlers,
   type KoaCtxLike,
@@ -31,9 +33,12 @@ interface CapturedResponse {
   endCalled: boolean
 }
 
-function makeCtx (): { ctx: KoaCtxLike, captured: CapturedResponse } {
+function makeCtx (
+  query?: Record<string, string | string[] | undefined>
+): { ctx: KoaCtxLike, captured: CapturedResponse } {
   const captured: CapturedResponse = { raw: [], endCalled: false }
   const ctx: KoaCtxLike = {
+    query,
     res: {
       writeHead (status, headers) {
         captured.status = status
@@ -498,6 +503,122 @@ describe('readRouter — handleAudit', () => {
     const pg = makePg([new Error('audit-down')])
     const handlers = buildHandlers({ pgClient: async () => pg })
     await expect(handlers.handleAudit(ctx, 'ws-1')).rejects.toThrow(/audit-down/)
+  })
+
+  // ── A1: filter ?from=&to=&action= ──────────────────────────────────
+  it('passes ts >= $2::timestamptz when ?from=… is provided', async () => {
+    let lastQuery = ''
+    let lastParams: any[] = []
+    const pg: PgClientLike = {
+      async execute (q, p) {
+        lastQuery = q
+        lastParams = p ?? []
+        return []
+      }
+    }
+    const { ctx } = makeCtx({ from: '2026-06-01T00:00:00Z' })
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleAudit(ctx, 'ws-1')
+    expect(lastQuery).toMatch(/ts >= \$2::timestamptz/)
+    expect(lastParams).toEqual(['ws-1', '2026-06-01T00:00:00Z'])
+  })
+
+  it('passes both bounds + action filter as ANDed conditions', async () => {
+    let lastQuery = ''
+    let lastParams: any[] = []
+    const pg: PgClientLike = {
+      async execute (q, p) {
+        lastQuery = q
+        lastParams = p ?? []
+        return []
+      }
+    }
+    const { ctx } = makeCtx({
+      from: '2026-06-01',
+      to: '2026-06-30',
+      action: 'role_changed'
+    })
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleAudit(ctx, 'ws-1')
+    expect(lastQuery).toMatch(/ts >= \$2::timestamptz AND ts <= \$3::timestamptz AND action = \$4/)
+    expect(lastParams).toEqual(['ws-1', '2026-06-01', '2026-06-30', 'role_changed'])
+  })
+
+  it('silently drops malformed filter values (no SQL injection surface)', async () => {
+    let lastParams: any[] = []
+    const pg: PgClientLike = {
+      async execute (_q, p) {
+        lastParams = p ?? []
+        return []
+      }
+    }
+    const { ctx } = makeCtx({
+      from: "2026'; DROP TABLE workspace_audit_log;--",
+      action: 'role_changed; DELETE'
+    })
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleAudit(ctx, 'ws-1')
+    // Both values fail the ISO_RE / ACTION_RE guards → dropped → only
+    // workspace param remains.
+    expect(lastParams).toEqual(['ws-1'])
+  })
+
+  it('returns 200 with the unfiltered set when no query is provided', async () => {
+    let lastQuery = ''
+    const pg: PgClientLike = {
+      async execute (q, _p) {
+        lastQuery = q
+        return []
+      }
+    }
+    const { ctx, captured } = makeCtx()
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleAudit(ctx, 'ws-1')
+    expect(captured.status).toBe(200)
+    expect(lastQuery).toMatch(/WHERE workspace=\$1\s+ORDER BY/)
+  })
+})
+
+describe('readRouter — parseAuditQuery + buildAuditWhere (A1 pure helpers)', () => {
+  it('parseAuditQuery accepts ISO date-only', () => {
+    expect(parseAuditQuery({ from: '2026-06-01' })).toEqual({ from: '2026-06-01' })
+  })
+
+  it('parseAuditQuery accepts full ISO timestamp with timezone', () => {
+    expect(parseAuditQuery({ to: '2026-06-30T23:59:59+02:00' })).toEqual({
+      to: '2026-06-30T23:59:59+02:00'
+    })
+  })
+
+  it('parseAuditQuery rejects invalid ISO, action with special chars, undefined input', () => {
+    expect(parseAuditQuery({ from: 'yesterday' })).toEqual({})
+    expect(parseAuditQuery({ action: 'role;changed' })).toEqual({})
+    expect(parseAuditQuery({ action: 'TOO_LOUD' })).toEqual({})
+    expect(parseAuditQuery(undefined)).toEqual({})
+  })
+
+  it('parseAuditQuery takes first value when array is given', () => {
+    expect(parseAuditQuery({ from: ['2026-06-01', '2026-07-01'] })).toEqual({
+      from: '2026-06-01'
+    })
+  })
+
+  it('buildAuditWhere produces base clause when filter is empty', () => {
+    const { sql, params } = buildAuditWhere('ws-1', {})
+    expect(sql).toBe('workspace=$1')
+    expect(params).toEqual(['ws-1'])
+  })
+
+  it('buildAuditWhere appends ANDs in deterministic from/to/action order', () => {
+    const { sql, params } = buildAuditWhere('ws-1', {
+      action: 'space_archived',
+      to: '2026-06-30',
+      from: '2026-06-01'
+    })
+    expect(sql).toBe(
+      'workspace=$1 AND ts >= $2::timestamptz AND ts <= $3::timestamptz AND action = $4'
+    )
+    expect(params).toEqual(['ws-1', '2026-06-01', '2026-06-30', 'space_archived'])
   })
 })
 
