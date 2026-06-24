@@ -5,7 +5,8 @@
 -->
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { TabList } from '@hcengineering/ui'
+  import { TabList, showPopup } from '@hcengineering/ui'
+  import { MessageBox } from '@hcengineering/presentation'
   import wac from '../../plugin'
   import AllMembersTab from './AllMembersTab.svelte'
   import ByRoleTab from './ByRoleTab.svelte'
@@ -114,23 +115,38 @@
   }
 
   async function bulkRole (e: CustomEvent<{ role: WorkspaceRole }>): Promise<void> {
-    if (!confirm(`Change role of ${selectedIds.size} selected member(s) to ${e.detail.role}?`)) return
-    try {
-      // Server contract: always 200 with {batch_id, appliedCount, results[]}.
-      // The 409 "would empty owner set entirely" still throws via WacClient
-      // and lands in the catch — that's the only path that yields a hard
-      // error string. Partial outcomes are routed through the bulk-bar
-      // banner.
-      const result = await peopleApi.bulkChangeRole(workspace, [...selectedIds], e.detail.role)
-      lastBulkRoleResult = result
-      // Clear selection only when at least one mutation landed; otherwise
-      // keep the rows selected so the operator can retry without re-picking.
-      if (result.appliedCount > 0) {
-        selectedIds = new Set()
+    // Polish-1: replace window.confirm with Huly's MessageBox so the
+    // confirmation is i18n-able, themed (dangerous-style), and consistent
+    // with the rest of the platform. The mutation only fires once the
+    // user clicks the primary action; cancel/Esc is a no-op.
+    const role = e.detail.role
+    const ids = [...selectedIds]
+    showPopup(MessageBox, {
+      label: wac.string.ConfirmBulkRoleTitle,
+      labelProps: { count: ids.length },
+      message: wac.string.ConfirmBulkRoleMessage,
+      params: { role },
+      dangerous: true,
+      action: async () => {
+        try {
+          // Server contract: always 200 with {batch_id, appliedCount, results[]}.
+          // The 409 "would empty owner set entirely" still throws via WacClient
+          // and lands in the catch — that's the only path that yields a hard
+          // error string. Partial outcomes are routed through the bulk-bar
+          // banner.
+          const result = await peopleApi.bulkChangeRole(workspace, ids, role)
+          lastBulkRoleResult = result
+          // Clear selection only when at least one mutation landed;
+          // otherwise keep rows selected so the operator can retry without
+          // re-picking.
+          if (result.appliedCount > 0) {
+            selectedIds = new Set()
+          }
+        } catch (err) {
+          error = err instanceof Error ? err.message : String(err)
+        }
       }
-    } catch (err) {
-      error = err instanceof Error ? err.message : String(err)
-    }
+    })
   }
 </script>
 
