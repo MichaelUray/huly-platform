@@ -6,13 +6,15 @@
 // with "Open in <App> →" link. No Delete button.
 -->
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte'
+  import { createEventDispatcher, onMount } from 'svelte'
   import { Button, ToggleWithLabel } from '@hcengineering/ui'
   import { getEmbeddedLabel } from '@hcengineering/platform'
   import { EntityDrawer } from '@hcengineering/access-management-ui'
   import SpaceTypeIcon from './SpaceTypeIcon.svelte'
+  import MemberPickerInput from '../shared/MemberPickerInput.svelte'
   import { resourcesApi } from '../../api/resourcesApi'
-  import type { SpaceDetail } from '../../types'
+  import { peopleApi } from '../../api/peopleApi'
+  import type { SpaceDetail, MemberRow } from '../../types'
 
   export let workspace: string
   export let spaceId: string | null = null
@@ -32,11 +34,19 @@
   // is true so a click cannot wipe a list that hasn't loaded yet.
   let detailLoaded: boolean = false
 
-  let membersText = ''
-  let ownersText = ''
+  let membersSelected: string[] = []
+  let ownersSelected: string[] = []
+  let allMembers: { uuid: string; name: string; email?: string }[] = []
   let privateFlag = false
   let autoJoinFlag = false
   let archivedFlag = false
+
+  onMount(async () => {
+    try {
+      const res = await peopleApi.listMembers(workspace, { limit: 100 })
+      allMembers = res.items.map((m: MemberRow) => ({ uuid: m.uuid, name: m.name, email: m.email }))
+    } catch { /* keep empty */ }
+  })
 
   $: if (spaceId != null && open) {
     void load(spaceId)
@@ -46,15 +56,12 @@
     loading = true
     error = null
     detailLoaded = false
-    membersText = ''
-    ownersText = ''
+    membersSelected = []
+    ownersSelected = []
     try {
       space = await resourcesApi.getSpace(workspace, id)
-      // Initialize FROM the dedicated lists. The previous bug initialized
-      // membersText from space.ownerIds; a "Save members" click would
-      // then wipe every non-owner member.
-      membersText = (space.members ?? []).join(', ')
-      ownersText = (space.ownerIds ?? []).join(', ')
+      membersSelected = space.members ?? []
+      ownersSelected = space.ownerIds ?? []
       privateFlag = space.private
       autoJoinFlag = space.autoJoin
       archivedFlag = space.archived
@@ -66,17 +73,10 @@
     }
   }
 
-  function parseUuids (s: string): string[] {
-    return s
-      .split(/[,\s]+/)
-      .map((u) => u.trim())
-      .filter((u) => u !== '')
-  }
-
   async function saveMembers (): Promise<void> {
     if (space == null) return
     try {
-      await resourcesApi.setSpaceMembers(workspace, space._id, parseUuids(membersText))
+      await resourcesApi.setSpaceMembers(workspace, space._id, membersSelected)
       dispatch('changed')
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -86,7 +86,7 @@
   async function saveOwners (): Promise<void> {
     if (space == null) return
     try {
-      await resourcesApi.setSpaceOwners(workspace, space._id, parseUuids(ownersText))
+      await resourcesApi.setSpaceOwners(workspace, space._id, ownersSelected)
       dispatch('changed')
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -149,12 +149,12 @@
 
       <section>
         <h3>Members</h3>
-        <textarea
-          bind:value={membersText}
-          rows="3"
+        <MemberPickerInput
+          bind:selected={membersSelected}
+          options={allMembers}
           disabled={!canEditMembership || !detailLoaded}
-          placeholder={detailLoaded ? 'UUID, UUID, …' : 'Loading current members…'}
-        ></textarea>
+          placeholder={'Add member…'}
+        />
         <div class="actions">
           <Button
             kind={'primary'}
@@ -168,12 +168,12 @@
 
       <section>
         <h3>Owners</h3>
-        <textarea
-          bind:value={ownersText}
-          rows="3"
+        <MemberPickerInput
+          bind:selected={ownersSelected}
+          options={allMembers}
           disabled={!canEditMembership || !detailLoaded}
-          placeholder={detailLoaded ? 'UUID, UUID, …' : 'Loading current owners…'}
-        ></textarea>
+          placeholder={'Add owner…'}
+        />
         <div class="actions">
           <Button
             kind={'primary'}
