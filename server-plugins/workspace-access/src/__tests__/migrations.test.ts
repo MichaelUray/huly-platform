@@ -1,8 +1,8 @@
 import { migrations } from '../migrations/loader'
 
 describe('migrations', () => {
-  it('has V31, V32, V33 in order', () => {
-    expect(migrations.map((m) => m.id)).toEqual(['V31', 'V32', 'V33'])
+  it('has V31, V32, V33, V34 in order', () => {
+    expect(migrations.map((m) => m.id)).toEqual(['V31', 'V32', 'V33', 'V34'])
   })
 
   it('V31 creates workspace_audit_log with hash-sharded primary key', () => {
@@ -35,8 +35,16 @@ describe('migrations', () => {
     expect(v33).toContain("table_name = 'workspaces'")
   })
 
+  it('V34 creates workspace_access_presets table + ws index', () => {
+    const v34 = migrations[3].sql
+    expect(v34).toContain('CREATE TABLE IF NOT EXISTS workspace_access_presets')
+    expect(v34).toContain('UNIQUE (workspace, name)')
+    expect(v34).toContain('shape       JSONB NOT NULL')
+    expect(v34).toContain('idx_workspace_access_presets_ws')
+  })
+
   it('all migrations are forward-only with IF NOT EXISTS guards', () => {
-    for (const m of [migrations[0], migrations[1]]) {
+    for (const m of [migrations[0], migrations[1], migrations[3]]) {
       expect(m.sql.toUpperCase()).toContain('IF NOT EXISTS')
     }
   })
