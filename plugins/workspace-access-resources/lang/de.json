@@ -72,6 +72,11 @@
     "ConfirmDeclineGrantTitle": "Decline access to \"{title}\"?",
     "ConfirmDeclineGrantMessage": "The grant will be revoked. You can ask the granter to re-share if you change your mind.",
     "ConfirmRevokeGrantTitle": "Revoke access to \"{title}\"?",
-    "ConfirmRevokeGrantMessage": "{recipient} will lose access to this resource immediately."
+    "ConfirmRevokeGrantMessage": "{recipient} will lose access to this resource immediately.",
+    "SpacePickerAddTitle": "Add selected members to a space",
+    "SpacePickerRemoveTitle": "Remove selected members from a space",
+    "SpacePickerHint": "Paste the target space ID (UUID). A live space picker will replace this input in v1.5.",
+    "SpacePickerInvalidUuid": "Enter a valid space ID (UUID).",
+    "SpaceIdLabel": "Space ID"
   }
 }
