@@ -605,10 +605,26 @@ describe('readRouter — parseAuditFilter + buildAuditWhere (A1 pure helpers)', 
     expect(parseAuditFilter({ actor: '%wild%' })).toEqual({})
   })
 
-  it('buildAuditWhere emits ILIKE clause for actor with %-wrapped param', () => {
+  it('buildAuditWhere emits ILIKE clause for actor with %-wrapped param matching actor OR actor_role', () => {
+    // 2026-06-25 H8 fix — pre-fix the ILIKE only matched actor::text
+    // (the UUID column), so typing the display label `system` filtered
+    // 0 rows even though system-issued audit rows are clearly visible
+    // in the UI (the workspaceAuditMapper falls back to 'system' when
+    // actor is null). The clause now matches BOTH columns with the
+    // same %-wrapped param.
     const { sql, params } = buildAuditWhere('ws-1', { actor: 'mike' })
-    expect(sql).toBe('workspace=$1 AND actor::text ILIKE $2')
+    expect(sql).toBe('workspace=$1 AND (actor::text ILIKE $2 OR actor_role ILIKE $2)')
     expect(params).toEqual(['ws-1', '%mike%'])
+  })
+
+  it('buildAuditWhere actor filter accepts the literal "system" used for system-issued rows', () => {
+    // The system-actor case is the key motivator for matching actor_role
+    // — actor is NULL for those rows so an actor::text ILIKE would never
+    // hit. Pinning this case so a regression that drops actor_role from
+    // the OR clause breaks loudly.
+    const { sql, params } = buildAuditWhere('ws-1', { actor: 'system' })
+    expect(sql).toBe('workspace=$1 AND (actor::text ILIKE $2 OR actor_role ILIKE $2)')
+    expect(params).toEqual(['ws-1', '%system%'])
   })
 
   it('buildAuditWhere produces base clause when filter is empty', () => {

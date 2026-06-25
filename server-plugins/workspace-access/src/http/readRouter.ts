@@ -257,12 +257,20 @@ export function buildAuditWhere (
     parts.push(`action = $${params.length}`)
   }
   if (filter.actor != null) {
-    // ILIKE on actor::text — the regex guard above already restricts
-    // the alphabet so an unescaped `%` cannot leak in. We still add
-    // anchors-as-wildcards explicitly so the param is treated as a
-    // substring, not a literal match.
+    // 2026-06-25 H8 fix — extend ILIKE to BOTH actor (UUID column) and
+    // actor_role (text column). Pre-fix the filter only matched the
+    // UUID column, so typing the display label `system` reduced rows
+    // to zero even though system-issued audit rows have actor=NULL +
+    // actor_role='system'. The mapper (workspaceAuditMapper.ts) falls
+    // back to 'system' for those rows so the operator's mental model
+    // is "Actor: system" — the filter must match that.
+    //
+    // The regex guard above already restricts the alphabet so an
+    // unescaped `%` cannot leak in. We still add anchors-as-wildcards
+    // explicitly so the param is treated as a substring, not a literal
+    // match.
     params.push('%' + filter.actor + '%')
-    parts.push(`actor::text ILIKE $${params.length}`)
+    parts.push(`(actor::text ILIKE $${params.length} OR actor_role ILIKE $${params.length})`)
   }
   return { sql: parts.join(' AND '), params }
 }
