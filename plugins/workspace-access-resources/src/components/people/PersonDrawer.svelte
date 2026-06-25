@@ -296,7 +296,16 @@
           aria-expanded={epOpen}
           on:click={() => { epOpen = !epOpen }}
         >
-          <span class="caret" class:open={epOpen}>▸</span>
+          <!-- L19 — pre-fix the caret was always the literal '▸'
+               and relied on a CSS transform (.caret.open
+               { transform: rotate(90deg); }) to point down when
+               open. The rotation didn't survive every font-stack +
+               line-height combination in the wild (the glyph stayed
+               visually pointing right even though the CSS was
+               applied), so the operator couldn't tell whether the
+               drawer section was expanded. Switch to a reactive
+               character so the glyph itself encodes the state. -->
+          <span class="caret" class:open={epOpen}>{epOpen ? '▾' : '▸'}</span>
           Effective permissions
           <span class="hint inline">— drill down by Space ID</span>
         </button>
@@ -449,8 +458,11 @@
     align-items: center;
     gap: 0.35rem;
   }
-  .caret { display: inline-block; transition: transform 120ms ease; }
-  .caret.open { transform: rotate(90deg); }
+  /* L19 — caret glyph itself encodes open/closed state; no transform
+     needed. Keep a faint color hint so the open caret reads as the
+     selected/active label. */
+  .caret { display: inline-block; color: var(--theme-darker-color); }
+  .caret.open { color: var(--theme-caption-color); }
   .ep-body { margin-top: 0.5rem; display: flex; flex-direction: column; gap: 0.6rem; }
   .ep-input {
     flex: 1;

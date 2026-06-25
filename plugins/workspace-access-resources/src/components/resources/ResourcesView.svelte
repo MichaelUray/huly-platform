@@ -148,7 +148,19 @@
   }
 </script>
 
-<div class="resources-view" id="wac-panel-resources" role="tabpanel">
+<!-- L20 — data-active-sub mirrors the existing People panel attribute
+     so smoke tests / Playwright assertions can pin which sub-tab is
+     active without scraping TabList's internal state. Pre-fix the
+     attribute was set on /wac-panel-people but not the Resources
+     panel, so a generic "which sub-tab is open" assertion failed
+     against the Resources view. -->
+<div
+  class="resources-view"
+  id="wac-panel-resources"
+  role="tabpanel"
+  data-test-id="wac-panel-resources"
+  data-active-sub={sub}
+>
   <div class="sub-tabs">
     <TabList
       items={subItems}
