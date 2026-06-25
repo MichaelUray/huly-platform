@@ -38,12 +38,39 @@
     { key: 'spacesCount', label: 'Spaces' as any, sort: true, width: 100 }
   ]
 
+  // 2026-06-25 H1 fix — apply the sub-tab preset filter client-side.
+  // Pre-fix the preset (`{ activityBucketIn: ['90d+'] }` for Inactive,
+  // role filters for By-role, etc.) was passed to the backend but
+  // handleMembers ignored it, so every sub-tab returned the same full
+  // member list. Filtering here is the smaller surgical fix; the
+  // backend filter can land later without changing the contract
+  // because the keys and values match what handleMembers would
+  // consume (the preset shape is the same on both sides).
+  function applyPresetFilter (rows: MemberRow[]): MemberRow[] {
+    if (Object.keys(preset).length === 0) return rows
+    return rows.filter((r) => {
+      for (const [key, want] of Object.entries(preset)) {
+        if (key === 'activityBucketIn' && Array.isArray(want)) {
+          if (!want.includes(r.activityBucket)) return false
+          continue
+        }
+        if (key === 'roleIn' && Array.isArray(want)) {
+          if (!want.includes(r.role)) return false
+          continue
+        }
+        // Generic equality fallback for future keys.
+        if ((r as any)[key] !== want) return false
+      }
+      return true
+    })
+  }
+
   async function refresh (): Promise<void> {
     loading = true
     error = null
     try {
       const res = await peopleApi.listMembers(workspace, { filter: preset, sort: sort?.field })
-      items = res.items
+      items = applyPresetFilter(res.items)
       cursor = res.cursor
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)
@@ -65,7 +92,10 @@
         sort: sort?.field,
         cursor
       })
-      items = [...items, ...res.items]
+      // 2026-06-25 H1 — same client-side preset filter as refresh().
+      // Without this the paginated tail would still spill un-filtered
+      // rows into Inactive (90d+) etc.
+      items = [...items, ...applyPresetFilter(res.items)]
       cursor = res.cursor
     } catch (e) {
       error = e instanceof Error ? e.message : String(e)

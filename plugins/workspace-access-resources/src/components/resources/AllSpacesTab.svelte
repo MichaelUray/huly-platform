@@ -115,20 +115,51 @@
     }
   }
 
+  // 2026-06-25 H2/H3/H4/H5 fix — apply the sub-tab preset filter
+  // client-side. Pre-fix the preset (`{ private: true }`,
+  // `{ archived: true }`, …) was passed to the backend but
+  // handleSpaces ignored it, so every sub-tab returned all 14 rows.
+  // Filtering here is the smaller surgical fix; the backend filter
+  // can land later without changing the contract because the keys
+  // and values match what handleSpaces would consume.
+  function matchesPreset (s: SpaceRow): boolean {
+    for (const [key, want] of Object.entries(preset)) {
+      const got = (s as any)[key]
+      // Booleans require strict equality (true vs '—' or undefined).
+      if (typeof want === 'boolean' && got !== want) return false
+      // String / number presets fall back to !== compare.
+      if (typeof want !== 'boolean' && want !== undefined && got !== want) return false
+    }
+    return true
+  }
+
+  // 2026-06-25 H6 fix — include the v2-placeholder rows in the search
+  // filter so typing a non-matching query (`zzz_no_match_test`) does
+  // not leave Chat Channels / Office Rooms / Guest Links visible.
+  // Pre-fix the placeholders bypassed the search predicate entirely
+  // because they were appended unconditionally after the filter step,
+  // which confused the "did my search work?" UX. We keep them in the
+  // result on an EMPTY query (the original "sticky info rows" intent)
+  // but apply the same name/_id match when the operator typed a query.
+  //
   // A3 — reactive client-side filter. Empty query returns the full
   // list. Filtering is case-insensitive on `name` (contains) and on
   // `_id` (prefix-only — IDs are UUIDs so substring matches deep in
-  // the middle would be noisy). v2-placeholder rows are appended last,
-  // always, regardless of the query — they are sticky info rows about
-  // resource families that don't have a v2 surface yet.
+  // the middle would be noisy).
   $: filteredSpaces = (() => {
     const q = searchQuery.trim().toLowerCase()
-    const real: SpaceRow[] = q === ''
-      ? spaces
-      : spaces.filter((s) =>
-        s.name.toLowerCase().includes(q) || s._id.toLowerCase().startsWith(q)
-      )
-    return [...real, ...v2Placeholders]
+    const matchesSearch = (s: SpaceRow): boolean =>
+      q === '' ||
+      s.name.toLowerCase().includes(q) ||
+      s._id.toLowerCase().startsWith(q)
+    const real: SpaceRow[] = spaces.filter((s) => matchesPreset(s) && matchesSearch(s))
+    // Placeholder rows are sticky in the default (all-tab, no-search)
+    // view, but never bypass an active sub-tab filter or active
+    // search query — they have no real privacy / archived / autoJoin
+    // value so they would always read as "doesn't match" anyway.
+    const showPlaceholders =
+      Object.keys(preset).length === 0 && q === ''
+    return showPlaceholders ? [...real, ...v2Placeholders] : real
   })()
 
   onMount(refresh)
