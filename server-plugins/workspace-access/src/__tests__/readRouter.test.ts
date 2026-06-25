@@ -302,6 +302,32 @@ describe('readRouter — handleSpaces', () => {
     await expect(handlers.handleSpaces(ctx, 'ws-1', 'ws-1')).rejects.toThrow(/boom/)
   })
 
+  // 2026-06-25 L22 surface-sweep fix — pre-fix members_count was
+  // computed only from the `collaborator` table, which on
+  // legacy-shape spaces (data->members JSONB array, no collaborator
+  // rows synced) is empty → MEMBERS column showed 0 for every row.
+  // Fix takes GREATEST of the collaborator count AND the JSONB
+  // members array length so both data shapes surface a real number.
+  it('L22: members_count SQL fans out across collaborator + JSONB members shapes', async () => {
+    const { ctx } = makeCtx()
+    let capturedQuery = ''
+    const pg: PgClientLike = {
+      async execute (query, _params) {
+        capturedQuery = String(query)
+        return []
+      }
+    }
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleSpaces(ctx, 'ws-1', 'ws-label')
+    // SQL must take the greatest of the two sources, never just one.
+    expect(capturedQuery).toMatch(/GREATEST\s*\(/i)
+    expect(capturedQuery).toContain('count(*)::int FROM collaborator')
+    expect(capturedQuery).toContain("jsonb_array_length")
+    // Defensive: jsonb_typeof guard so a non-array `members` payload
+    // (e.g. null, an object) doesn't 500 the entire endpoint.
+    expect(capturedQuery).toContain("jsonb_typeof")
+  })
+
   // Phase 4 T3 — WAC_EXTRA_SPACE_CLASSES wiring.
   //
   // The host parses the env into `extraSpaceClasses` and passes it as a

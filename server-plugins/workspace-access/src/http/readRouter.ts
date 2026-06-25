@@ -547,6 +547,16 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
       // even if a future env value sneaks something non-class-shaped past
       // the validator in mergeSpaceClassWhitelist.
       const inPlaceholders = allClasses.map((_, i) => `$${i + 2}`).join(',')
+      // 2026-06-25 L22 fix — pre-fix members_count was computed only
+      // from the `collaborator` table, which on legacy-shape spaces
+      // (data->members JSONB array, no collaborator rows synced) is
+      // empty → every row in the Resources table showed MEMBERS=0
+      // even though the space clearly had members in its data
+      // payload. Fix takes the GREATEST of the two sources so a
+      // workspace mid-migration between the legacy JSONB shape and
+      // the modern collaborator table still surfaces the correct
+      // count, and a workspace fully on either shape isn't
+      // double-counted (only the populated source contributes).
       const rows = await pg.execute(
         `SELECT s."_id", s."_class",
                 s.data->>'name' AS name,
@@ -554,9 +564,20 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
                 (s.data->>'autoJoin')::boolean AS auto_join,
                 (s.data->>'archived')::boolean AS archived,
                 s.data->'owners' AS owners,
-                (SELECT count(*)::int FROM collaborator c
-                   WHERE c."workspaceId" = s."workspaceId"
-                     AND c."attachedTo" = s."_id") AS members_count
+                GREATEST(
+                  (SELECT count(*)::int FROM collaborator c
+                     WHERE c."workspaceId" = s."workspaceId"
+                       AND c."attachedTo" = s."_id"),
+                  COALESCE(
+                    jsonb_array_length(
+                      CASE WHEN jsonb_typeof(s.data->'members') = 'array'
+                           THEN s.data->'members'
+                           ELSE '[]'::jsonb
+                      END
+                    ),
+                    0
+                  )
+                ) AS members_count
          FROM space s
          WHERE s."workspaceId"=$1
            AND s."_class" IN (${inPlaceholders})
