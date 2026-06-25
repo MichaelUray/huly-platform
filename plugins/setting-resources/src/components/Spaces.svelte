@@ -26,7 +26,7 @@
   workflows that depend on the editor keep working.
 -->
 <script lang="ts">
-  import { Header, Breadcrumb } from '@hcengineering/ui'
+  import { Header, Breadcrumb, Label } from '@hcengineering/ui'
   import core, { AccountUuid, Ref, Role, RolesAssignment, SpaceType, TypedSpace, WithLookup } from '@hcengineering/core'
   import { createQuery, getClient } from '@hcengineering/presentation'
   import { AccountArrayEditor } from '@hcengineering/contact-resources'
@@ -68,6 +68,22 @@
     )
   }
   $: roles = (spaceType?.$lookup?.roles ?? []) as Role[]
+  // 2026-06-25 M18 fix — pre-fix this component rendered a header +
+  // an empty grey body whenever \`roles\` was [] (which is the case
+  // on a workspace where the SpacesType SpaceType has not had any
+  // Role docs created yet, OR while the typeQuery is still in-flight
+  // before the first reactive tick lands). The operator landing on
+  // /setting/allSpaces saw a near-empty page with no explanation and
+  // no path forward, which on Codex E4 the reviewer flagged because
+  // it surfaces as "broken page" rather than "no data yet".
+  //
+  // We split the render into three explicit states:
+  //   - loading  — query is still in flight (space or spaceType nil)
+  //   - empty    — both loaded, but no Role rows defined for this
+  //                workspace (genuine no-data state, not a bug)
+  //   - editor   — the original AccountArrayEditor stack
+  $: editorLoading = space === undefined || spaceType === undefined
+  $: editorEmpty = !editorLoading && roles.length === 0
 
   let rolesAssignment: RolesAssignment = {}
   $: {
@@ -94,27 +110,68 @@
     <Breadcrumb icon={setting.icon.Views} label={setting.string.Spaces} size="large" isCurrent />
   </Header>
   <div class="hulyComponent-content__column content">
-    {#each roles as role}
-      <div class="antiGrid-row">
-        <div class="antiGrid-row__header">
-          {role.name}
-        </div>
-        <AccountArrayEditor
-          value={rolesAssignment?.[role._id] ?? []}
-          label={core.string.Members}
-          onChange={(refs) => {
-            void handleRoleAssignmentChanged(role._id, refs)
-          }}
-          kind="regular"
-          size="large"
-        />
+    {#if editorLoading}
+      <div class="state state--loading" data-test="wac-allspaces-loading">
+        <p><Label label={setting.string.Spaces} /> — loading…</p>
       </div>
-    {/each}
+    {:else if editorEmpty}
+      <!-- M18 — distinguish "still loading" from "no roles defined
+           yet" so the operator isn't staring at a near-empty page
+           with no breadcrumb of what's happening. -->
+      <div class="state state--empty" data-test="wac-allspaces-empty">
+        <h3><Label label={setting.string.Spaces} /></h3>
+        <p>
+          No workspace-wide role assignments have been created for
+          the meta SpacesType yet. This page lists the members of
+          each globally-defined Role and lets a Workspace Owner add
+          or remove accounts. The list will populate as soon as a
+          Role document exists in the SpacesType registry.
+        </p>
+      </div>
+    {:else}
+      {#each roles as role}
+        <div class="antiGrid-row">
+          <div class="antiGrid-row__header">
+            {role.name}
+          </div>
+          <AccountArrayEditor
+            value={rolesAssignment?.[role._id] ?? []}
+            label={core.string.Members}
+            onChange={(refs) => {
+              void handleRoleAssignmentChanged(role._id, refs)
+            }}
+            kind="regular"
+            size="large"
+          />
+        </div>
+      {/each}
+    {/if}
   </div>
 </div>
 
 <style lang="scss">
   .content {
     margin: 2rem 3.25rem;
+  }
+  /* M18 — explicit loading / empty states so the page never reads as
+     "broken" while the underlying query is still in-flight or while
+     the SpacesType registry has no Role rows. */
+  .state {
+    padding: 1.5rem;
+    border: 1px dashed var(--theme-divider-color);
+    border-radius: 0.5rem;
+    background: var(--theme-bg-accent-color);
+    color: var(--theme-darker-color);
+    max-width: 36rem;
+  }
+  .state h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+    color: var(--theme-caption-color);
+  }
+  .state p {
+    margin: 0;
+    font-size: 0.9rem;
+    line-height: 1.4;
   }
 </style>
