@@ -223,6 +223,7 @@ const wac = plugin(wacPluginId, {
     PresetApplyMembersLabel: '' as IntlString,
     PresetApplySummary: '' as IntlString,
     PresetSpacesHint: '' as IntlString,
+    PresetAddSpace: '' as IntlString,
     AuditActionPresetCreated: '' as IntlString,
     AuditActionPresetUpdated: '' as IntlString,
     AuditActionPresetDeleted: '' as IntlString,

@@ -124,7 +124,7 @@
         "PresetConfirmDeleteMessage": "This will remove the template. Members already configured via this preset are NOT affected.",
         "PresetApplyMembersLabel": "Member UUIDs (one per line)",
         "PresetApplySummary": "Applied to {applied} of {total} members.",
-        "PresetSpacesHint": "Comma-separated space IDs to add the target member(s) to.",
+        "PresetSpacesHint": "Spaces the target member(s) will be added to when this preset is applied.",
         "AuditActionPresetCreated": "Preset created",
         "AuditActionPresetUpdated": "Preset updated",
         "AuditActionPresetDeleted": "Preset deleted",
@@ -179,6 +179,7 @@
         "WebhooksTest": "Test fire",
         "WebhooksDelete": "Delete",
         "WebhooksConfirmDeleteTitle": "Delete webhook?",
-        "WebhooksConfirmDeleteMessage": "The endpoint will stop receiving events immediately."
+        "WebhooksConfirmDeleteMessage": "The endpoint will stop receiving events immediately.",
+        "PresetAddSpace": "+ Add space"
     }
 }

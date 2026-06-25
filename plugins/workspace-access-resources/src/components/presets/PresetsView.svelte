@@ -25,6 +25,7 @@
   import { Button, EditBox, Label, showPopup } from '@hcengineering/ui'
   import { MessageBox } from '@hcengineering/presentation'
   import wac from '../../plugin'
+  import SpacePickerModal from '../people/SpacePickerModal.svelte'
   import {
     presetsApi,
     type PresetRow,
@@ -48,7 +49,14 @@
   let formName: string = ''
   let formDescription: string = ''
   let formRole: WorkspaceRole = 'USER'
-  let formSpacesText: string = ''
+  // 2026-06-25 M16 fix — pre-fix the form took space-IDs as a
+  // comma-separated raw-UUID textarea, which forced the operator to
+  // hand-paste UUIDs they had to grep out of the URL bar. Now the
+  // form keeps an array of UUIDs and adds entries through the same
+  // SpacePickerModal that the People bulk-bar uses. Validation +
+  // de-dup live in one place (the modal); the form just owns the
+  // list and renders one chip per UUID.
+  let formSpaces: string[] = []
   let formBusy: boolean = false
 
   // Apply form state — one preset at a time.
@@ -81,13 +89,6 @@
 
   onMount(load)
 
-  function parseSpaces (text: string): string[] {
-    return text
-      .split(/[\s,]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-  }
-
   function parseMembers (text: string): string[] {
     return text
       .split(/\s+/)
@@ -100,8 +101,28 @@
     formName = ''
     formDescription = ''
     formRole = 'USER'
-    formSpacesText = ''
+    formSpaces = []
     formOpen = false
+  }
+
+  // M16 — open the shared SpacePickerModal (same one PeopleBulkBar +
+  // PeopleView use for Add/Remove-to-Space). The modal already does
+  // UUID-shape validation; we just push valid IDs into the chip list
+  // and skip duplicates so the operator doesn't accidentally inflate
+  // the addToSpaces array.
+  function addSpaceViaPicker (): void {
+    showPopup(SpacePickerModal, {
+      mode: 'add',
+      onPick: (spaceId: string) => {
+        if (!formSpaces.includes(spaceId)) {
+          formSpaces = [...formSpaces, spaceId]
+        }
+      }
+    })
+  }
+
+  function removeSpaceChip (id: string): void {
+    formSpaces = formSpaces.filter((s) => s !== id)
   }
 
   function openCreateForm (): void {
@@ -114,7 +135,7 @@
     formName = p.name
     formDescription = p.description ?? ''
     formRole = p.shape.role
-    formSpacesText = p.shape.addToSpaces.join(', ')
+    formSpaces = [...p.shape.addToSpaces]
     formOpen = true
     // Close any apply session targeting a different preset.
     if (applyId !== editId) {
@@ -130,7 +151,7 @@
     if (name === '') return
     const shape: PresetShape = {
       role: formRole,
-      addToSpaces: parseSpaces(formSpacesText)
+      addToSpaces: [...formSpaces]
     }
     const description = formDescription.trim() === '' ? null : formDescription.trim()
     formBusy = true
@@ -246,13 +267,33 @@
           {/each}
         </select>
       </div>
+      <!-- M16 — chip-list + "Add space" button replacing the
+           comma-separated raw-UUID textarea. Each chip carries the
+           space-ID and a remove-handle so the operator never has to
+           hand-edit text. The picker enforces UUID shape so the
+           server contract is untouched. -->
       <div class="field">
         <span class="field-label"><Label label={wac.string.PresetSpaces} /></span>
-        <textarea
-          bind:value={formSpacesText}
-          rows="3"
-          placeholder={'space-uuid-1, space-uuid-2'}
-        />
+        <div class="chip-list" data-test="preset-spaces-chips">
+          {#each formSpaces as id (id)}
+            <span class="chip">
+              <code class="chip-id">{id}</code>
+              <button
+                type="button"
+                class="chip-remove"
+                aria-label={`Remove ${id}`}
+                title={`Remove ${id}`}
+                on:click={() => removeSpaceChip(id)}
+              >×</button>
+            </span>
+          {/each}
+          <Button
+            kind={'ghost'}
+            size={'small'}
+            label={wac.string.PresetAddSpace}
+            on:click={addSpaceViaPicker}
+          />
+        </div>
         <div class="hint"><Label label={wac.string.PresetSpacesHint} /></div>
       </div>
       <div class="footer">
@@ -432,6 +473,43 @@
     border-radius: 0.35rem;
     padding: 0.4rem 0.5rem;
     resize: vertical;
+  }
+  /* M16 — chip list replacing the comma-separated UUID textarea */
+  .chip-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+    padding: 0.35rem;
+    background: var(--theme-bg-color);
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 0.35rem;
+    min-height: 2.25rem;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.5rem;
+    background: var(--theme-bg-accent-color);
+    border: 1px solid var(--theme-divider-color);
+    border-radius: 999px;
+    font-size: 0.78rem;
+  }
+  .chip-id {
+    font-family: var(--theme-font-mono, ui-monospace);
+    color: var(--theme-content-color);
+  }
+  .chip-remove {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: var(--theme-darker-color);
+    font-size: 0.9rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    &:hover { color: var(--theme-state-negative-color); }
   }
   .footer {
     display: flex;
