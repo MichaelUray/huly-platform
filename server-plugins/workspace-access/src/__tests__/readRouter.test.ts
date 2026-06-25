@@ -631,9 +631,18 @@ describe('readRouter — parseAuditFilter + buildAuditWhere (A1 pure helpers)', 
 })
 
 describe('readRouter — handleMyAccess', () => {
-  it('splits spacesOwned vs spacesMemberOf and echoes the caller role', async () => {
+  // 2026-06-25 H7 fix — handler now performs 4 pg.execute calls in order:
+  //   (1) JSONB owners/members lookup
+  //   (2) collaborator-table membership lookup
+  //   (3) grants received  (caller is collaborator)
+  //   (4) grants given     (caller is createdBy)
+  // Tests pin the call order + response shape so a future refactor that
+  // re-orders or drops a query breaks loud rather than silently.
+
+  it('splits spacesOwned vs spacesMemberOf via JSONB and echoes the caller role', async () => {
     const { ctx, captured } = makeCtx()
     const pg = makePg([
+      // (1) JSONB space rows
       [
         {
           _id: 's-own',
@@ -642,6 +651,7 @@ describe('readRouter — handleMyAccess', () => {
           members: '["caller","alice"]',
           owners: '["caller"]',
           private_flag: true,
+          auto_join: false,
           archived: false
         },
         {
@@ -651,9 +661,16 @@ describe('readRouter — handleMyAccess', () => {
           members: '["caller","bob"]',
           owners: '["bob"]',
           private_flag: false,
+          auto_join: false,
           archived: false
         }
-      ]
+      ],
+      // (2) collaborator-table space rows — none
+      [],
+      // (3) grants received — none
+      [],
+      // (4) grants given — none
+      []
     ])
     const handlers = buildHandlers({ pgClient: async () => pg })
     await handlers.handleMyAccess(ctx, 'ws-1', 'caller', 'OWNER')
@@ -664,6 +681,196 @@ describe('readRouter — handleMyAccess', () => {
     expect(captured.body.spacesOwned.map((s: any) => s._id)).toEqual(['s-own'])
     expect(captured.body.spacesMemberOf.map((s: any) => s._id)).toEqual(['s-mem'])
     expect(captured.body.spacesOwned[0].autoJoin).toBe(false)
+  })
+
+  it('augments spacesMemberOf from the collaborator table (modern Huly data shape)', async () => {
+    const { ctx, captured } = makeCtx()
+    const pg = makePg([
+      // (1) JSONB — empty (modern shape leaves data->'members' empty)
+      [],
+      // (2) collaborator-table rows — caller is on two spaces
+      [
+        {
+          _id: 's-collab-1',
+          _class: 'tracker:class:Project',
+          name: 'Collab Project',
+          owners: '["someone-else"]',
+          private_flag: false,
+          auto_join: false,
+          archived: false
+        },
+        {
+          _id: 's-collab-2',
+          _class: 'document:class:Teamspace',
+          name: 'Collab Team',
+          owners: '["caller"]', // <-- caller IS owner here; bucket into owned
+          private_flag: true,
+          auto_join: false,
+          archived: false
+        }
+      ],
+      // (3) grants received — none
+      [],
+      // (4) grants given — none
+      []
+    ])
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleMyAccess(ctx, 'ws-1', 'caller', 'USER')
+    expect(captured.status).toBe(200)
+    expect(captured.body.spacesMemberOf.map((s: any) => s._id)).toEqual(['s-collab-1'])
+    expect(captured.body.spacesOwned.map((s: any) => s._id)).toEqual(['s-collab-2'])
+  })
+
+  it('de-duplicates spaces appearing in both the JSONB and collaborator queries', async () => {
+    const { ctx, captured } = makeCtx()
+    const pg = makePg([
+      // (1) JSONB
+      [
+        {
+          _id: 's-dup',
+          _class: 'tracker:class:Project',
+          name: 'Dup',
+          members: '["caller"]',
+          owners: '["someone"]',
+          private_flag: false,
+          auto_join: false,
+          archived: false
+        }
+      ],
+      // (2) collaborator-table — same space returned again
+      [
+        {
+          _id: 's-dup',
+          _class: 'tracker:class:Project',
+          name: 'Dup',
+          owners: '["someone"]',
+          private_flag: false,
+          auto_join: false,
+          archived: false
+        }
+      ],
+      // (3) grants received — none
+      [],
+      // (4) grants given — none
+      []
+    ])
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleMyAccess(ctx, 'ws-1', 'caller', 'USER')
+    expect(captured.body.spacesMemberOf.map((s: any) => s._id)).toEqual(['s-dup'])
+    // Not double-counted
+    expect(captured.body.spacesMemberOf).toHaveLength(1)
+  })
+
+  it('maps grantsReceived from the collaborator table with display-name resolution', async () => {
+    const { ctx, captured } = makeCtx()
+    const pg = makePg([
+      // (1) JSONB
+      [],
+      // (2) collaborator-table membership
+      [],
+      // (3) grants received
+      [
+        {
+          row_id: 'g-1',
+          resource_id: 'space-x',
+          attached_class: 'tracker:class:Project',
+          granter: 'alice-uuid',
+          granted_at: '2026-06-20 10:00:00',
+          resource_name: 'Project X',
+          granter_first: 'Alice',
+          granter_last: 'A'
+        },
+        {
+          row_id: 'g-2',
+          resource_id: 'space-y',
+          attached_class: 'document:class:Teamspace',
+          granter: null, // system-issued grant
+          granted_at: '2026-06-21 10:00:00',
+          resource_name: null,
+          granter_first: null,
+          granter_last: null
+        }
+      ],
+      // (4) grants given
+      []
+    ])
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleMyAccess(ctx, 'ws-1', 'caller', 'USER')
+    expect(captured.body.grantsReceived).toEqual([
+      {
+        granterUuid: 'alice-uuid',
+        granterName: 'Alice A',
+        resourceId: 'space-x',
+        resourceClass: 'tracker.class.Project',
+        resourceTitle: 'Project X',
+        grantedAt: '2026-06-20 10:00:00'
+      },
+      {
+        granterUuid: 'system',
+        granterName: 'system',
+        resourceId: 'space-y',
+        resourceClass: 'document.class.Teamspace',
+        resourceTitle: 'Teamspace',
+        grantedAt: '2026-06-21 10:00:00'
+      }
+    ])
+  })
+
+  it('maps grantsGiven from the collaborator table with recipient name + email fallback', async () => {
+    const { ctx, captured } = makeCtx()
+    const pg = makePg([
+      // (1) JSONB
+      [],
+      // (2) collaborator-table membership
+      [],
+      // (3) grants received
+      [],
+      // (4) grants given
+      [
+        {
+          row_id: 'g-3',
+          recipient: 'bob-uuid',
+          resource_id: 'space-z',
+          attached_class: 'drive:class:Drive',
+          granted_at: '2026-06-22 10:00:00',
+          resource_name: 'Drive Z',
+          recipient_first: 'Bob',
+          recipient_last: 'B',
+          recipient_email: 'bob@x.test'
+        },
+        {
+          row_id: 'g-4',
+          recipient: 'charlie-uuid',
+          resource_id: 'space-w',
+          attached_class: 'tracker:class:Project',
+          granted_at: '2026-06-23 10:00:00',
+          resource_name: null,
+          recipient_first: null,
+          recipient_last: null,
+          recipient_email: 'charlie@x.test'
+        }
+      ]
+    ])
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleMyAccess(ctx, 'ws-1', 'caller', 'USER')
+    expect(captured.body.grantsGiven).toEqual([
+      {
+        recipientUuid: 'bob-uuid',
+        recipientName: 'Bob B',
+        resourceId: 'space-z',
+        resourceClass: 'drive.class.Drive',
+        resourceTitle: 'Drive Z',
+        grantedAt: '2026-06-22 10:00:00'
+      },
+      {
+        recipientUuid: 'charlie-uuid',
+        recipientName: 'charlie@x.test',
+        resourceId: 'space-w',
+        resourceClass: 'tracker.class.Project',
+        resourceTitle: 'Project',
+        grantedAt: '2026-06-23 10:00:00'
+      }
+    ])
   })
 
   it('throws on pg failure', async () => {

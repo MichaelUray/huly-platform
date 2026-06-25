@@ -651,20 +651,65 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
 
     async handleMyAccess (ctx, workspaceUuid, callerUuid, callerRole) {
       const pg = await deps.pgClient()
+      // 2026-06-25 H7 fix — previously this handler hardcoded
+      // grantsReceived/grantsGiven to [] and queried spaces without the
+      // _class whitelist nor the collaborator table. Result for an
+      // OWNER of 17 spaces in production:
+      //   { spacesMemberOf:[], spacesOwned:[], grantsReceived:[], grantsGiven:[] }
+      // Even though /members reports `spacesCount: 17` for the same
+      // callerUuid using the very same (data->'owners') ? $caller test.
+      //
+      // Root cause: handleSpaces uses the `collaborator` table for
+      // membership joins (modern Huly stores members there, not in
+      // space.data->'members'), and grants live in the `collaborator`
+      // table too. handleMyAccess never asked.
+      //
+      // Fix:
+      //  1. Apply the same _class whitelist as handleSpaces so internal
+      //     system spaces never leak into the user-facing list.
+      //  2. Union space.data->'owners'/'members' JSONB checks AND a
+      //     collaborator-table membership check so we match modern data
+      //     shapes too.
+      //  3. Implement grantsReceived from collaborator WHERE collaborator
+      //     = caller, joined with the space row for the resource name.
+      //  4. Implement grantsGiven from collaborator WHERE "createdBy" =
+      //     caller, joined with the resource for context.
+      const baseClasses = [
+        'tracker:class:Project',
+        'document:class:Teamspace',
+        'drive:class:Drive',
+        'card:class:CardSpace',
+        'lead:class:Funnel',
+        'recruit:class:Vacancy',
+        'recruit:class:JobFunnel'
+      ]
+      const allClasses = mergeSpaceClassWhitelist(baseClasses, deps.extraSpaceClasses)
+      const inPlaceholders = allClasses.map((_, i) => `$${i + 3}`).join(',')
+
       const spacesMemberOf: any[] = []
       const spacesOwned: any[] = []
-      const rows = await pg.execute(
-        `SELECT "_id", "_class", data->>'name' AS name,
-                data->>'members' AS members, data->>'owners' AS owners,
-                (data->>'private')::boolean AS private_flag,
-                (data->>'archived')::boolean AS archived
-         FROM space
-         WHERE "workspaceId"=$1
-           AND (data->'members' ? $2 OR data->'owners' ? $2)
-         ORDER BY data->>'name' ASC LIMIT 200`,
-        [workspaceUuid, callerUuid]
+      const seenSpaceIds = new Set<string>()
+
+      // (1) Spaces where caller is owner OR explicit member via
+      //     space.data JSONB. This catches the legacy data shape and
+      //     remains the source of truth for "owned" (we never bucket an
+      //     owner into spacesMemberOf — the UI separates the two).
+      const dataRows = await pg.execute(
+        `SELECT s."_id", s."_class",
+                s.data->>'name' AS name,
+                s.data->>'members' AS members,
+                s.data->>'owners' AS owners,
+                (s.data->>'private')::boolean AS private_flag,
+                (s.data->>'autoJoin')::boolean AS auto_join,
+                (s.data->>'archived')::boolean AS archived
+         FROM space s
+         WHERE s."workspaceId"=$1
+           AND s."_class" IN (${inPlaceholders})
+           AND ((s.data->'members') ? $2 OR (s.data->'owners') ? $2)
+         ORDER BY s.data->>'name' ASC LIMIT 200`,
+        [workspaceUuid, callerUuid, ...allClasses]
       )
-      for (const r of rows as any[]) {
+      for (const r of dataRows as any[]) {
         const memberList = parseJsonArray(r.members)
         const owners = parseJsonArray(r.owners)
         const spaceOut = {
@@ -674,18 +719,145 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
           ownerIds: owners,
           membersCount: memberList.length,
           private: r.private_flag === true,
-          autoJoin: false,
+          autoJoin: r.auto_join === true,
           archived: r.archived === true
         }
-        if (owners.includes(callerUuid)) spacesOwned.push(spaceOut)
-        if (memberList.includes(callerUuid) && !owners.includes(callerUuid)) spacesMemberOf.push(spaceOut)
+        if (owners.includes(callerUuid)) {
+          spacesOwned.push(spaceOut)
+        } else if (memberList.includes(callerUuid)) {
+          spacesMemberOf.push(spaceOut)
+        }
+        seenSpaceIds.add(String(r._id))
       }
+
+      // (2) Spaces where caller appears in the collaborator table but is
+      //     NOT already in spacesOwned/spacesMemberOf via JSONB. This is
+      //     the modern Huly data shape — handleSpaces uses the same join
+      //     to compute membersCount, so we know the table is populated.
+      const collabSpaceRows = await pg.execute(
+        `SELECT s."_id", s."_class",
+                s.data->>'name' AS name,
+                s.data->>'owners' AS owners,
+                (s.data->>'private')::boolean AS private_flag,
+                (s.data->>'autoJoin')::boolean AS auto_join,
+                (s.data->>'archived')::boolean AS archived
+         FROM space s
+         WHERE s."workspaceId"=$1
+           AND s."_class" IN (${inPlaceholders})
+           AND EXISTS (
+             SELECT 1 FROM collaborator c
+              WHERE c."workspaceId" = s."workspaceId"
+                AND c."attachedTo" = s."_id"
+                AND c.collaborator = $2
+           )
+         ORDER BY s.data->>'name' ASC LIMIT 200`,
+        [workspaceUuid, callerUuid, ...allClasses]
+      )
+      for (const r of collabSpaceRows as any[]) {
+        const id = String(r._id)
+        if (seenSpaceIds.has(id)) continue
+        const owners = parseJsonArray(r.owners)
+        const spaceOut = {
+          _id: r._id,
+          _class: classDotted(r._class),
+          name: r.name ?? '—',
+          ownerIds: owners,
+          membersCount: 0,
+          private: r.private_flag === true,
+          autoJoin: r.auto_join === true,
+          archived: r.archived === true
+        }
+        // Owners discovered exclusively via the collaborator table fall
+        // back to spacesMemberOf (it's a collaborator grant, not the
+        // `owners` array). Stay conservative: only the JSONB owners list
+        // promotes to spacesOwned.
+        if (owners.includes(callerUuid)) {
+          spacesOwned.push(spaceOut)
+        } else {
+          spacesMemberOf.push(spaceOut)
+        }
+        seenSpaceIds.add(id)
+      }
+
+      // (3) Grants RECEIVED: rows in collaborator where caller is the
+      //     `collaborator` (i.e. someone granted them access to a
+      //     resource). Join the space row for a display title; fall back
+      //     to the class name when the resource is non-space-shaped.
+      const recvRows = await pg.execute(
+        `SELECT c."_id" AS row_id,
+                c."attachedTo" AS resource_id,
+                c."attachedToClass" AS attached_class,
+                c."createdBy" AS granter,
+                c."createdOn"::text AS granted_at,
+                s.data->>'name' AS resource_name,
+                gp.first_name AS granter_first, gp.last_name AS granter_last
+         FROM collaborator c
+         LEFT JOIN space s ON s."_id" = c."attachedTo" AND s."workspaceId" = c."workspaceId"
+         LEFT JOIN global_account.person gp ON gp.uuid::text = c."createdBy"
+         WHERE c."workspaceId" = $1 AND c.collaborator = $2
+         ORDER BY c."createdOn" DESC LIMIT 200`,
+        [workspaceUuid, callerUuid]
+      )
+      const grantsReceived = (recvRows as any[]).map((r) => {
+        const granterName =
+          `${r.granter_first ?? ''} ${r.granter_last ?? ''}`.trim() ||
+          r.granter ||
+          'system'
+        return {
+          granterUuid: r.granter ?? 'system',
+          granterName,
+          resourceId: r.resource_id,
+          resourceClass: classDotted(r.attached_class),
+          resourceTitle:
+            r.resource_name ??
+            String(r.attached_class ?? 'Resource').replace(/.*:class:/, ''),
+          grantedAt: r.granted_at
+        }
+      })
+
+      // (4) Grants GIVEN: rows in collaborator where caller is the
+      //     `createdBy` (i.e. they granted someone else access).
+      const givenRows = await pg.execute(
+        `SELECT c."_id" AS row_id,
+                c.collaborator AS recipient,
+                c."attachedTo" AS resource_id,
+                c."attachedToClass" AS attached_class,
+                c."createdOn"::text AS granted_at,
+                s.data->>'name' AS resource_name,
+                rp.first_name AS recipient_first, rp.last_name AS recipient_last,
+                re.value AS recipient_email
+         FROM collaborator c
+         LEFT JOIN space s ON s."_id" = c."attachedTo" AND s."workspaceId" = c."workspaceId"
+         LEFT JOIN global_account.person rp ON rp.uuid::text = c.collaborator
+         LEFT JOIN global_account.social_id re ON re.person_uuid::text = c.collaborator AND re.type='email'
+         WHERE c."workspaceId" = $1 AND c."createdBy" = $2
+         ORDER BY c."createdOn" DESC LIMIT 200`,
+        [workspaceUuid, callerUuid]
+      )
+      const grantsGiven = (givenRows as any[]).map((r) => {
+        const recipientName =
+          `${r.recipient_first ?? ''} ${r.recipient_last ?? ''}`.trim() ||
+          r.recipient_email ||
+          r.recipient ||
+          'unknown'
+        return {
+          recipientUuid: r.recipient ?? 'unknown',
+          recipientName,
+          resourceId: r.resource_id,
+          resourceClass: classDotted(r.attached_class),
+          resourceTitle:
+            r.resource_name ??
+            String(r.attached_class ?? 'Resource').replace(/.*:class:/, ''),
+          grantedAt: r.granted_at
+        }
+      })
+
       json(ctx, 200, {
         role: callerRole,
         spacesMemberOf,
         spacesOwned,
-        grantsReceived: [],
-        grantsGiven: []
+        grantsReceived,
+        grantsGiven
       })
     },
 
