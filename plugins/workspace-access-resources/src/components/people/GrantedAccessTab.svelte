@@ -33,6 +33,53 @@
     { key: 'grantedAt', label: 'Granted at' as any, sort: true, width: 160 }
   ]
 
+  // 2026-06-25 M11 + M12 display-layer fixes.
+  //
+  // M11 — surface-sweep showed the "GRANTED BY" column rendering raw
+  // values that the server-side resolution couldn't map to a person
+  // row:
+  //   • 'core:account:System' — the system-actor sentinel string,
+  //     used when the granter UUID equals the system account.
+  //   • 1178551218018975745 / 1173959940051369985 — numeric account
+  //     IDs that don't have a corresponding global_account.person
+  //     row, so the LEFT JOIN yields null first/last name.
+  // handleGrants already prefers `first_name + last_name`, falls
+  // back to email, then to the raw UUID, then to the literal
+  // string 'system'. When the LEFT JOIN fails we still get the raw
+  // UUID through. fmtGranterName covers that tail.
+  //
+  // M12 — grantedAt is the postgres ::text cast of a timestamptz
+  // (e.g. `2026-06-19 14:13:00.885415+00`). EntityTable would
+  // render it raw. fmtGrantedAt parses it to ISO date-only so the
+  // column scans cleanly.
+  function fmtGranterName (name: unknown, uuid: unknown): string {
+    const n = name == null ? '' : String(name).trim()
+    if (n === '') return 'System'
+    // Server resolved a real display name → render as-is.
+    if (n !== 'core:account:System' && !/^\d{15,}$/.test(n)) return n
+    // Sentinel — map to a humane label.
+    if (n === 'core:account:System' || String(uuid ?? '') === 'core:account:System') return 'System'
+    // Numeric account ID with no person row → flag as unresolved
+    // (Mailcow-only / pre-Wave-1 account etc.). Keep a tail of the
+    // ID for diagnostics rather than dropping the row entirely.
+    const u = String(uuid ?? '')
+    const tail = u.length > 6 ? u.slice(-6) : u
+    return `Unknown (…${tail})`
+  }
+
+  function fmtGrantedAt (v: unknown): string {
+    if (v == null) return '—'
+    const s = String(v)
+    if (s === '') return '—'
+    // Postgres ::text on timestamptz yields `YYYY-MM-DD HH:MM:SS.ffff+TZ`.
+    // Replace the space with a 'T' so Date.parse hits the ISO-8601
+    // path consistently across browsers.
+    const isoish = s.includes('T') ? s : s.replace(' ', 'T')
+    const t = Date.parse(isoish)
+    if (!Number.isFinite(t)) return s
+    return new Date(t).toISOString().slice(0, 10)
+  }
+
   async function refresh (): Promise<void> {
     loading = true
     try {
@@ -81,6 +128,10 @@
           <span class="title">{item.resourceTitle}</span>
           <button class="revoke" on:click|stopPropagation={() => revoke(item)}>Revoke</button>
         </span>
+      {:else if String(col.key) === 'granterName'}
+        {fmtGranterName(item.granterName, item.granterUuid)}
+      {:else if String(col.key) === 'grantedAt'}
+        {fmtGrantedAt(item.grantedAt)}
       {:else}
         {item[String(col.key)] ?? ''}
       {/if}
