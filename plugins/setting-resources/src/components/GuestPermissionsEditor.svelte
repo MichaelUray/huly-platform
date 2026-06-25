@@ -358,20 +358,38 @@
                   </div>
                 </div>
                 <div class="guestAccessBlock">
+                  <!-- M17 + L21 — each Toggle gets aria-labelledby
+                       pointing at the row's visible label so screen
+                       readers announce what the toggle controls. The
+                       row-label divs were unlabelled <div>s pre-fix
+                       so axe / NVDA reported the toggles as anonymous
+                       checkboxes. The id literals are stable + unique
+                       across the editor; the same pattern repeats for
+                       every Toggle below. -->
                   <div class="guestAccessRow">
-                    <div class="guestAccessRow-label">
+                    <div id="gpe-row-readonly-guests" class="guestAccessRow-label">
                       <Label label={settingsRes.string.GuestAccessDescription} />
                     </div>
                     <div class="guestAccessRow-toggleCell">
-                      <Toggle disabled={globalReadOnly} on={allowReadOnlyGuests} on:change={onReadonlyGuestsToggle} />
+                      <Toggle
+                        aria-labelledby="gpe-row-readonly-guests"
+                        disabled={globalReadOnly}
+                        on={allowReadOnlyGuests}
+                        on:change={onReadonlyGuestsToggle}
+                      />
                     </div>
                   </div>
                   <div class="guestAccessRow">
-                    <div class="guestAccessRow-label">
+                    <div id="gpe-row-guest-signup" class="guestAccessRow-label">
                       <Label label={settingsRes.string.GuestSignUpDescription} />
                     </div>
                     <div class="guestAccessRow-toggleCell">
-                      <Toggle disabled={globalReadOnly || !allowReadOnlyGuests} on={allowGuestSignUp} on:change={onGuestSignUpToggle} />
+                      <Toggle
+                        aria-labelledby="gpe-row-guest-signup"
+                        disabled={globalReadOnly || !allowReadOnlyGuests}
+                        on={allowGuestSignUp}
+                        on:change={onGuestSignUpToggle}
+                      />
                     </div>
                   </div>
                   {#if communicationApiEnabled}
@@ -455,13 +473,14 @@
                           <div class="appIcon appIcon-sm appIcon-placeholder" />
                         {/if}
                         <div class="permissionModuleCard-titles">
-                          <div class="permissionModuleCard-name">
+                          <div id={`gpe-module-${group._id}`} class="permissionModuleCard-name">
                             <Label label={getApplicationLabel(group.application)} />
                           </div>
                         </div>
                       </div>
                       <div class="permissionModuleCard-toggleCell">
                         <Toggle
+                          aria-labelledby={`gpe-module-${group._id}`}
                           disabled={globalReadOnly || anonymousModulePermissionsReadOnly}
                           on={moduleOn}
                           on:change={handleAccessToggle(group)}
@@ -474,11 +493,12 @@
                         {#if permissionCount > 0}
                           {#each group.permissions ?? [] as permissionId}
                             <div class="permissionRow">
-                              <div class="permissionRow-label">
+                              <div id={`gpe-perm-${group._id}-${permissionId}`} class="permissionRow-label">
                                 <Label label={getPermissionLabel(permissionId)} />
                               </div>
                               <div class="permissionRow-toggleCell">
                                 <Toggle
+                                  aria-labelledby={`gpe-perm-${group._id}-${permissionId}`}
                                   disabled={globalReadOnly || !moduleOn || anonymousModulePermissionsReadOnly}
                                   on={isPermissionActive(group, permissionId)}
                                   on:change={handlePermissionToggle(group, permissionId)}
