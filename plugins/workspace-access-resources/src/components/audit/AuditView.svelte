@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Button, DatePicker, DropdownLabelsIntl, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload, type DropdownIntlItem } from '@hcengineering/ui'
+  import ui, { Button, DatePresenter, DropdownLabelsIntl, EditBox, IconClose, Label, Modal, eventToHTMLElement, IconDownload, type DropdownIntlItem } from '@hcengineering/ui'
+  import { DateRangeMode } from '@hcengineering/core'
   import wac from '../../plugin'
   import { AuditLogView, AuditLogExportButton } from '@hcengineering/access-management-ui'
   import { auditApi } from '../../api/auditApi'
@@ -141,19 +142,33 @@
         on:input={() => refresh(true)}
       />
     </div>
+    <!-- M14 — the upstream DatePicker hard-codes the popup label to
+         "Due date — Needs to be completed by this date" via DatePresenter
+         defaults. That copy is wrong for an audit-log time-range filter
+         (no due-date semantics, no completion). We render DatePresenter
+         directly instead of going through DatePicker so we can override
+         `label` (popup heading) and `detail` (popup sub-line) to the
+         audit-appropriate "From / To date — Select date" pair, using
+         existing IntlStrings only (no new locale keys). -->
     <div class="filter-date">
-      <DatePicker
+      <span class="filter-date-label"><Label label={wac.string.AuditFilterFrom} /></span>
+      <DatePresenter
         bind:value={fromMs}
-        title={wac.string.AuditFilterFrom}
-        withTime={false}
+        mode={DateRangeMode.DATE}
+        editable
+        label={wac.string.AuditFilterFrom}
+        detail={ui.string.SelectDate}
         on:change={() => refresh(true)}
       />
     </div>
     <div class="filter-date">
-      <DatePicker
+      <span class="filter-date-label"><Label label={wac.string.AuditFilterTo} /></span>
+      <DatePresenter
         bind:value={toMs}
-        title={wac.string.AuditFilterTo}
-        withTime={false}
+        mode={DateRangeMode.DATE}
+        editable
+        label={wac.string.AuditFilterTo}
+        detail={ui.string.SelectDate}
         on:change={() => refresh(true)}
       />
     </div>
@@ -231,7 +246,18 @@
     border-radius: 0.25rem;
   }
   .filter-dropdown { flex: 0 0 14rem; }
-  .filter-date { flex: 0 0 10rem; }
+  .filter-date {
+    flex: 0 0 10rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .filter-date-label {
+    font-size: 0.72rem;
+    color: var(--theme-darker-color);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
   .spacer { flex: 1; }
   .err { background: var(--theme-state-negative-background-color); color: var(--theme-state-negative-color); padding: 0.5rem; border-radius: 0.25rem; margin-bottom: 0.75rem; }
   .dsgvo-modal {
