@@ -21,6 +21,17 @@
   export let on: boolean = false
   export let disabled: boolean = false
   export let showTooltip: LabelAndProps | undefined = undefined
+  // 2026-06-26 M17 + L21 — accessible-name plumbing for the visually
+  // hidden <input type=checkbox>. Toggle is a <label> wrapping the
+  // input + a styled <span>, so ARIA attributes on the outer label
+  // are NOT announced when the input is the focused element (screen
+  // readers look for accName on the input itself, then fall back to
+  // a wrapping label that has text content; this label has only the
+  // styled span). Expose dedicated props that bind to the input so
+  // call sites can give the toggle a real accessible name.
+  export let ariaLabel: string | undefined = undefined
+  export let ariaLabelledBy: string | undefined = undefined
+  export let ariaDescribedBy: string | undefined = undefined
 
   const dispatch = createEventDispatcher()
 </script>
@@ -30,6 +41,9 @@
     class="chBox"
     type="checkbox"
     {disabled}
+    aria-label={ariaLabel}
+    aria-labelledby={ariaLabelledBy}
+    aria-describedby={ariaDescribedBy}
     bind:checked={on}
     on:change={(e) => {
       dispatch('change', on)

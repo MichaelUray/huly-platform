@@ -358,21 +358,29 @@
                   </div>
                 </div>
                 <div class="guestAccessBlock">
-                  <!-- M17 + L21 — each Toggle gets aria-labelledby
+                  <!-- M17 + L21 — each Toggle gets ariaLabelledBy
                        pointing at the row's visible label so screen
                        readers announce what the toggle controls. The
                        row-label divs were unlabelled <div>s pre-fix
                        so axe / NVDA reported the toggles as anonymous
                        checkboxes. The id literals are stable + unique
                        across the editor; the same pattern repeats for
-                       every Toggle below. -->
+                       every Toggle below.
+
+                       2026-06-26 follow-up — switched from
+                       `aria-labelledby={...}` (which $$restProps'd
+                       onto the outer <label>, NOT onto the hidden
+                       <input type=checkbox> that screen readers
+                       actually focus) to the new explicit
+                       `ariaLabelledBy` prop in Toggle.svelte, which
+                       binds the attribute on the input element. -->
                   <div class="guestAccessRow">
                     <div id="gpe-row-readonly-guests" class="guestAccessRow-label">
                       <Label label={settingsRes.string.GuestAccessDescription} />
                     </div>
                     <div class="guestAccessRow-toggleCell">
                       <Toggle
-                        aria-labelledby="gpe-row-readonly-guests"
+                        ariaLabelledBy="gpe-row-readonly-guests"
                         disabled={globalReadOnly}
                         on={allowReadOnlyGuests}
                         on:change={onReadonlyGuestsToggle}
@@ -385,7 +393,7 @@
                     </div>
                     <div class="guestAccessRow-toggleCell">
                       <Toggle
-                        aria-labelledby="gpe-row-guest-signup"
+                        ariaLabelledBy="gpe-row-guest-signup"
                         disabled={globalReadOnly || !allowReadOnlyGuests}
                         on={allowGuestSignUp}
                         on:change={onGuestSignUpToggle}
@@ -480,7 +488,7 @@
                       </div>
                       <div class="permissionModuleCard-toggleCell">
                         <Toggle
-                          aria-labelledby={`gpe-module-${group._id}`}
+                          ariaLabelledBy={`gpe-module-${group._id}`}
                           disabled={globalReadOnly || anonymousModulePermissionsReadOnly}
                           on={moduleOn}
                           on:change={handleAccessToggle(group)}
@@ -498,7 +506,7 @@
                               </div>
                               <div class="permissionRow-toggleCell">
                                 <Toggle
-                                  aria-labelledby={`gpe-perm-${group._id}-${permissionId}`}
+                                  ariaLabelledBy={`gpe-perm-${group._id}-${permissionId}`}
                                   disabled={globalReadOnly || !moduleOn || anonymousModulePermissionsReadOnly}
                                   on={isPermissionActive(group, permissionId)}
                                   on:change={handlePermissionToggle(group, permissionId)}
