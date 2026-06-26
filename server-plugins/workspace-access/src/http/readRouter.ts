@@ -812,6 +812,17 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
       //     `collaborator` (i.e. someone granted them access to a
       //     resource). Join the space row for a display title; fall back
       //     to the class name when the resource is non-space-shaped.
+      // 2026-06-26 M11 follow-up — extend the recvRows lookup with a
+      // social_id LEFT JOIN so the granter's email fills in when the
+      // person row is absent (legacy / pre-Wave-1 / system-actor
+      // accounts). Mirrors the grantsGiven block below which already
+      // joined social_id for recipient_email. Without this fallback,
+      // the UI rendered raw numeric account UUIDs (e.g.
+      // `1178551218018975745`) as the granter name; with the email
+      // fallback those rows now show the granter's email address. The
+      // client-side `fmtGranterName` keeps the `Unknown (…tail)`
+      // diagnostic as the last-resort fallback for accounts that lack
+      // both person AND social_id rows.
       const recvRows = await pg.execute(
         `SELECT c."_id" AS row_id,
                 c."attachedTo" AS resource_id,
@@ -819,10 +830,12 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
                 c."createdBy" AS granter,
                 c."createdOn"::text AS granted_at,
                 s.data->>'name' AS resource_name,
-                gp.first_name AS granter_first, gp.last_name AS granter_last
+                gp.first_name AS granter_first, gp.last_name AS granter_last,
+                ge.value AS granter_email
          FROM collaborator c
          LEFT JOIN space s ON s."_id" = c."attachedTo" AND s."workspaceId" = c."workspaceId"
          LEFT JOIN global_account.person gp ON gp.uuid::text = c."createdBy"
+         LEFT JOIN global_account.social_id ge ON ge.person_uuid::text = c."createdBy" AND ge.type='email'
          WHERE c."workspaceId" = $1 AND c.collaborator = $2
          ORDER BY c."createdOn" DESC LIMIT 200`,
         [workspaceUuid, callerUuid]
@@ -830,6 +843,7 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
       const grantsReceived = (recvRows as any[]).map((r) => {
         const granterName =
           `${r.granter_first ?? ''} ${r.granter_last ?? ''}`.trim() ||
+          r.granter_email ||
           r.granter ||
           'system'
         return {
@@ -934,6 +948,15 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
 
     async handleGrants (ctx, workspaceUuid) {
       const pg = await deps.pgClient()
+      // 2026-06-26 M11 follow-up — also JOIN social_id for the granter,
+      // mirroring the recipient JOIN. Without this, granters whose
+      // person row never landed (legacy / numeric account UUIDs) fell
+      // through to the raw UUID and the UI surfaced
+      // `Unknown (…975745)`. With the email fallback the granter
+      // column now shows the granter's email when the name is
+      // unavailable; the client-side `fmtGranterName` keeps the
+      // diagnostic label as the last-resort path for accounts that
+      // lack both rows.
       const rows = await pg.execute(
         `SELECT c."_id" AS resource_id,
                 c.collaborator AS recipient,
@@ -943,11 +966,13 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
                 c."createdOn"::text AS granted_at,
                 rp.first_name AS recipient_first, rp.last_name AS recipient_last,
                 re.value AS recipient_email,
-                gp.first_name AS granter_first, gp.last_name AS granter_last
+                gp.first_name AS granter_first, gp.last_name AS granter_last,
+                ge.value AS granter_email
          FROM collaborator c
          LEFT JOIN global_account.person rp ON rp.uuid::text = c.collaborator
          LEFT JOIN global_account.social_id re ON re.person_uuid::text = c.collaborator AND re.type='email'
          LEFT JOIN global_account.person gp ON gp.uuid::text = c."createdBy"
+         LEFT JOIN global_account.social_id ge ON ge.person_uuid::text = c."createdBy" AND ge.type='email'
          WHERE c."workspaceId"=$1
          ORDER BY c."createdOn" DESC LIMIT 200`,
         [workspaceUuid]
@@ -959,7 +984,10 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
           r.recipient ||
           'unknown'
         const grantName =
-          `${r.granter_first ?? ''} ${r.granter_last ?? ''}`.trim() || r.granter || 'system'
+          `${r.granter_first ?? ''} ${r.granter_last ?? ''}`.trim() ||
+          r.granter_email ||
+          r.granter ||
+          'system'
         return {
           recipientUuid: r.recipient ?? 'unknown',
           recipientName: recipName,
