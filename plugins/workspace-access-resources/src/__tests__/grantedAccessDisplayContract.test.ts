@@ -61,6 +61,18 @@ describe('GrantedAccessTab — M11 + M12 display-layer formatters', () => {
     expect(src).toMatch(/slice\(0, 10\)/)
   })
 
+  it('M12 follow-up — also handles bigint epoch-ms strings (Huly createdOn shape)', () => {
+    // Surface-sweep r14 re-verify (2026-06-26) showed GRANTED AT still
+    // rendered raw `1782315313814`. Huly's `createdOn` column is bigint
+    // (epoch-ms), so the server's `::text` cast yields a numeric string
+    // rather than a Postgres timestamptz. The fix detects 10+ digit
+    // strings and treats them as epoch-ms before falling back to the
+    // timestamptz path.
+    const src = read()
+    expect(src).toMatch(/\^-\?\\d\{10,\}\$/)
+    expect(src).toMatch(/new Date\(n\)/)
+  })
+
   it('cell slot wires the granterName + grantedAt columns to the helpers', () => {
     const src = read()
     expect(src).toContain('fmtGranterName(item.granterName, item.granterUuid)')

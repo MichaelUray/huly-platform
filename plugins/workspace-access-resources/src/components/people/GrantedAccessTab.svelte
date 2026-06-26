@@ -69,8 +69,25 @@
 
   function fmtGrantedAt (v: unknown): string {
     if (v == null) return '—'
-    const s = String(v)
+    const s = String(v).trim()
     if (s === '') return '—'
+    // 2026-06-26 M12 follow-up — Huly core stores `createdOn` as a bigint
+    // (epoch milliseconds), not a timestamptz, so the server's `::text`
+    // cast yields a pure numeric string like `"1782315313814"` rather
+    // than `"2026-06-19 14:13:00.885415+00"`. Date.parse() returns NaN
+    // for numeric-only strings (per ECMA-262 — only ISO 8601 is honored),
+    // so the previous implementation fell straight to `return s` and
+    // surfaced the raw epoch in the table. Detect epoch-ms first and
+    // build a Date from the integer before falling back to the
+    // postgres-timestamptz path (kept for any future column where the
+    // backend does return a true timestamptz cast).
+    if (/^-?\d{10,}$/.test(s)) {
+      const n = Number(s)
+      if (Number.isFinite(n)) {
+        const d = new Date(n)
+        if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10)
+      }
+    }
     // Postgres ::text on timestamptz yields `YYYY-MM-DD HH:MM:SS.ffff+TZ`.
     // Replace the space with a 'T' so Date.parse hits the ISO-8601
     // path consistently across browsers.
