@@ -295,6 +295,39 @@ describe('readRouter — handleSpaces', () => {
     ])
   })
 
+  it('L22 follow-up: reads members/private/archived from top-level columns, not data JSONB', async () => {
+    // Surface-sweep r14 re-verify (2026-06-26) showed Resources MEMBERS=0
+    // for every space. Root cause: Huly stores `members` (text[]),
+    // `private` (bool) and `archived` (bool) as top-level columns on
+    // `space`, but the SQL was reading `data->'members'` (always
+    // absent → 0) and `(data->>'private')::boolean`. Regression-guard
+    // the column-source so a future refactor doesn't drift back to
+    // the JSONB path.
+    const { ctx } = makeCtx()
+    const queries: string[] = []
+    const pg: PgClientLike = {
+      async execute (q: string, _p) {
+        queries.push(q)
+        return []
+      }
+    }
+    const handlers = buildHandlers({ pgClient: async () => pg })
+    await handlers.handleSpaces(ctx, 'ws-1', 'wpa')
+    expect(queries).toHaveLength(1)
+    const q = queries[0]
+    // Top-level columns:
+    expect(q).toMatch(/cardinality\(s\.members\)/)
+    expect(q).toMatch(/s\.private AS private_flag/)
+    expect(q).toMatch(/s\.archived AS archived/)
+    // Should NOT read members/private/archived from JSONB anymore:
+    expect(q).not.toMatch(/jsonb_array_length\(/)
+    expect(q).not.toMatch(/data->>'private'/)
+    expect(q).not.toMatch(/data->>'archived'/)
+    // GREATEST(collaborator-count, cardinality(members)) still in place
+    // so workspaces mid-migration on either shape surface the real count.
+    expect(q).toMatch(/GREATEST\s*\(/)
+  })
+
   it('throws on pg failure', async () => {
     const { ctx } = makeCtx()
     const pg = makePg([new Error('boom')])
@@ -304,11 +337,18 @@ describe('readRouter — handleSpaces', () => {
 
   // 2026-06-25 L22 surface-sweep fix — pre-fix members_count was
   // computed only from the `collaborator` table, which on
-  // legacy-shape spaces (data->members JSONB array, no collaborator
-  // rows synced) is empty → MEMBERS column showed 0 for every row.
-  // Fix takes GREATEST of the collaborator count AND the JSONB
-  // members array length so both data shapes surface a real number.
-  it('L22: members_count SQL fans out across collaborator + JSONB members shapes', async () => {
+  // legacy-shape spaces (no collaborator rows synced) is empty →
+  // MEMBERS column showed 0 for every row. Fix takes GREATEST of the
+  // collaborator count AND the space's native members[] cardinality
+  // so both data shapes surface a real number.
+  //
+  // 2026-06-26 L22 follow-up — original fix read `s.data->'members'`,
+  // but Huly stores `members` as a top-level `text[]` column on the
+  // `space` table (see foundations/server/packages/postgres/src/
+  // schemas.ts spaceSchema). The data-JSONB lookup was always
+  // absent → fix collapsed back to 0. Switched to
+  // `cardinality(s.members)` against the real column.
+  it('L22: members_count SQL fans out across collaborator + native members[] shapes', async () => {
     const { ctx } = makeCtx()
     let capturedQuery = ''
     const pg: PgClientLike = {
@@ -322,10 +362,8 @@ describe('readRouter — handleSpaces', () => {
     // SQL must take the greatest of the two sources, never just one.
     expect(capturedQuery).toMatch(/GREATEST\s*\(/i)
     expect(capturedQuery).toContain('count(*)::int FROM collaborator')
-    expect(capturedQuery).toContain("jsonb_array_length")
-    // Defensive: jsonb_typeof guard so a non-array `members` payload
-    // (e.g. null, an object) doesn't 500 the entire endpoint.
-    expect(capturedQuery).toContain("jsonb_typeof")
+    // 2026-06-26 — native column path, not the JSONB path.
+    expect(capturedQuery).toContain('cardinality(s.members)')
   })
 
   // Phase 4 T3 — WAC_EXTRA_SPACE_CLASSES wiring.

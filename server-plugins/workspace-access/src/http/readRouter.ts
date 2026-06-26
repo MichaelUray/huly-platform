@@ -557,26 +557,31 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
       // the modern collaborator table still surfaces the correct
       // count, and a workspace fully on either shape isn't
       // double-counted (only the populated source contributes).
+      //
+      // 2026-06-26 L22 follow-up — Huly stores `members` (and
+      // `private`/`archived`) as TOP-LEVEL columns on the `space`
+      // table, not inside the `data` JSONB blob. The schema
+      // (foundations/server/packages/postgres/src/schemas.ts L99) is
+      // `members text[] NOT NULL` with a GIN index. The original
+      // L22 patch read `s.data->'members'` which is universally
+      // absent → `jsonb_array_length` returned 0 for every row, and
+      // since the workspace has no `collaborator` rows for the
+      // legacy-shape spaces either, GREATEST(0, 0) collapsed to 0.
+      // Read `cardinality(s.members)` instead, plus pull `private`,
+      // `archived`, `members` from the top-level columns; `autoJoin`
+      // is the only one of the four that still lives in the JSONB.
       const rows = await pg.execute(
         `SELECT s."_id", s."_class",
                 s.data->>'name' AS name,
-                (s.data->>'private')::boolean AS private_flag,
+                s.private AS private_flag,
                 (s.data->>'autoJoin')::boolean AS auto_join,
-                (s.data->>'archived')::boolean AS archived,
+                s.archived AS archived,
                 s.data->'owners' AS owners,
                 GREATEST(
                   (SELECT count(*)::int FROM collaborator c
                      WHERE c."workspaceId" = s."workspaceId"
                        AND c."attachedTo" = s."_id"),
-                  COALESCE(
-                    jsonb_array_length(
-                      CASE WHEN jsonb_typeof(s.data->'members') = 'array'
-                           THEN s.data->'members'
-                           ELSE '[]'::jsonb
-                      END
-                    ),
-                    0
-                  )
+                  COALESCE(cardinality(s.members), 0)
                 ) AS members_count
          FROM space s
          WHERE s."workspaceId"=$1
@@ -619,14 +624,17 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
 
     async handleSpaceDetail (ctx, workspaceUuid, workspaceParam, spaceId) {
       const pg = await deps.pgClient()
+      // 2026-06-26 L22 follow-up — same shape correction as handleSpaces.
+      // `members`, `private`, `archived` are top-level columns; only
+      // `autoJoin` and `name`/`owners` live in the `data` JSONB blob.
       const rows = await pg.execute(
         `SELECT "_id", "_class",
                 data->>'name' AS name,
-                (data->>'private')::boolean AS private_flag,
+                private AS private_flag,
                 (data->>'autoJoin')::boolean AS auto_join,
-                (data->>'archived')::boolean AS archived,
-                data->>'members' AS members,
-                data->>'owners' AS owners
+                archived AS archived,
+                members AS members,
+                data->'owners' AS owners
          FROM space WHERE "workspaceId"=$1 AND "_id"=$2 LIMIT 1`,
         [workspaceUuid, spaceId]
       )
@@ -635,7 +643,12 @@ export function createWacReadHandlers (deps: WacReadDeps): WacReadHandlers {
         return
       }
       const r = rows[0]
-      const members = parseJsonArray(r.members)
+      // `members` is now a native text[] from the driver; ensure we
+      // normalise both the array shape and the legacy parseJsonArray
+      // string-of-JSON shape to a string[] of UUIDs.
+      const members: string[] = Array.isArray(r.members)
+        ? r.members.map((x: unknown) => String(x))
+        : parseJsonArray(r.members)
       const owners = parseJsonArray(r.owners)
       json(ctx, 200, {
         _id: r._id,
